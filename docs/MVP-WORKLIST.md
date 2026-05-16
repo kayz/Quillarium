@@ -19,7 +19,7 @@ assemble context for one section, save generation runs, and produce consistency 
 
 - [x] Add pnpm workspace.
 - [x] Add TypeScript project references.
-- [ ] Add packages:
+- [x] Add packages:
   - [x] `packages/core`
   - [x] `packages/cli`
   - [x] `packages/checks`
@@ -72,10 +72,10 @@ assemble context for one section, save generation runs, and produce consistency 
 - [x] Implement `quill canon add`.
 - [x] Implement `quill canon list`.
 - [x] Implement `quill canon import <file>`.
-- [ ] Support canon fields:
-  - [ ] `status: draft | confirmed | deprecated`
-  - [ ] `strength: hard | soft`
-  - [ ] `source: user | ai | imported | historical`
+- [x] Support canon fields:
+  - [x] `status: draft | confirmed | deprecated`
+  - [x] `strength: hard | soft`
+  - [x] `source: user | ai | imported | historical`
 - [ ] Add simple text search over canon.
 
 ## Milestone 5: Character MVP
@@ -132,29 +132,29 @@ assemble context for one section, save generation runs, and produce consistency 
 ## Milestone 9: Context Assembly
 
 - [x] Implement `quill context <scene-id>`.
-- [ ] Assemble context in this order:
-  - [ ] project premise and style
-  - [ ] active canon
-  - [ ] relevant outlines
-  - [ ] current timeline node
-  - [ ] current location
-  - [ ] relevant character state
-  - [ ] previous section ending
-  - [ ] no-go rules
-  - [ ] generation target
+- [x] Assemble context in this order:
+  - [x] project premise and style
+  - [x] active canon
+  - [x] relevant outlines
+  - [x] current timeline node
+  - [x] current location
+  - [x] relevant character state
+  - [x] previous section ending
+  - [x] no-go rules
+  - [x] generation target
 - [x] Save assembled context to a run folder.
 
 ## Milestone 10: Run Records
 
 - [x] Implement run directory creation.
-- [ ] Save:
-  - [ ] `metadata.yaml`
-  - [ ] `context.md`
-  - [ ] `prompt.md`
-  - [ ] `output-raw.md`
-  - [ ] `output-accepted.md`
-  - [ ] `check-report.md`
-- [x] Implement `quill run list`.
+- [x] Save:
+  - [x] `metadata.yaml`
+  - [x] `context.md`
+  - [x] `prompt.md`
+  - [x] `output-raw.md`
+  - [x] `output-accepted.md`
+  - [x] `check-report.md`
+- [ ] Implement `quill run list`.
 - [x] Implement `quill run show`.
 - [x] Implement `quill run accept`.
 
@@ -187,12 +187,12 @@ assemble context for one section, save generation runs, and produce consistency 
 
 - [x] Add a minimal synthetic example novel.
 - [ ] Include:
-  - [ ] project config
-  - [ ] canon files
+  - [x] project config
+  - [x] canon files
   - [ ] two characters
   - [ ] two timeline nodes
   - [ ] two locations and one route
-  - [ ] one chapter and one section
+  - [x] one chapter and one section
 - [ ] Add test fixture using this example.
 
 ## Milestone 14: Documentation
@@ -206,15 +206,26 @@ assemble context for one section, save generation runs, and produce consistency 
 ## First Usable Flow
 
 ```bash
-quill init "My Novel" --vault ./local-vaults
-quill canon import ./notes.md --project ./local-vaults/novels/My-Novel
-quill character add "Main Character" --project ./local-vaults/novels/My-Novel
-quill timeline append "Opening Night" --project ./local-vaults/novels/My-Novel
-quill location add "Old Palace" --project ./local-vaults/novels/My-Novel
-quill outline add section "Opening scene" --project ./local-vaults/novels/My-Novel
-quill scene create --section section-001 --timeline evt-001 --location loc-001 --pov char-001
-quill context scene-001
-quill generate scene-001
-quill check scene-001
-quill run accept latest
+quill config set-vault ./local-vaults
+quill init "My Novel"
+quill canon import ./notes.md --project "./local-vaults/novels/My Novel"
+quill character add "Main Character" --project "./local-vaults/novels/My Novel"
+quill timeline append "Opening Night" --project "./local-vaults/novels/My Novel"
+quill location add "Old Palace" --project "./local-vaults/novels/My Novel"
+quill outline add section "Opening scene" --project "./local-vaults/novels/My Novel"
+quill scene create "Opening scene prose" --section section-opening-scene --timeline evt-opening-night --location loc-old-palace --pov char-main-character --project "./local-vaults/novels/My Novel"
+quill context scene-opening-scene-prose --project "./local-vaults/novels/My Novel"
+quill generate scene-opening-scene-prose --project "./local-vaults/novels/My Novel"
+quill check scene-opening-scene-prose --project "./local-vaults/novels/My Novel"
+quill run accept <run-id> --project "./local-vaults/novels/My Novel"
 ```
+
+## Remaining MVP Gaps After Audit
+
+- Add lint/format baseline.
+- Add GitHub CI build workflow.
+- Add simple text search over canon.
+- Replace placeholder `quill run list` with real run directory listing.
+- Expand `examples/novels/minimal` to include two characters, two timeline nodes, two locations, and one route.
+- Add a fixture test that uses `examples/novels/minimal`.
+- Add `CONTRIBUTING.md`.
