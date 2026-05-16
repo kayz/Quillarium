@@ -1,0 +1,21 @@
+{
+  "name": "@quillarium/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "quill": "dist/index.js"
+  },
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b"
+  },
+  "dependencies": {
+    "@quillarium/ai": "workspace:*",
+    "@quillarium/checks": "workspace:*",
+    "@quillarium/core": "workspace:*",
+    "commander": "^12.1.0",
+    "dotenv": "^16.4.7"
+  }
+}

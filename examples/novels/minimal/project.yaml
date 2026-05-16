@@ -1,0 +1,8 @@
+title: Minimal Example
+genre: general
+target_words: 60000
+chapter_words: 3000
+section_words: 1000
+current_volume: 1
+current_timeline_node: evt-opening-night
+schema_version: 1

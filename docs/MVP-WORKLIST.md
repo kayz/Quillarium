@@ -17,58 +17,58 @@ assemble context for one section, save generation runs, and produce consistency 
 
 ## Milestone 1: Repository and Workspace Setup
 
-- [ ] Add pnpm workspace.
-- [ ] Add TypeScript project references.
+- [x] Add pnpm workspace.
+- [x] Add TypeScript project references.
 - [ ] Add packages:
-  - [ ] `packages/core`
-  - [ ] `packages/cli`
-  - [ ] `packages/checks`
-  - [ ] `packages/ai`
-- [ ] Add Vitest.
+  - [x] `packages/core`
+  - [x] `packages/cli`
+  - [x] `packages/checks`
+  - [x] `packages/ai`
+- [x] Add Vitest.
 - [ ] Add lint/format baseline.
 - [ ] Add CI build workflow.
 
 ## Milestone 2: Novel Project Skeleton
 
-- [ ] Implement `quill init <title> --vault <path>`.
-- [ ] Generate standard folder layout:
-  - [ ] `canon/`
-  - [ ] `characters/`
-  - [ ] `timeline/`
-  - [ ] `locations/`
-  - [ ] `resources/`
-  - [ ] `causality/`
-  - [ ] `outlines/`
-  - [ ] `scenes/`
-  - [ ] `prompts/`
-  - [ ] `runs/`
-  - [ ] `exports/`
-  - [ ] `sillytavern/`
-- [ ] Generate `project.yaml`.
-- [ ] Generate starter README inside the novel folder.
-- [ ] Add tests for folder creation.
+- [x] Implement `quill init <title> --vault <path>`.
+- [x] Generate standard folder layout:
+  - [x] `canon/`
+  - [x] `characters/`
+  - [x] `timeline/`
+  - [x] `locations/`
+  - [x] `resources/`
+  - [x] `causality/`
+  - [x] `outlines/`
+  - [x] `scenes/`
+  - [x] `prompts/`
+  - [x] `runs/`
+  - [x] `exports/`
+  - [x] `sillytavern/`
+- [x] Generate `project.yaml`.
+- [x] Generate starter README inside the novel folder.
+- [x] Add tests for folder creation.
 
 ## Milestone 3: Markdown and YAML Data Layer
 
-- [ ] Define shared document schema:
-  - [ ] `id`
-  - [ ] `type`
-  - [ ] `schema_version`
-  - [ ] `title`
-  - [ ] `status`
-  - [ ] `tags`
-- [ ] Implement Markdown frontmatter parser/writer.
-- [ ] Implement safe slug and file naming helpers.
-- [ ] Implement project loader.
-- [ ] Implement project index builder as JSON cache.
-- [ ] Add schema validation with Zod.
+- [x] Define shared document schema:
+  - [x] `id`
+  - [x] `type`
+  - [x] `schema_version`
+  - [x] `title`
+  - [x] `status`
+  - [x] `tags`
+- [x] Implement Markdown frontmatter parser/writer.
+- [x] Implement safe slug and file naming helpers.
+- [x] Implement project loader.
+- [x] Implement project index builder as JSON cache.
+- [x] Add schema validation with Zod.
 
 ## Milestone 4: Canon MVP
 
-- [ ] Define canon item schema.
-- [ ] Implement `quill canon add`.
-- [ ] Implement `quill canon list`.
-- [ ] Implement `quill canon import <file>`.
+- [x] Define canon item schema.
+- [x] Implement `quill canon add`.
+- [x] Implement `quill canon list`.
+- [x] Implement `quill canon import <file>`.
 - [ ] Support canon fields:
   - [ ] `status: draft | confirmed | deprecated`
   - [ ] `strength: hard | soft`
@@ -77,58 +77,58 @@ assemble context for one section, save generation runs, and produce consistency 
 
 ## Milestone 5: Character MVP
 
-- [ ] Define character schema.
-- [ ] Implement `quill character add`.
-- [ ] Implement `quill character list`.
-- [ ] Implement arc fields by volume and story arc.
-- [ ] Implement OOC guardrails.
-- [ ] Implement scene state fields:
-  - [ ] current location
-  - [ ] outfit layers
-  - [ ] wounds
-  - [ ] carried items
-  - [ ] known facts
-  - [ ] emotional state
+- [x] Define character schema.
+- [x] Implement `quill character add`.
+- [x] Implement `quill character list`.
+- [x] Implement arc fields by volume and story arc.
+- [x] Implement OOC guardrails.
+- [x] Implement scene state fields:
+  - [x] current location
+  - [x] outfit layers
+  - [x] wounds
+  - [x] carried items
+  - [x] known facts
+  - [x] emotional state
 
 ## Milestone 6: Timeline MVP
 
-- [ ] Define event schema.
-- [ ] Implement `quill timeline append`.
-- [ ] Enforce forward-only chain references.
-- [ ] Validate `previous` and `next` links.
-- [ ] Support `flashback_reference` without changing main chain.
-- [ ] Add `quill timeline check`.
+- [x] Define event schema.
+- [x] Implement `quill timeline append`.
+- [x] Enforce forward-only chain references.
+- [x] Validate `previous` and `next` links.
+- [x] Support `flashback_reference` without changing main chain.
+- [x] Add `quill timeline check`.
 
 ## Milestone 7: Location MVP
 
-- [ ] Define location schema.
-- [ ] Define route edge schema.
-- [ ] Implement `quill location add`.
-- [ ] Implement `quill route add`.
-- [ ] Implement location graph index.
-- [ ] Add basic reachability check.
+- [x] Define location schema.
+- [x] Define route edge schema.
+- [x] Implement `quill location add`.
+- [x] Implement `quill route add`.
+- [x] Implement location graph index.
+- [x] Add basic reachability check.
 
 ## Milestone 8: Outline and Scene MVP
 
-- [ ] Define outline schemas:
-  - [ ] book
-  - [ ] volume
-  - [ ] story arc
-  - [ ] chapter
-  - [ ] section
-- [ ] Implement `quill outline add`.
-- [ ] Implement `quill scene create`.
-- [ ] Bind scenes to:
-  - [ ] section outline
-  - [ ] timeline node
-  - [ ] location
-  - [ ] POV character
-  - [ ] participating characters
-- [ ] Store prose by section under `scenes/`.
+- [x] Define outline schemas:
+  - [x] book
+  - [x] volume
+  - [x] story arc
+  - [x] chapter
+  - [x] section
+- [x] Implement `quill outline add`.
+- [x] Implement `quill scene create`.
+- [x] Bind scenes to:
+  - [x] section outline
+  - [x] timeline node
+  - [x] location
+  - [x] POV character
+  - [x] participating characters
+- [x] Store prose by section under `scenes/`.
 
 ## Milestone 9: Context Assembly
 
-- [ ] Implement `quill context <scene-id>`.
+- [x] Implement `quill context <scene-id>`.
 - [ ] Assemble context in this order:
   - [ ] project premise and style
   - [ ] active canon
@@ -139,11 +139,11 @@ assemble context for one section, save generation runs, and produce consistency 
   - [ ] previous section ending
   - [ ] no-go rules
   - [ ] generation target
-- [ ] Save assembled context to a run folder.
+- [x] Save assembled context to a run folder.
 
 ## Milestone 10: Run Records
 
-- [ ] Implement run directory creation.
+- [x] Implement run directory creation.
 - [ ] Save:
   - [ ] `metadata.yaml`
   - [ ] `context.md`
@@ -151,38 +151,38 @@ assemble context for one section, save generation runs, and produce consistency 
   - [ ] `output-raw.md`
   - [ ] `output-accepted.md`
   - [ ] `check-report.md`
-- [ ] Implement `quill run list`.
-- [ ] Implement `quill run show`.
-- [ ] Implement `quill run accept`.
+- [x] Implement `quill run list`.
+- [x] Implement `quill run show`.
+- [x] Implement `quill run accept`.
 
 ## Milestone 11: Basic Checks
 
-- [ ] Implement `quill check <scene-id>`.
-- [ ] Add deterministic checks:
-  - [ ] referenced canon ids exist
-  - [ ] timeline node exists
-  - [ ] location exists
-  - [ ] characters exist
-  - [ ] route exists from previous location when needed
-- [ ] Add report format.
-- [ ] Add placeholder AI-assisted checks:
-  - [ ] canon conflict
-  - [ ] OOC
-  - [ ] style guardrails
-  - [ ] chapter hook
+- [x] Implement `quill check <scene-id>`.
+- [x] Add deterministic checks:
+  - [x] referenced canon ids exist
+  - [x] timeline node exists
+  - [x] location exists
+  - [x] characters exist
+  - [x] route exists from previous location when needed
+- [x] Add report format.
+- [x] Add placeholder AI-assisted checks:
+  - [x] canon conflict
+  - [x] OOC
+  - [x] style guardrails
+  - [x] chapter hook
 
 ## Milestone 12: AI Generation MVP
 
-- [ ] Add OpenAI-compatible provider config.
-- [ ] Add local `.env` support.
-- [ ] Implement `quill generate <scene-id>`.
-- [ ] Use assembled context and default section-writing prompt.
-- [ ] Save raw output to run folder.
-- [ ] Allow manual acceptance into scene file.
+- [x] Add OpenAI-compatible provider config.
+- [x] Add local `.env` support.
+- [x] Implement `quill generate <scene-id>`.
+- [x] Use assembled context and default section-writing prompt.
+- [x] Save raw output to run folder.
+- [x] Allow manual acceptance into scene file.
 
 ## Milestone 13: Example Project
 
-- [ ] Add a minimal synthetic example novel.
+- [x] Add a minimal synthetic example novel.
 - [ ] Include:
   - [ ] project config
   - [ ] canon files
@@ -194,10 +194,10 @@ assemble context for one section, save generation runs, and produce consistency 
 
 ## Milestone 14: Documentation
 
-- [ ] Add CLI usage docs.
-- [ ] Add Obsidian project layout docs.
-- [ ] Add writing workflow docs.
-- [ ] Add schema reference.
+- [x] Add CLI usage docs.
+- [x] Add Obsidian project layout docs.
+- [x] Add writing workflow docs.
+- [x] Add schema reference.
 - [ ] Add contribution guide.
 
 ## First Usable Flow

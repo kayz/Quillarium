@@ -5,6 +5,7 @@ dist/
 .DS_Store
 Thumbs.db
 *.log
+*.tsbuildinfo
 
 # Local vaults and generated runs can become large.
 local-vaults/
