@@ -13,6 +13,8 @@
 - Read and write Markdown with YAML frontmatter.
 - Build a local index cache.
 
+See `docs/MVP-WORKLIST.md` for the first implementation checklist.
+
 ## Milestone 2: Canon and Character MVP
 
 - Canon editor.
