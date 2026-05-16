@@ -1,0 +1,11 @@
+node_modules/
+dist/
+.env
+.env.*
+.DS_Store
+Thumbs.db
+*.log
+
+# Local vaults and generated runs can become large.
+local-vaults/
+runs-tmp/
