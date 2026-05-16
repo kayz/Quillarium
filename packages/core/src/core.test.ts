@@ -25,7 +25,9 @@ describe('core project flow', () => {
       expect(await pathExists(path.join(project.root, 'project.yaml'))).toBe(true)
 
       await createCanon(project.root, 'Core Rule', 'Do not break canon.')
-      const charFile = await createCharacter(project.root, 'Asha', { ooc_guardrails: ['Do not become childish.'] })
+      const charFile = await createCharacter(project.root, 'Asha', {
+        ooc_guardrails: ['Do not become childish.']
+      })
       const locFile = await createLocation(project.root, 'Old Palace')
       await createRoute(project.root, 'loc-old-palace', 'loc-old-road')
       const evtFile = await appendTimelineEvent(project.root, 'Opening Night', { location: 'loc-old-palace' })

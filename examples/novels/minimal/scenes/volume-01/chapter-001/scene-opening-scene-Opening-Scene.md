@@ -5,17 +5,18 @@ schema_version: 1
 title: Opening Scene
 status: draft
 tags:
-- volume-01
-- chapter-001
+  - volume-01
+  - chapter-001
 section: section-opening-section
 timeline_node: evt-opening-night
 location: loc-old-palace
 pov: char-main-character
 characters:
-- char-main-character
+  - char-main-character
+  - char-second-character
 target_words: 1000
 chapter_hook: true
 previous_scene: null
 ---
-## Draft
 
+## Draft

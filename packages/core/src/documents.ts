@@ -47,7 +47,12 @@ export function fileForDoc(projectRoot: string, type: DocType, id: string, title
   return path.join(dirForType(projectRoot, type), `${id}-${slugify(title)}.md`)
 }
 
-export async function createCanon(projectRoot: string, title: string, content: string, partial: Partial<CanonDoc> = {}): Promise<string> {
+export async function createCanon(
+  projectRoot: string,
+  title: string,
+  content: string,
+  partial: Partial<CanonDoc> = {}
+): Promise<string> {
   const doc = canonSchema.parse({
     id: partial.id ?? makeId('canon', title),
     type: 'canon',
@@ -63,13 +68,36 @@ export async function createCanon(projectRoot: string, title: string, content: s
   return file
 }
 
-export async function importCanonFile(projectRoot: string, sourceFile: string, options: Partial<CanonDoc> = {}): Promise<string> {
+export async function searchCanon(
+  projectRoot: string,
+  query: string
+): Promise<Array<{ path: string; data: CanonDoc; content: string }>> {
+  const needle = query.toLocaleLowerCase()
+  const docs = await listDocs<CanonDoc>(projectRoot, 'canon')
+  return docs.filter((doc) =>
+    [doc.data.id, doc.data.title, doc.data.status, doc.data.strength, doc.data.source, doc.content]
+      .join('\n')
+      .toLocaleLowerCase()
+      .includes(needle)
+  )
+}
+
+export async function importCanonFile(
+  projectRoot: string,
+  sourceFile: string,
+  options: Partial<CanonDoc> = {}
+): Promise<string> {
   const content = await readText(sourceFile)
   const title = path.basename(sourceFile, path.extname(sourceFile))
   return createCanon(projectRoot, title, content, { ...options, source: options.source ?? 'imported' })
 }
 
-export async function createCharacter(projectRoot: string, name: string, partial: Partial<CharacterDoc> = {}, content = ''): Promise<string> {
+export async function createCharacter(
+  projectRoot: string,
+  name: string,
+  partial: Partial<CharacterDoc> = {},
+  content = ''
+): Promise<string> {
   const doc = characterSchema.parse({
     id: partial.id ?? makeId('char', name),
     type: 'character',
@@ -93,9 +121,15 @@ export async function createCharacter(projectRoot: string, name: string, partial
   return file
 }
 
-export async function appendTimelineEvent(projectRoot: string, title: string, partial: Partial<TimelineEventDoc> = {}, content = ''): Promise<string> {
+export async function appendTimelineEvent(
+  projectRoot: string,
+  title: string,
+  partial: Partial<TimelineEventDoc> = {},
+  content = ''
+): Promise<string> {
   const events = await listDocs<TimelineEventDoc>(projectRoot, 'timeline_event')
-  const previous = partial.previous === undefined ? events.at(-1)?.data.id ?? null : partial.previous ?? null
+  const previous =
+    partial.previous === undefined ? (events.at(-1)?.data.id ?? null) : (partial.previous ?? null)
   const doc = timelineEventSchema.parse({
     id: partial.id ?? makeId('evt', title),
     type: 'timeline_event',
@@ -116,7 +150,12 @@ export async function appendTimelineEvent(projectRoot: string, title: string, pa
   return file
 }
 
-export async function createLocation(projectRoot: string, title: string, partial: Partial<LocationDoc> = {}, content = ''): Promise<string> {
+export async function createLocation(
+  projectRoot: string,
+  title: string,
+  partial: Partial<LocationDoc> = {},
+  content = ''
+): Promise<string> {
   const doc = locationSchema.parse({
     id: partial.id ?? makeId('loc', title),
     type: 'location',
@@ -132,7 +171,12 @@ export async function createLocation(projectRoot: string, title: string, partial
   return file
 }
 
-export async function createRoute(projectRoot: string, from: string, to: string, partial: Partial<RouteDoc> = {}): Promise<string> {
+export async function createRoute(
+  projectRoot: string,
+  from: string,
+  to: string,
+  partial: Partial<RouteDoc> = {}
+): Promise<string> {
   const title = partial.title ?? `${from} to ${to}`
   const doc = routeSchema.parse({
     id: partial.id ?? makeId('route', title),
@@ -153,7 +197,13 @@ export async function createRoute(projectRoot: string, from: string, to: string,
   return file
 }
 
-export async function createOutline(projectRoot: string, level: OutlineDoc['level'], title: string, partial: Partial<OutlineDoc> = {}, content = ''): Promise<string> {
+export async function createOutline(
+  projectRoot: string,
+  level: OutlineDoc['level'],
+  title: string,
+  partial: Partial<OutlineDoc> = {},
+  content = ''
+): Promise<string> {
   const doc = outlineSchema.parse({
     id: partial.id ?? makeId(level, title),
     type: 'outline',
@@ -172,7 +222,12 @@ export async function createOutline(projectRoot: string, level: OutlineDoc['leve
   return file
 }
 
-export async function createScene(projectRoot: string, title: string, partial: Partial<SceneDoc>, content = ''): Promise<string> {
+export async function createScene(
+  projectRoot: string,
+  title: string,
+  partial: Partial<SceneDoc>,
+  content = ''
+): Promise<string> {
   const project = await loadProject(projectRoot)
   const doc = sceneSchema.parse({
     id: partial.id ?? makeId('scene', title),
@@ -190,35 +245,52 @@ export async function createScene(projectRoot: string, title: string, partial: P
     chapter_hook: partial.chapter_hook ?? false,
     previous_scene: partial.previous_scene ?? null
   }) as SceneDoc
-  const volume = partial.tags?.find(t => t.startsWith('volume-')) ?? 'volume-01'
-  const chapter = partial.tags?.find(t => t.startsWith('chapter-')) ?? 'chapter-001'
+  const volume = partial.tags?.find((t) => t.startsWith('volume-')) ?? 'volume-01'
+  const chapter = partial.tags?.find((t) => t.startsWith('chapter-')) ?? 'chapter-001'
   const file = path.join(projectRoot, 'scenes', volume, chapter, `${doc.id}-${slugify(title)}.md`)
   await writeMarkdown(file, doc as unknown as Record<string, unknown>, content || `## Draft\n`)
   return file
 }
 
-export async function listDocs<T extends BaseDoc>(projectRoot: string, type?: DocType): Promise<Array<{ path: string; data: T; content: string }>> {
-  const roots = type ? [dirForType(projectRoot, type)] : [
-    'canon', 'characters', 'timeline', 'locations', 'resources', 'causality', 'outlines', 'scenes', 'prompts'
-  ].map(d => path.join(projectRoot, d))
+export async function listDocs<T extends BaseDoc>(
+  projectRoot: string,
+  type?: DocType
+): Promise<Array<{ path: string; data: T; content: string }>> {
+  const roots = type
+    ? [dirForType(projectRoot, type)]
+    : [
+        'canon',
+        'characters',
+        'timeline',
+        'locations',
+        'resources',
+        'causality',
+        'outlines',
+        'scenes',
+        'prompts'
+      ].map((d) => path.join(projectRoot, d))
   const files = (await Promise.all(roots.map(listMarkdownFiles))).flat()
   const docs = []
   for (const file of files) {
     const parsed = await readMarkdown<Record<string, unknown>>(file)
-    if (!type || parsed.data.type === type) docs.push({ path: file, data: parsed.data, content: parsed.content })
+    if (!type || parsed.data.type === type)
+      docs.push({ path: file, data: parsed.data, content: parsed.content })
   }
   return docs as Array<{ path: string; data: T; content: string }>
 }
 
-export async function findDoc<T extends BaseDoc>(projectRoot: string, id: string): Promise<{ path: string; data: T; content: string } | null> {
+export async function findDoc<T extends BaseDoc>(
+  projectRoot: string,
+  id: string
+): Promise<{ path: string; data: T; content: string } | null> {
   const docs = await listDocs<T>(projectRoot)
-  return docs.find(doc => doc.data.id === id) ?? null
+  return docs.find((doc) => doc.data.id === id) ?? null
 }
 
 export async function buildIndex(projectRoot: string): Promise<ProjectIndex> {
   const project = await loadProject(projectRoot)
   const docs = await listDocs<BaseDoc>(projectRoot)
-  const entries: ProjectIndexEntry[] = docs.map(doc => ({
+  const entries: ProjectIndexEntry[] = docs.map((doc) => ({
     id: doc.data.id,
     type: doc.data.type,
     title: doc.data.title,
@@ -237,7 +309,10 @@ export async function buildIndex(projectRoot: string): Promise<ProjectIndex> {
   return index
 }
 
-export async function requireDoc<T extends BaseDoc>(projectRoot: string, id: string): Promise<{ path: string; data: T; content: string }> {
+export async function requireDoc<T extends BaseDoc>(
+  projectRoot: string,
+  id: string
+): Promise<{ path: string; data: T; content: string }> {
   const doc = await findDoc<T>(projectRoot, id)
   if (!doc) throw new Error(`Document not found: ${id}`)
   return doc

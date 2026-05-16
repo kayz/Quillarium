@@ -17,17 +17,18 @@ arc:
     start: Reluctant successor
     end: Responsible leader
 ooc_guardrails:
-- Do not become casually cruel.
-- Do not solve politics with modern jargon alone.
+  - Do not become casually cruel.
+  - Do not solve politics with modern jargon alone.
 scene_state:
   current_location: loc-old-palace
   outfit_layers:
-  - dark robe
+    - dark robe
   wounds: []
   carried_items: []
   known_facts: []
   emotional_state: exhausted
 ---
+
 ## Profile
 
 An example protagonist.

@@ -8,4 +8,5 @@ tags: []
 strength: hard
 source: user
 ---
+
 The protagonist must solve problems through choices and tradeoffs, not effortless omnipotence.

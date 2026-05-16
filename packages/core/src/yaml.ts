@@ -11,12 +11,14 @@ export function toYamlValue(value: unknown, indent = 0): string {
   }
   if (Array.isArray(value)) {
     if (!value.length) return '[]'
-    return value.map(item => {
-      if (typeof item === 'object' && item !== null) {
-        return `${pad}-\n${objectToYaml(item as Record<string, unknown>, indent + 2)}`
-      }
-      return `${pad}- ${toYamlValue(item, indent + 2)}`
-    }).join('\n')
+    return value
+      .map((item) => {
+        if (typeof item === 'object' && item !== null) {
+          return `${pad}-\n${objectToYaml(item as Record<string, unknown>, indent + 2)}`
+        }
+        return `${pad}- ${toYamlValue(item, indent + 2)}`
+      })
+      .join('\n')
   }
   if (typeof value === 'object') {
     const entries = Object.entries(value as Record<string, unknown>)
@@ -53,7 +55,7 @@ export function parseMarkdown<T extends Record<string, unknown>>(raw: string): {
 }
 
 function stripUndefined(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(stripUndefined).filter(v => v !== undefined)
+  if (Array.isArray(value)) return value.map(stripUndefined).filter((v) => v !== undefined)
   if (value && typeof value === 'object') {
     const out: Record<string, unknown> = {}
     for (const [key, inner] of Object.entries(value as Record<string, unknown>)) {

@@ -5,4 +5,5 @@ chapter_words: 3000
 section_words: 1000
 current_volume: 1
 current_timeline_node: evt-opening-night
+default_theme: paper
 schema_version: 1

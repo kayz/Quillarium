@@ -1,0 +1,27 @@
+{
+  "name": "@quillarium/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/main/main.js",
+  "scripts": {
+    "dev": "tsx scripts/dev.ts",
+    "build": "tsc -b && vite build && tsc -p tsconfig.main.json",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@quillarium/ai": "workspace:*",
+    "@quillarium/checks": "workspace:*",
+    "@quillarium/core": "workspace:*",
+    "@vitejs/plugin-react": "^4.3.4",
+    "vite": "^6.0.7",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "lucide-react": "^0.468.0",
+    "electron": "^33.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.2",
+    "@types/react-dom": "^19.0.2"
+  }
+}

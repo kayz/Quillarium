@@ -8,6 +8,7 @@ tags: []
 parent_location: null
 description: A tense palace compound.
 ---
+
 ## Location
 
 A seat of power under pressure.

@@ -29,6 +29,7 @@ export interface ProjectConfig {
   section_words: number
   current_volume: number
   current_timeline_node: string | null
+  default_theme: 'paper' | 'ink' | 'mist' | 'bamboo'
   schema_version: number
 }
 

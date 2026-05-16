@@ -8,13 +8,22 @@
   "scripts": {
     "build": "tsc -b",
     "test": "vitest run",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "check": "pnpm build && pnpm test",
-    "cli": "tsx packages/cli/src/index.ts"
+    "cli": "tsx packages/cli/src/index.ts",
+    "desktop:dev": "pnpm --filter @quillarium/desktop dev",
+    "desktop:build": "pnpm --filter @quillarium/desktop build"
   },
   "devDependencies": {
+    "@eslint/js": "^9.18.0",
     "@types/node": "^22.10.2",
+    "eslint": "^9.18.0",
+    "prettier": "^3.4.2",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
+    "typescript-eslint": "^8.20.0",
     "vitest": "^2.1.8"
   },
   "dependencies": {

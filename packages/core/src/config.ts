@@ -9,6 +9,8 @@ const execFileAsync = promisify(execFile)
 
 export interface QuillariumConfig {
   obsidianDir?: string
+  theme?: 'paper' | 'ink' | 'mist' | 'bamboo'
+  density?: 'compact' | 'comfortable'
 }
 
 export function configDir(): string {

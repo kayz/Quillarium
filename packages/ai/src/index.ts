@@ -33,7 +33,9 @@ export function buildSectionPrompt(context: string): string {
 
 export async function generateText(prompt: string, config: AIConfig): Promise<string> {
   if (!config.apiKey && !config.baseUrl.includes('localhost')) {
-    throw new Error('Missing QUILL_AI_API_KEY. Set QUILL_AI_API_KEY or use a local OpenAI-compatible endpoint.')
+    throw new Error(
+      'Missing QUILL_AI_API_KEY. Set QUILL_AI_API_KEY or use a local OpenAI-compatible endpoint.'
+    )
   }
   const response = await fetch(`${config.baseUrl.replace(/\/$/, '')}/chat/completions`, {
     method: 'POST',
@@ -54,11 +56,16 @@ export async function generateText(prompt: string, config: AIConfig): Promise<st
   if (!response.ok) {
     throw new Error(`AI request failed ${response.status}: ${await response.text()}`)
   }
-  const json = await response.json() as { choices?: Array<{ message?: { content?: string } }> }
+  const json = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> }
   return json.choices?.[0]?.message?.content ?? ''
 }
 
-export async function createGenerationRun(projectRoot: string, sceneId: string, context: string, config: AIConfig): Promise<RunMetadata> {
+export async function createGenerationRun(
+  projectRoot: string,
+  sceneId: string,
+  context: string,
+  config: AIConfig
+): Promise<RunMetadata> {
   const run = await createRun(projectRoot, sceneId, {
     provider: config.provider,
     model: config.model,
@@ -70,7 +77,12 @@ export async function createGenerationRun(projectRoot: string, sceneId: string, 
   return run
 }
 
-export async function generateIntoRun(projectRoot: string, run: RunMetadata, context: string, config: AIConfig): Promise<string> {
+export async function generateIntoRun(
+  projectRoot: string,
+  run: RunMetadata,
+  context: string,
+  config: AIConfig
+): Promise<string> {
   const prompt = buildSectionPrompt(context)
   const output = await generateText(prompt, config)
   const next = { ...run, status: 'generated' as const }

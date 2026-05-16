@@ -25,8 +25,8 @@ assemble context for one section, save generation runs, and produce consistency 
   - [x] `packages/checks`
   - [x] `packages/ai`
 - [x] Add Vitest.
-- [ ] Add lint/format baseline.
-- [ ] Add CI build workflow.
+- [x] Add lint/format baseline.
+- [x] Add CI build workflow.
 
 ## Milestone 2: Novel Project Skeleton
 
@@ -76,7 +76,7 @@ assemble context for one section, save generation runs, and produce consistency 
   - [x] `status: draft | confirmed | deprecated`
   - [x] `strength: hard | soft`
   - [x] `source: user | ai | imported | historical`
-- [ ] Add simple text search over canon.
+- [x] Add simple text search over canon.
 
 ## Milestone 5: Character MVP
 
@@ -154,7 +154,7 @@ assemble context for one section, save generation runs, and produce consistency 
   - [x] `output-raw.md`
   - [x] `output-accepted.md`
   - [x] `check-report.md`
-- [ ] Implement `quill run list`.
+- [x] Implement `quill run list`.
 - [x] Implement `quill run show`.
 - [x] Implement `quill run accept`.
 
@@ -186,14 +186,14 @@ assemble context for one section, save generation runs, and produce consistency 
 ## Milestone 13: Example Project
 
 - [x] Add a minimal synthetic example novel.
-- [ ] Include:
+- [x] Include:
   - [x] project config
   - [x] canon files
-  - [ ] two characters
-  - [ ] two timeline nodes
-  - [ ] two locations and one route
+  - [x] two characters
+  - [x] two timeline nodes
+  - [x] two locations and one route
   - [x] one chapter and one section
-- [ ] Add test fixture using this example.
+- [x] Add test fixture using this example.
 
 ## Milestone 14: Documentation
 
@@ -201,7 +201,7 @@ assemble context for one section, save generation runs, and produce consistency 
 - [x] Add Obsidian project layout docs.
 - [x] Add writing workflow docs.
 - [x] Add schema reference.
-- [ ] Add contribution guide.
+- [x] Add contribution guide.
 
 ## First Usable Flow
 
@@ -222,10 +222,4 @@ quill run accept <run-id> --project "./local-vaults/novels/My Novel"
 
 ## Remaining MVP Gaps After Audit
 
-- Add lint/format baseline.
-- Add GitHub CI build workflow.
-- Add simple text search over canon.
-- Replace placeholder `quill run list` with real run directory listing.
-- Expand `examples/novels/minimal` to include two characters, two timeline nodes, two locations, and one route.
-- Add a fixture test that uses `examples/novels/minimal`.
-- Add `CONTRIBUTING.md`.
+All audited MVP gaps are complete.

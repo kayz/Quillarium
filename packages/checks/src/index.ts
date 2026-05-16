@@ -25,13 +25,48 @@ export async function checkScene(projectRoot: string, sceneId: string): Promise<
   const issues: CheckIssue[] = []
   const scene = await requireDoc<SceneDoc>(projectRoot, sceneId)
 
-  await requireOrIssue(projectRoot, scene.data.section, 'error', 'missing-section', `Section outline not found: ${scene.data.section}`, issues)
-  await requireOrIssue(projectRoot, scene.data.timeline_node, 'error', 'missing-timeline-node', `Timeline node not found: ${scene.data.timeline_node}`, issues)
-  await requireOrIssue(projectRoot, scene.data.location, 'error', 'missing-location', `Location not found: ${scene.data.location}`, issues)
-  await requireOrIssue(projectRoot, scene.data.pov, 'error', 'missing-pov', `POV character not found: ${scene.data.pov}`, issues)
+  await requireOrIssue(
+    projectRoot,
+    scene.data.section,
+    'error',
+    'missing-section',
+    `Section outline not found: ${scene.data.section}`,
+    issues
+  )
+  await requireOrIssue(
+    projectRoot,
+    scene.data.timeline_node,
+    'error',
+    'missing-timeline-node',
+    `Timeline node not found: ${scene.data.timeline_node}`,
+    issues
+  )
+  await requireOrIssue(
+    projectRoot,
+    scene.data.location,
+    'error',
+    'missing-location',
+    `Location not found: ${scene.data.location}`,
+    issues
+  )
+  await requireOrIssue(
+    projectRoot,
+    scene.data.pov,
+    'error',
+    'missing-pov',
+    `POV character not found: ${scene.data.pov}`,
+    issues
+  )
 
   for (const charId of scene.data.characters) {
-    await requireOrIssue(projectRoot, charId, 'warning', 'missing-character', `Scene character not found: ${charId}`, issues)
+    await requireOrIssue(
+      projectRoot,
+      charId,
+      'warning',
+      'missing-character',
+      `Scene character not found: ${charId}`,
+      issues
+    )
   }
 
   await checkTimelineLinks(projectRoot, scene.data.timeline_node, issues)
@@ -71,13 +106,25 @@ async function checkTimelineLinks(projectRoot: string, eventId: string, issues: 
   const event = await requireDoc<TimelineEventDoc>(projectRoot, eventId).catch(() => null)
   if (!event) return
   if (event.data.previous && !(await docExists(projectRoot, event.data.previous))) {
-    issues.push({ severity: 'error', code: 'timeline-previous-missing', message: `Timeline previous link is missing: ${event.data.previous}` })
+    issues.push({
+      severity: 'error',
+      code: 'timeline-previous-missing',
+      message: `Timeline previous link is missing: ${event.data.previous}`
+    })
   }
   if (event.data.next && !(await docExists(projectRoot, event.data.next))) {
-    issues.push({ severity: 'error', code: 'timeline-next-missing', message: `Timeline next link is missing: ${event.data.next}` })
+    issues.push({
+      severity: 'error',
+      code: 'timeline-next-missing',
+      message: `Timeline next link is missing: ${event.data.next}`
+    })
   }
   if (event.data.flashback_reference && event.data.previous === event.data.flashback_reference) {
-    issues.push({ severity: 'warning', code: 'flashback-mutates-main-chain', message: 'Flashback reference matches previous main-chain node; verify this is intentional.' })
+    issues.push({
+      severity: 'warning',
+      code: 'flashback-mutates-main-chain',
+      message: 'Flashback reference matches previous main-chain node; verify this is intentional.'
+    })
   }
 }
 
@@ -86,9 +133,10 @@ async function checkRouteFromPreviousScene(projectRoot: string, scene: SceneDoc,
   const previous = await requireDoc<SceneDoc>(projectRoot, scene.previous_scene).catch(() => null)
   if (!previous || previous.data.location === scene.location) return
   const routes = await listDocs<RouteDoc>(projectRoot, 'route')
-  const hasRoute = routes.some(route =>
-    (route.data.from === previous.data.location && route.data.to === scene.location) ||
-    (route.data.to === previous.data.location && route.data.from === scene.location)
+  const hasRoute = routes.some(
+    (route) =>
+      (route.data.from === previous.data.location && route.data.to === scene.location) ||
+      (route.data.to === previous.data.location && route.data.from === scene.location)
   )
   if (!hasRoute) {
     issues.push({
@@ -132,6 +180,14 @@ export function formatCheckReport(report: CheckReport): string {
       lines.push(`- [${issue.severity}] ${issue.code}: ${issue.message}`)
     }
   }
-  lines.push('', '## AI-Assisted Checks', '', '- canon conflict: pending', '- OOC: pending', '- style guardrails: pending', '- chapter hook: pending')
+  lines.push(
+    '',
+    '## AI-Assisted Checks',
+    '',
+    '- canon conflict: pending',
+    '- OOC: pending',
+    '- style guardrails: pending',
+    '- chapter hook: pending'
+  )
   return lines.join('\n')
 }

@@ -24,11 +24,17 @@ export async function readText(filePath: string): Promise<string> {
   return readFile(filePath, 'utf8')
 }
 
-export async function writeMarkdown(filePath: string, data: Record<string, unknown>, content: string): Promise<void> {
+export async function writeMarkdown(
+  filePath: string,
+  data: Record<string, unknown>,
+  content: string
+): Promise<void> {
   await writeText(filePath, stringifyFrontmatter(data, content))
 }
 
-export async function readMarkdown<T extends Record<string, unknown>>(filePath: string): Promise<{ data: T; content: string }> {
+export async function readMarkdown<T extends Record<string, unknown>>(
+  filePath: string
+): Promise<{ data: T; content: string }> {
   return parseMarkdown<T>(await readText(filePath))
 }
 

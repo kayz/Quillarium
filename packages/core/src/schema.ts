@@ -17,6 +17,7 @@ export const projectConfigSchema = z.object({
   section_words: z.number().int().positive().default(1000),
   current_volume: z.number().int().positive().default(1),
   current_timeline_node: z.string().nullable().default(null),
+  default_theme: z.enum(['paper', 'ink', 'mist', 'bamboo']).default('paper'),
   schema_version: z.number().int().positive().default(1)
 })
 
@@ -35,20 +36,26 @@ export const characterSchema = baseDocSchema.extend({
   fear: z.string().default(''),
   bottom_line: z.string().default(''),
   relationships: z.record(z.string()).default({}),
-  arc: z.record(z.object({
-    start: z.string().optional(),
-    end: z.string().optional(),
-    notes: z.string().optional()
-  })).default({}),
+  arc: z
+    .record(
+      z.object({
+        start: z.string().optional(),
+        end: z.string().optional(),
+        notes: z.string().optional()
+      })
+    )
+    .default({}),
   ooc_guardrails: z.array(z.string()).default([]),
-  scene_state: z.object({
-    current_location: z.string().optional(),
-    outfit_layers: z.array(z.string()).optional(),
-    wounds: z.array(z.string()).optional(),
-    carried_items: z.array(z.string()).optional(),
-    known_facts: z.array(z.string()).optional(),
-    emotional_state: z.string().optional()
-  }).default({})
+  scene_state: z
+    .object({
+      current_location: z.string().optional(),
+      outfit_layers: z.array(z.string()).optional(),
+      wounds: z.array(z.string()).optional(),
+      carried_items: z.array(z.string()).optional(),
+      known_facts: z.array(z.string()).optional(),
+      emotional_state: z.string().optional()
+    })
+    .default({})
 })
 
 export const timelineEventSchema = baseDocSchema.extend({
