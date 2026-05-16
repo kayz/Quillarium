@@ -1,4 +1,5 @@
 export * from './context.js'
+export * from './config.js'
 export * from './documents.js'
 export * from './fs.js'
 export * from './ids.js'

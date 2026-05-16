@@ -6,6 +6,8 @@ import {
   appendTimelineEvent,
   assembleContext,
   buildIndex,
+  chooseObsidianDir,
+  configPath,
   createCanon,
   createCharacter,
   createLocation,
@@ -14,10 +16,12 @@ import {
   createRoute,
   createScene,
   createRun,
+  getObsidianDir,
   importCanonFile,
   listDocs,
   readRunFile,
   requireDoc,
+  setObsidianDir,
   writeMarkdown,
   writeRunFile,
   writeRunMetadata,
@@ -47,17 +51,60 @@ function printPath(file: string) {
   console.log(path.resolve(file))
 }
 
+async function resolveVault(optionVault?: string): Promise<string> {
+  if (optionVault) {
+    const config = await setObsidianDir(optionVault)
+    return config.obsidianDir!
+  }
+  const configured = await getObsidianDir()
+  if (configured) return configured
+  const selected = await chooseObsidianDir()
+  if (selected) {
+    const config = await setObsidianDir(selected)
+    return config.obsidianDir!
+  }
+  throw new Error(`Obsidian directory is not configured. Run: quill config set-vault <path>\nConfig file: ${configPath()}`)
+}
+
+const configCmd = program.command('config').description('Manage Quillarium global configuration')
+configCmd.command('set-vault')
+  .argument('<path>', 'Obsidian vault directory')
+  .description('Set the Obsidian vault directory used by quill init')
+  .action(async (dir) => {
+    const config = await setObsidianDir(dir)
+    console.log(`Obsidian directory: ${config.obsidianDir}`)
+  })
+configCmd.command('get-vault')
+  .description('Show the configured Obsidian vault directory')
+  .action(async () => {
+    const dir = await getObsidianDir()
+    if (!dir) {
+      console.log(`No Obsidian directory configured. Config file: ${configPath()}`)
+      return
+    }
+    console.log(dir)
+  })
+configCmd.command('choose-vault')
+  .description('Open a folder picker and save the selected Obsidian vault directory')
+  .action(async () => {
+    const selected = await chooseObsidianDir()
+    if (!selected) throw new Error('No folder selected or folder picker is unavailable.')
+    const config = await setObsidianDir(selected)
+    console.log(`Obsidian directory: ${config.obsidianDir}`)
+  })
+
 program.command('init')
   .argument('<title>', 'Novel title')
-  .requiredOption('--vault <path>', 'Obsidian vault root or workspace path')
+  .option('--vault <path>', 'Obsidian vault directory; also saves global config')
   .option('--genre <genre>', 'Genre profile', 'general')
   .option('--target-words <number>', 'Target word count', v => Number(v), 0)
   .option('--chapter-words <number>', 'Default chapter words', v => Number(v), 3200)
   .option('--section-words <number>', 'Default section words', v => Number(v), 1000)
   .description('Create a novel project folder under <vault>/novels/<title>')
   .action(async (title, opts) => {
+    const vault = await resolveVault(opts.vault)
     const paths = await createProject({
-      vault: path.resolve(opts.vault),
+      vault,
       title,
       genre: opts.genre,
       targetWords: opts.targetWords,

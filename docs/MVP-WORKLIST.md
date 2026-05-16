@@ -30,6 +30,9 @@ assemble context for one section, save generation runs, and produce consistency 
 
 ## Milestone 2: Novel Project Skeleton
 
+- [x] Add global Obsidian vault config.
+- [x] Make `quill init <title>` create under `<Obsidian Vault>/novels/<title>`.
+- [x] Attempt folder picker when no Obsidian vault is configured.
 - [x] Implement `quill init <title> --vault <path>`.
 - [x] Generate standard folder layout:
   - [x] `canon/`

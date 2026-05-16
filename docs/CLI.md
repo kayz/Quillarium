@@ -5,14 +5,25 @@ novel project made of Markdown files with YAML frontmatter.
 
 ## Create A Project
 
+First configure your Obsidian vault directory:
+
 ```bash
-pnpm cli init "My Novel" --vault ./local-vaults --genre historical-political
+pnpm cli config set-vault ./local-vaults
 ```
+
+Then create a novel by name:
+
+```bash
+pnpm cli init "My Novel" --genre historical-political
+```
+
+If no vault is configured, `quill init` attempts to open a system folder picker.
+On systems where that is unavailable, run `quill config set-vault <path>` first.
 
 This creates:
 
 ```text
-local-vaults/novels/My Novel/
+<Obsidian Vault>/novels/My Novel/
   project.yaml
   canon/
   characters/
