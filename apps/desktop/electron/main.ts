@@ -33,6 +33,7 @@ import {
   createGenerationRun,
   defaultBaseUrl,
   defaultModel,
+  generateCanonText,
   generateIntoRun,
   isAIConfigured,
   loadAIProfile
@@ -204,6 +205,44 @@ ipcMain.handle('doc:create', async (_event, root: string, kind: string, input) =
     default:
       throw new Error(`Unsupported document kind: ${kind}`)
   }
+})
+
+ipcMain.handle('canon:discuss', async (_event, _root: string, input) => {
+  const config = await loadAIProfile('background')
+  const mode = input.mode === 'summarize' ? 'summarize' : 'discuss'
+  const prompt = [
+    `Mode: ${mode}`,
+    `Canon title: ${input.title ?? ''}`,
+    `Current status: ${input.status ?? 'draft'}`,
+    `Current strength: ${input.strength ?? 'hard'}`,
+    `Current source: ${input.source ?? 'user'}`,
+    '',
+    'Current canon body:',
+    input.content ?? '',
+    '',
+    'Discussion transcript:',
+    input.transcript ?? '',
+    '',
+    mode === 'summarize'
+      ? [
+          'Please summarize the discussion into a canon entry.',
+          'Return exactly this structure:',
+          '## Canon',
+          '<the concise content that should be saved as canon>',
+          '',
+          '## Metadata',
+          'status: draft | confirmed | deprecated',
+          'strength: hard | soft',
+          'source: user | ai | imported | historical'
+        ].join('\n')
+      : [
+          'Writer message:',
+          input.message ?? '',
+          '',
+          'Reply as a careful canon discussion partner. Ask focused questions if the canon is still ambiguous; otherwise propose concrete rules.'
+        ].join('\n')
+  ].join('\n')
+  return generateCanonText(prompt, config)
 })
 
 ipcMain.handle('scene:context', async (_event, root: string, sceneId: string) =>

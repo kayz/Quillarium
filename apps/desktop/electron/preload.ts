@@ -20,6 +20,7 @@ const api = {
     ipcRenderer.invoke('doc:saveBody', filePath, data, body),
   createDoc: (root: string, kind: string, input: unknown) =>
     ipcRenderer.invoke('doc:create', root, kind, input),
+  discussCanon: (root: string, input: unknown) => ipcRenderer.invoke('canon:discuss', root, input),
   assembleContext: (root: string, sceneId: string) => ipcRenderer.invoke('scene:context', root, sceneId),
   checkScene: (root: string, sceneId: string) => ipcRenderer.invoke('scene:check', root, sceneId),
   checkSceneIntoRun: (root: string, sceneId: string) =>

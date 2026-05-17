@@ -86,7 +86,11 @@ export function buildSectionPrompt(context: string): string {
   ].join('\n')
 }
 
-export async function generateText(prompt: string, config: AIConfig): Promise<string> {
+export async function generateText(
+  prompt: string,
+  config: AIConfig,
+  systemPrompt = 'You are Quillarium, a continuity-aware fiction writing assistant.'
+): Promise<string> {
   if (!config.apiKey && !config.baseUrl.includes('localhost')) {
     throw new Error(
       'Missing QUILL_AI_API_KEY. Set QUILL_AI_API_KEY or use a local OpenAI-compatible endpoint.'
@@ -103,7 +107,7 @@ export async function generateText(prompt: string, config: AIConfig): Promise<st
       temperature: config.temperature,
       max_tokens: config.maxTokens,
       messages: [
-        { role: 'system', content: 'You are Quillarium, a continuity-aware fiction writing assistant.' },
+        { role: 'system', content: systemPrompt },
         { role: 'user', content: prompt }
       ]
     })
@@ -113,6 +117,20 @@ export async function generateText(prompt: string, config: AIConfig): Promise<st
   }
   const json = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> }
   return json.choices?.[0]?.message?.content ?? ''
+}
+
+export async function generateCanonText(prompt: string, config: AIConfig): Promise<string> {
+  return generateText(
+    prompt,
+    config,
+    [
+      'You are Quillarium Canon Curator.',
+      'Your job is to help the writer turn uncertain background material into stable canon for a long-form novel.',
+      'Discuss ambiguities first when needed, distinguish hard canon from soft canon, and avoid inventing facts not supported by the writer.',
+      'When asked to summarize, produce concise canon rules the novel must obey, then recommend status, strength, and source.',
+      'Use clear Chinese by default unless the user writes in another language.'
+    ].join('\n')
+  )
 }
 
 export async function createGenerationRun(

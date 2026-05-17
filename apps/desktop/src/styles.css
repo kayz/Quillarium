@@ -420,6 +420,20 @@ select {
   padding: 12px;
   text-align: left;
 }
+.module-nav button span:first-of-type {
+  min-width: 0;
+  flex: 1;
+}
+.nav-count {
+  margin-left: auto;
+  min-width: 24px;
+  border-radius: 999px;
+  padding: 2px 7px;
+  text-align: center;
+  background: var(--bg-muted);
+  color: var(--text-muted);
+  font-size: 12px;
+}
 .module-nav button.active {
   background: var(--bg-muted);
   color: var(--accent-strong);
@@ -735,6 +749,141 @@ select {
   display: block;
   color: var(--text-muted);
   margin: 4px 0 10px;
+}
+.canon-workspace {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-height: 0;
+}
+.module-head small {
+  color: var(--text-muted);
+}
+.canon-layout {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(260px, 0.9fr) minmax(420px, 1.6fr);
+  gap: 16px;
+}
+.canon-card-pane,
+.canon-detail {
+  min-height: 0;
+  overflow: auto;
+}
+.search-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-editor);
+  border-radius: 8px;
+  padding: 0 10px;
+  margin-bottom: 12px;
+}
+.search-box input {
+  flex: 1;
+  border: 0;
+  background: transparent;
+  outline: 0;
+}
+.canon-card-list {
+  display: grid;
+  gap: 10px;
+}
+.canon-card {
+  width: 100%;
+  border: 1px solid var(--border);
+  background: var(--bg-editor);
+  color: var(--text-main);
+  border-radius: 8px;
+  padding: 13px;
+  text-align: left;
+}
+.canon-card.active {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  box-shadow: inset 3px 0 0 var(--accent);
+}
+.canon-card-title {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+.canon-card small,
+.canon-card p {
+  color: var(--text-muted);
+}
+.canon-card p {
+  margin: 10px 0 0;
+  line-height: 1.6;
+}
+.canon-form-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.5fr) repeat(3, minmax(110px, 0.8fr));
+  gap: 10px;
+}
+.canon-form-grid label,
+.canon-body {
+  display: grid;
+  gap: 7px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.canon-body {
+  margin-top: 12px;
+}
+.canon-body textarea {
+  min-height: 180px;
+  resize: vertical;
+  line-height: 1.7;
+}
+.canon-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
+}
+.canon-actions button {
+  border: 1px solid var(--border);
+  background: var(--bg-editor);
+  border-radius: 7px;
+  padding: 8px 12px;
+}
+.discussion-panel {
+  margin-top: 16px;
+  border: 1px solid var(--border);
+  background: var(--bg-editor);
+  border-radius: 8px;
+  padding: 12px;
+}
+.discussion-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+}
+.discussion-head span {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  color: var(--text-main);
+  font-weight: 700;
+}
+.discussion-transcript {
+  min-height: 190px;
+  resize: vertical;
+  width: 100%;
+  line-height: 1.6;
+}
+.discussion-input {
+  margin-top: 10px;
+}
+.discussion-input textarea {
+  min-height: 82px;
+  resize: vertical;
+  width: 100%;
+  line-height: 1.6;
 }
 .loading {
   height: 100vh;

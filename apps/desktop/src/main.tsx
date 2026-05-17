@@ -11,7 +11,9 @@ import {
   GitBranch,
   Library,
   MapPin,
+  MessageSquareText,
   PenLine,
+  Search,
   Sparkles,
   UserRound,
   WandSparkles
@@ -472,8 +474,9 @@ function Workspace({
   }
 
   const createDoc = async (kind: string, input: Record<string, unknown>) => {
-    await window.quillarium.createDoc(root, kind, input)
+    const created = await window.quillarium.createDoc(root, kind, input)
     await load()
+    return created
   }
 
   return (
@@ -507,7 +510,7 @@ function Workspace({
             onSelect={setSelectedSceneId}
             language={language}
           />
-          <ModuleNav active={activeModule} onSelect={setActiveModule} language={language} />
+          <ModuleNav active={activeModule} onSelect={setActiveModule} docs={docs} language={language} />
         </aside>
         <main className="center">
           {!leftOpen && (
@@ -609,10 +612,12 @@ function Workspace({
             </>
           ) : (
             <ModuleView
+              root={root}
               module={activeModule}
               docs={docs}
               runs={data.runs}
               onCreate={createDoc}
+              onReload={load}
               language={language}
             />
           )}
@@ -969,12 +974,17 @@ function StructureTree({
 function ModuleNav({
   active,
   onSelect,
+  docs,
   language
 }: {
   active: ModuleName
   onSelect: (module: ModuleName) => void
+  docs: DocEntry[]
   language: LanguageName
 }) {
+  const counts: Partial<Record<ModuleName, number>> = {
+    canon: docs.filter((doc) => doc.data.type === 'canon').length
+  }
   const items = [
     ['write', PenLine, t(language, 'writing')],
     ['canon', Library, 'Canon'],
@@ -987,7 +997,8 @@ function ModuleNav({
     <div className="module-nav">
       {items.map(([id, Icon, label]) => (
         <button key={id} className={active === id ? 'active' : ''} onClick={() => onSelect(id)}>
-          <Icon size={18} /> {label}
+          <Icon size={18} /> <span>{label}</span>
+          {counts[id] !== undefined && <span className="nav-count">{counts[id]}</span>}
         </button>
       ))}
     </div>
@@ -995,16 +1006,20 @@ function ModuleNav({
 }
 
 function ModuleView({
+  root,
   module,
   docs,
   runs,
   onCreate,
+  onReload,
   language
 }: {
+  root: string
   module: ModuleName
   docs: DocEntry[]
   runs: RunSummary[]
-  onCreate: (kind: string, input: Record<string, unknown>) => Promise<void>
+  onCreate: (kind: string, input: Record<string, unknown>) => Promise<unknown>
+  onReload: () => Promise<void>
   language: LanguageName
 }) {
   const map: Record<string, string> = {
@@ -1032,6 +1047,17 @@ function ModuleView({
           ))}
         </div>
       </section>
+    )
+  }
+  if (module === 'canon') {
+    return (
+      <CanonWorkspace
+        root={root}
+        docs={docs.filter((doc) => doc.data.type === 'canon')}
+        onCreate={onCreate}
+        onReload={onReload}
+        language={language}
+      />
     )
   }
   return (
@@ -1068,6 +1094,289 @@ function ModuleView({
       </div>
     </section>
   )
+}
+
+function CanonWorkspace({
+  root,
+  docs,
+  onCreate,
+  onReload,
+  language
+}: {
+  root: string
+  docs: DocEntry[]
+  onCreate: (kind: string, input: Record<string, unknown>) => Promise<unknown>
+  onReload: () => Promise<void>
+  language: LanguageName
+}) {
+  const [query, setQuery] = useState('')
+  const [selectedId, setSelectedId] = useState<string | null>(docs[0]?.data.id ?? null)
+  const [title, setTitle] = useState('')
+  const [content, setContent] = useState('')
+  const [status, setStatus] = useState('draft')
+  const [strength, setStrength] = useState('hard')
+  const [source, setSource] = useState('user')
+  const [message, setMessage] = useState('')
+  const [transcript, setTranscript] = useState('')
+  const [aiBusy, setAiBusy] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLowerCase()
+    if (!needle) return docs
+    return docs.filter((doc) =>
+      [doc.data.title, doc.content, doc.data.status, doc.data.strength, doc.data.source]
+        .map((part) => String(part ?? '').toLowerCase())
+        .join('\n')
+        .includes(needle)
+    )
+  }, [docs, query])
+
+  const selected = docs.find((doc) => doc.data.id === selectedId) ?? docs[0] ?? null
+
+  useEffect(() => {
+    if (!selected) {
+      setSelectedId(null)
+      setTitle('')
+      setContent('')
+      setStatus('draft')
+      setStrength('hard')
+      setSource('user')
+      return
+    }
+    setSelectedId(selected.data.id)
+    setTitle(selected.data.title)
+    setContent(selected.content)
+    setStatus(String(selected.data.status ?? 'draft'))
+    setStrength(String(selected.data.strength ?? 'hard'))
+    setSource(String(selected.data.source ?? 'user'))
+    setMessage('')
+    setTranscript('')
+    setError(null)
+  }, [selected?.path])
+
+  const createCanon = async () => {
+    const count = docs.length + 1
+    await onCreate('canon', {
+      title: `${t(language, 'newCanon')} ${count}`,
+      content: '',
+      status: 'draft',
+      strength: 'hard',
+      source: 'user'
+    })
+  }
+
+  const saveCanon = async () => {
+    if (!selected || !title.trim()) return
+    setSaving(true)
+    try {
+      await window.quillarium.saveDocBody(
+        selected.path,
+        {
+          ...selected.data,
+          title: title.trim(),
+          status,
+          strength,
+          source
+        },
+        content
+      )
+      await onReload()
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const discuss = async () => {
+    if (!selected || !message.trim()) return
+    setAiBusy(true)
+    setError(null)
+    try {
+      const nextTranscript = [transcript, `\n\n### ${t(language, 'writer')}\n${message.trim()}`].join('')
+      const reply = await window.quillarium.discussCanon(root, {
+        mode: 'discuss',
+        title,
+        content,
+        status,
+        strength,
+        source,
+        transcript: nextTranscript,
+        message
+      })
+      setTranscript(`${nextTranscript}\n\n### ${t(language, 'canonCurator')}\n${reply}`)
+      setMessage('')
+    } catch (err) {
+      setError(String(err))
+    } finally {
+      setAiBusy(false)
+    }
+  }
+
+  const summarize = async () => {
+    if (!selected) return
+    setAiBusy(true)
+    setError(null)
+    try {
+      const reply = await window.quillarium.discussCanon(root, {
+        mode: 'summarize',
+        title,
+        content,
+        status,
+        strength,
+        source,
+        transcript
+      })
+      const parsed = parseCanonSummary(reply)
+      setContent(parsed.content || reply)
+      if (parsed.status) setStatus(parsed.status)
+      if (parsed.strength) setStrength(parsed.strength)
+      if (parsed.source) setSource(parsed.source)
+      setTranscript(`${transcript}\n\n### ${t(language, 'canonCurator')}\n${reply}`)
+    } catch (err) {
+      setError(String(err))
+    } finally {
+      setAiBusy(false)
+    }
+  }
+
+  return (
+    <section className="module-view module-view-full canon-workspace">
+      <div className="module-head">
+        <div>
+          <h2>Canon</h2>
+          <small>{t(language, 'canonWorkspaceHint')}</small>
+        </div>
+        <div className="inline-create">
+          <button onClick={createCanon}>{t(language, 'createCanonCard')}</button>
+        </div>
+      </div>
+      <div className="canon-layout">
+        <div className="canon-card-pane">
+          <label className="search-box">
+            <Search size={16} />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={t(language, 'searchCanon')}
+            />
+          </label>
+          <div className="canon-card-list">
+            {filtered.map((doc) => (
+              <button
+                key={doc.data.id}
+                className={`canon-card ${selected?.data.id === doc.data.id ? 'active' : ''}`}
+                onClick={() => setSelectedId(doc.data.id)}
+              >
+                <div className="canon-card-title">
+                  <strong>{doc.data.title}</strong>
+                  <span className={`badge ${doc.data.status === 'confirmed' ? 'ok' : 'warn'}`}>
+                    {doc.data.status}
+                  </span>
+                </div>
+                <small>
+                  {String(doc.data.strength ?? 'hard')} · {String(doc.data.source ?? 'user')}
+                </small>
+                <p>{doc.content.slice(0, 140) || t(language, 'emptyBody')}</p>
+              </button>
+            ))}
+            {filtered.length === 0 && <div className="empty-row">{t(language, 'noCanonFound')}</div>}
+          </div>
+        </div>
+        <div className="canon-detail">
+          {selected ? (
+            <>
+              <div className="canon-form-grid">
+                <label>
+                  {t(language, 'title')}
+                  <input value={title} onChange={(e) => setTitle(e.target.value)} />
+                </label>
+                <label>
+                  {t(language, 'status')}
+                  <select value={status} onChange={(e) => setStatus(e.target.value)}>
+                    <option value="draft">draft</option>
+                    <option value="confirmed">confirmed</option>
+                    <option value="deprecated">deprecated</option>
+                  </select>
+                </label>
+                <label>
+                  {t(language, 'strength')}
+                  <select value={strength} onChange={(e) => setStrength(e.target.value)}>
+                    <option value="hard">hard</option>
+                    <option value="soft">soft</option>
+                  </select>
+                </label>
+                <label>
+                  {t(language, 'source')}
+                  <select value={source} onChange={(e) => setSource(e.target.value)}>
+                    <option value="user">user</option>
+                    <option value="ai">ai</option>
+                    <option value="imported">imported</option>
+                    <option value="historical">historical</option>
+                  </select>
+                </label>
+              </div>
+              <label className="canon-body">
+                {t(language, 'canonContent')}
+                <textarea value={content} onChange={(e) => setContent(e.target.value)} />
+              </label>
+              <div className="canon-actions">
+                <button onClick={saveCanon} disabled={saving || !title.trim()}>
+                  {saving ? t(language, 'saving') : t(language, 'saveCanon')}
+                </button>
+              </div>
+              <div className="discussion-panel">
+                <div className="discussion-head">
+                  <span>
+                    <MessageSquareText size={16} /> {t(language, 'canonDiscussion')}
+                  </span>
+                  <small>{t(language, 'usesBackgroundAI')}</small>
+                </div>
+                <textarea
+                  className="discussion-transcript"
+                  value={transcript}
+                  onChange={(e) => setTranscript(e.target.value)}
+                  placeholder={t(language, 'discussionPlaceholder')}
+                />
+                <div className="discussion-input">
+                  <textarea
+                    value={message}
+                    onChange={(e) => setMessage(e.target.value)}
+                    placeholder={t(language, 'canonMessagePlaceholder')}
+                  />
+                  <div className="canon-actions">
+                    <button onClick={discuss} disabled={aiBusy || !message.trim()}>
+                      {t(language, 'discussWithAI')}
+                    </button>
+                    <button onClick={summarize} disabled={aiBusy || (!transcript.trim() && !content.trim())}>
+                      {t(language, 'summarizeToCanon')}
+                    </button>
+                  </div>
+                </div>
+                {error && <div className="error-box">{error}</div>}
+              </div>
+            </>
+          ) : (
+            <div className="empty-row">{t(language, 'noCanonCards')}</div>
+          )}
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function parseCanonSummary(text: string): {
+  content: string
+  status?: string
+  strength?: string
+  source?: string
+} {
+  const canonMatch = text.match(/##\s*Canon\s*\n([\s\S]*?)(?=\n##\s*Metadata|\s*$)/i)
+  const content = canonMatch?.[1]?.trim() ?? ''
+  const status = text.match(/status:\s*(draft|confirmed|deprecated)/i)?.[1]
+  const strength = text.match(/strength:\s*(hard|soft)/i)?.[1]
+  const source = text.match(/source:\s*(user|ai|imported|historical)/i)?.[1]
+  return { content, status, strength, source }
 }
 
 function ModuleFilters({
@@ -1112,7 +1421,7 @@ function ModuleCreateForm({
 }: {
   module: ModuleName
   docs: DocEntry[]
-  onCreate: (kind: string, input: Record<string, unknown>) => Promise<void>
+  onCreate: (kind: string, input: Record<string, unknown>) => Promise<unknown>
   language: LanguageName
 }) {
   const [title, setTitle] = useState('')
@@ -1176,7 +1485,7 @@ function OutlineBoard({
   language
 }: {
   docs: DocEntry[]
-  onCreate: (kind: string, input: Record<string, unknown>) => Promise<void>
+  onCreate: (kind: string, input: Record<string, unknown>) => Promise<unknown>
   language: LanguageName
 }) {
   const outlines = docs
@@ -1230,7 +1539,7 @@ function BeatBoard({
   language
 }: {
   docs: DocEntry[]
-  onCreate: (kind: string, input: Record<string, unknown>) => Promise<void>
+  onCreate: (kind: string, input: Record<string, unknown>) => Promise<unknown>
   language: LanguageName
 }) {
   const sections = docs.filter((doc) => doc.data.type === 'outline' && doc.data.level === 'section')
@@ -1557,6 +1866,8 @@ const I18N = {
     baseUrl: '接口地址',
     apiKey: 'API 密钥',
     model: '模型',
+    title: '标题',
+    source: '来源',
     newTitle: '新建标题',
     create: '新建',
     emptyBody: '暂无正文。',
@@ -1598,7 +1909,24 @@ const I18N = {
     check: '检查',
     close: '关闭',
     saveRemote: '保存远端',
-    saveAI: '保存 AI 配置'
+    saveAI: '保存 AI 配置',
+    newCanon: '新 Canon',
+    canonWorkspaceHint: '用卡片管理正设；每张卡片可和背景 AI 讨论后再归纳为约束。',
+    createCanonCard: '新建 Canon 卡片',
+    searchCanon: '搜索标题或内容',
+    noCanonFound: '没有匹配的 Canon 卡片。',
+    noCanonCards: '还没有 Canon 卡片。',
+    canonContent: 'Canon 内容',
+    saveCanon: '保存 Canon',
+    saving: '保存中...',
+    canonDiscussion: '内容整理',
+    usesBackgroundAI: '使用背景 AI 设置',
+    discussionPlaceholder: '这里会记录你和 AI 关于这张 Canon 卡片的讨论。',
+    canonMessagePlaceholder: '输入要和 AI 讨论的问题、材料或改写要求...',
+    discussWithAI: '与 AI 讨论',
+    summarizeToCanon: '归纳为 Canon',
+    writer: '作者',
+    canonCurator: 'Canon 整理员'
   },
   en: {
     welcomeSubtitle:
@@ -1650,6 +1978,8 @@ const I18N = {
     baseUrl: 'Base URL',
     apiKey: 'API Key',
     model: 'Model',
+    title: 'Title',
+    source: 'Source',
     newTitle: 'New title',
     create: 'Create',
     emptyBody: 'No body yet.',
@@ -1692,7 +2022,25 @@ const I18N = {
     check: 'Checks',
     close: 'Close',
     saveRemote: 'Save Remote',
-    saveAI: 'Save AI Settings'
+    saveAI: 'Save AI Settings',
+    newCanon: 'New Canon',
+    canonWorkspaceHint:
+      'Manage canon as cards; discuss each card with background AI before summarizing it into constraints.',
+    createCanonCard: 'New Canon Card',
+    searchCanon: 'Search title or content',
+    noCanonFound: 'No matching canon cards.',
+    noCanonCards: 'No canon cards yet.',
+    canonContent: 'Canon Content',
+    saveCanon: 'Save Canon',
+    saving: 'Saving...',
+    canonDiscussion: 'Content Curation',
+    usesBackgroundAI: 'Uses background AI profile',
+    discussionPlaceholder: 'Your discussion with AI about this canon card is recorded here.',
+    canonMessagePlaceholder: 'Ask a question, paste material, or request a revision...',
+    discussWithAI: 'Discuss with AI',
+    summarizeToCanon: 'Summarize to Canon',
+    writer: 'Writer',
+    canonCurator: 'Canon Curator'
   }
 } as const
 
