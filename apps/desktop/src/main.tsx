@@ -423,7 +423,9 @@ function Workspace({
   if (!data) return <div className="loading">加载中...</div>
 
   const docs = data.docs
-  const projectPath = selectedScene ? buildScenePath(docs, selectedScene) : '未选择场景'
+  const projectPath = selectedScene
+    ? buildScenePath(docs, selectedScene, language)
+    : t(language, 'noSceneSelected')
 
   const save = async () => {
     if (!doc) return
@@ -499,8 +501,13 @@ function Workspace({
             <span>{t(language, 'bookOutline')}</span>
             <button onClick={() => setLeftOpen(false)}>{t(language, 'collapse')}</button>
           </div>
-          <StructureTree docs={docs} selectedSceneId={selectedSceneId} onSelect={setSelectedSceneId} />
-          <ModuleNav active={activeModule} onSelect={setActiveModule} />
+          <StructureTree
+            docs={docs}
+            selectedSceneId={selectedSceneId}
+            onSelect={setSelectedSceneId}
+            language={language}
+          />
+          <ModuleNav active={activeModule} onSelect={setActiveModule} language={language} />
         </aside>
         <main className="center">
           {!leftOpen && (
@@ -520,19 +527,19 @@ function Workspace({
                   className={`tab ${centerTab === 'editor' ? 'active' : ''}`}
                   onClick={() => setCenterTab('editor')}
                 >
-                  {selectedScene?.data.title ?? '场景'}
+                  {selectedScene?.data.title ?? t(language, 'scene')}
                 </button>
                 <button
                   className={`tab ${centerTab === 'outline' ? 'active' : ''}`}
                   onClick={() => setCenterTab('outline')}
                 >
-                  Outline
+                  {t(language, 'outline')}
                 </button>
                 <button
                   className={`tab ${centerTab === 'beats' ? 'active' : ''}`}
                   onClick={() => setCenterTab('beats')}
                 >
-                  Beats
+                  {t(language, 'beats')}
                 </button>
               </div>
               <div className="toolbar">
@@ -550,7 +557,7 @@ function Workspace({
                 <button>U</button>
                 <span className="spacer" />
                 <button onClick={save} disabled={!dirty}>
-                  {dirty ? '保存 *' : '已保存'}
+                  {dirty ? `${t(language, 'save')} *` : t(language, 'saved')}
                 </button>
               </div>
               {!selectedScene && centerTab === 'editor' ? (
@@ -569,7 +576,7 @@ function Workspace({
                       setDoc({ ...doc, content: e.target.value })
                       setDirty(true)
                     }}
-                    placeholder="开始写作..."
+                    placeholder={t(language, 'startWriting')}
                   />
                   <div className="editor-actions">
                     <WordProgress
@@ -578,34 +585,42 @@ function Workspace({
                     />
                     <span className="badge ok">{String(selectedScene?.data.status ?? 'draft')}</span>
                     <button onClick={dryRun} disabled={busy || !selectedScene}>
-                      <Sparkles size={16} /> Dry Run
+                      <Sparkles size={16} /> {t(language, 'dryRun')}
                     </button>
                     <button onClick={generate} disabled={busy || !selectedScene}>
-                      <WandSparkles size={16} /> Generate
+                      <WandSparkles size={16} /> {t(language, 'generate')}
                     </button>
                     <button onClick={rewrite} disabled={busy || !selectedScene}>
-                      <PenLine size={16} /> Rewrite
+                      <PenLine size={16} /> {t(language, 'rewrite')}
                     </button>
                     <button onClick={runCheck} disabled={busy || !selectedScene}>
-                      <CheckCircle2 size={16} /> Check
+                      <CheckCircle2 size={16} /> {t(language, 'checkAction')}
                     </button>
                     <button className="accept" disabled>
-                      <CheckCircle2 size={16} /> Accept
+                      <CheckCircle2 size={16} /> {t(language, 'accept')}
                     </button>
                   </div>
                 </section>
               ) : null}
-              {centerTab === 'outline' && <OutlineBoard docs={docs} onCreate={createDoc} />}
-              {centerTab === 'beats' && <BeatBoard docs={docs} onCreate={createDoc} />}
+              {centerTab === 'outline' && (
+                <OutlineBoard docs={docs} onCreate={createDoc} language={language} />
+              )}
+              {centerTab === 'beats' && <BeatBoard docs={docs} onCreate={createDoc} language={language} />}
             </>
           ) : (
-            <ModuleView module={activeModule} docs={docs} runs={data.runs} onCreate={createDoc} />
+            <ModuleView
+              module={activeModule}
+              docs={docs}
+              runs={data.runs}
+              onCreate={createDoc}
+              language={language}
+            />
           )}
         </main>
         <aside className="inspector">
           <div className="sidebar-header">
-            <span>上下文</span>
-            <button onClick={() => setRightOpen(false)}>收起</button>
+            <span>{t(language, 'context')}</span>
+            <button onClick={() => setRightOpen(false)}>{t(language, 'collapse')}</button>
           </div>
           <Inspector
             docs={docs}
@@ -616,7 +631,13 @@ function Workspace({
           />
         </aside>
       </div>
-      <RunPanel root={root} runs={data.runs} sceneId={selectedSceneId} onAccepted={load} />
+      <RunPanel
+        root={root}
+        runs={data.runs}
+        sceneId={selectedSceneId}
+        onAccepted={load}
+        language={language}
+      />
     </div>
   )
 }
@@ -695,7 +716,9 @@ function TopChrome({
         }}
       >
         {themes.map((item) => (
-          <option key={item}>{item}</option>
+          <option key={item} value={item}>
+            {t(language, item)}
+          </option>
         ))}
       </select>
       <select
@@ -707,8 +730,8 @@ function TopChrome({
           await window.quillarium.setDensity(next)
         }}
       >
-        <option value="comfortable">comfortable</option>
-        <option value="compact">compact</option>
+        <option value="comfortable">{t(language, 'comfortable')}</option>
+        <option value="compact">{t(language, 'compact')}</option>
       </select>
       <select
         className="theme-select language-select"
@@ -810,7 +833,7 @@ function SettingsModal({
             <article key={profile} className="ai-profile-card">
               <strong>{t(language, profile)}</strong>
               <label>
-                Provider
+                {t(language, 'provider')}
                 <select
                   value={profiles[profile].provider}
                   onChange={(e) => updateProfile(profile, { provider: e.target.value as AIProviderName })}
@@ -824,14 +847,14 @@ function SettingsModal({
                 </select>
               </label>
               <label>
-                Base URL
+                {t(language, 'baseUrl')}
                 <input
                   value={profiles[profile].baseUrl}
                   onChange={(e) => updateProfile(profile, { baseUrl: e.target.value })}
                 />
               </label>
               <label>
-                API Key
+                {t(language, 'apiKey')}
                 <input
                   type="password"
                   value={profiles[profile].apiKey}
@@ -839,7 +862,7 @@ function SettingsModal({
                 />
               </label>
               <label>
-                Model
+                {t(language, 'model')}
                 <input
                   value={profiles[profile].model}
                   onChange={(e) => updateProfile(profile, { model: e.target.value })}
@@ -910,18 +933,20 @@ function defaultModel(provider: AIProviderName): string {
 function StructureTree({
   docs,
   selectedSceneId,
-  onSelect
+  onSelect,
+  language
 }: {
   docs: DocEntry[]
   selectedSceneId: string | null
   onSelect: (id: string) => void
+  language: LanguageName
 }) {
   const outlines = docs.filter((item) => item.data.type === 'outline')
   const scenes = docs.filter((item) => item.data.type === 'scene')
   return (
     <div className="tree">
       <div className="tree-node open">
-        <BookOpen size={15} /> 全书
+        <BookOpen size={15} /> {t(language, 'book')}
       </div>
       {outlines.map((outline) => (
         <div key={outline.data.id} className={`tree-node level-${outline.data.level ?? 'section'}`}>
@@ -941,14 +966,22 @@ function StructureTree({
   )
 }
 
-function ModuleNav({ active, onSelect }: { active: ModuleName; onSelect: (module: ModuleName) => void }) {
+function ModuleNav({
+  active,
+  onSelect,
+  language
+}: {
+  active: ModuleName
+  onSelect: (module: ModuleName) => void
+  language: LanguageName
+}) {
   const items = [
-    ['write', PenLine, 'Writing'],
+    ['write', PenLine, t(language, 'writing')],
     ['canon', Library, 'Canon'],
-    ['characters', UserRound, 'Characters'],
-    ['timeline', Clock3, 'Timeline'],
-    ['locations', MapPin, 'Locations'],
-    ['runs', Sparkles, 'Runs']
+    ['characters', UserRound, t(language, 'characters')],
+    ['timeline', Clock3, t(language, 'timeline')],
+    ['locations', MapPin, t(language, 'locations')],
+    ['runs', Sparkles, t(language, 'runs')]
   ] as const
   return (
     <div className="module-nav">
@@ -965,12 +998,14 @@ function ModuleView({
   module,
   docs,
   runs,
-  onCreate
+  onCreate,
+  language
 }: {
   module: ModuleName
   docs: DocEntry[]
   runs: RunSummary[]
   onCreate: (kind: string, input: Record<string, unknown>) => Promise<void>
+  language: LanguageName
 }) {
   const map: Record<string, string> = {
     canon: 'canon',
@@ -984,7 +1019,7 @@ function ModuleView({
   if (module === 'runs') {
     return (
       <section className="module-view">
-        <h2>Runs</h2>
+        <h2>{t(language, 'runs')}</h2>
         <div className="cards-grid">
           {runs.map((run) => (
             <article key={run.id} className="info-card">
@@ -1001,8 +1036,8 @@ function ModuleView({
   }
   return (
     <section className="module-view module-view-full">
-      <ModuleCreateForm module={module} docs={docs} onCreate={onCreate} />
-      <ModuleFilters module={module} docs={docs} />
+      <ModuleCreateForm module={module} docs={docs} onCreate={onCreate} language={language} />
+      <ModuleFilters module={module} docs={docs} language={language} />
       <div className="cards-grid">
         {filtered.map((doc) => (
           <article key={doc.data.id} className="info-card">
@@ -1027,7 +1062,7 @@ function ModuleView({
                 {String(doc.data.desire ?? 'no desire')}
               </small>
             )}
-            <p>{doc.content.slice(0, 180) || 'No body yet.'}</p>
+            <p>{doc.content.slice(0, 180) || t(language, 'emptyBody')}</p>
           </article>
         ))}
       </div>
@@ -1035,14 +1070,24 @@ function ModuleView({
   )
 }
 
-function ModuleFilters({ module, docs }: { module: ModuleName; docs: DocEntry[] }) {
+function ModuleFilters({
+  module,
+  docs,
+  language
+}: {
+  module: ModuleName
+  docs: DocEntry[]
+  language: LanguageName
+}) {
   if (module !== 'canon') return null
   const statuses = [...new Set(docs.filter((doc) => doc.data.type === 'canon').map((doc) => doc.data.status))]
   return (
     <div className="filter-row">
-      <span>status: {statuses.join(' / ') || 'none'}</span>
-      <span>strength: hard / soft</span>
-      <span>search: title and body indexed by CLI</span>
+      <span>
+        {t(language, 'status')}: {statuses.join(' / ') || t(language, 'none')}
+      </span>
+      <span>{t(language, 'strength')}: hard / soft</span>
+      <span>{t(language, 'searchHint')}</span>
     </div>
   )
 }
@@ -1062,11 +1107,13 @@ function RouteTable({ docs, locationId }: { docs: DocEntry[]; locationId: string
 function ModuleCreateForm({
   module,
   docs,
-  onCreate
+  onCreate,
+  language
 }: {
   module: ModuleName
   docs: DocEntry[]
   onCreate: (kind: string, input: Record<string, unknown>) => Promise<void>
+  language: LanguageName
 }) {
   const [title, setTitle] = useState('')
   const first = (type: string) => docs.find((doc) => doc.data.type === type)?.data.id ?? ''
@@ -1096,23 +1143,41 @@ function ModuleCreateForm({
   }
   return (
     <div className="module-head">
-      <h2>{module}</h2>
+      <h2>{moduleTitle(module, language)}</h2>
       {kindMap[module] && (
         <div className="inline-create">
-          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="新建标题" />
-          <button onClick={submit}>新建</button>
+          <input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder={t(language, 'newTitle')}
+          />
+          <button onClick={submit}>{t(language, 'create')}</button>
         </div>
       )}
     </div>
   )
 }
 
+function moduleTitle(module: ModuleName, language: LanguageName): string {
+  const map: Record<ModuleName, keyof typeof I18N.zh> = {
+    write: 'writing',
+    canon: 'canon',
+    characters: 'characters',
+    timeline: 'timeline',
+    locations: 'locations',
+    runs: 'runs'
+  }
+  return t(language, map[module])
+}
+
 function OutlineBoard({
   docs,
-  onCreate
+  onCreate,
+  language
 }: {
   docs: DocEntry[]
   onCreate: (kind: string, input: Record<string, unknown>) => Promise<void>
+  language: LanguageName
 }) {
   const outlines = docs
     .filter((doc) => doc.data.type === 'outline')
@@ -1134,10 +1199,14 @@ function OutlineBoard({
   return (
     <section className="module-view">
       <div className="module-head">
-        <h2>Outline</h2>
+        <h2>{t(language, 'outline')}</h2>
         <div className="inline-create">
-          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="新建节纲" />
-          <button onClick={createSection}>新建节纲</button>
+          <input
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder={t(language, 'newSectionOutline')}
+          />
+          <button onClick={createSection}>{t(language, 'newSectionOutline')}</button>
         </div>
       </div>
       <div className="cards-grid">
@@ -1157,10 +1226,12 @@ function OutlineBoard({
 
 function BeatBoard({
   docs,
-  onCreate
+  onCreate,
+  language
 }: {
   docs: DocEntry[]
   onCreate: (kind: string, input: Record<string, unknown>) => Promise<void>
+  language: LanguageName
 }) {
   const sections = docs.filter((doc) => doc.data.type === 'outline' && doc.data.level === 'section')
   const firstTimeline = docs.find((doc) => doc.data.type === 'timeline_event')?.data.id
@@ -1183,14 +1254,14 @@ function BeatBoard({
   }
   return (
     <section className="module-view">
-      <h2>Beat Board</h2>
+      <h2>{t(language, 'beats')}</h2>
       <div className="cards-grid">
         {sections.map((section) => (
           <article key={section.data.id} className="info-card beat-card">
             <strong>{section.data.title}</strong>
             <small>{section.data.chapter_hook ? 'chapter hook' : 'section beat'}</small>
             <p>{section.content.slice(0, 180)}</p>
-            <button onClick={() => createSceneFromSection(section)}>生成场景</button>
+            <button onClick={() => createSceneFromSection(section)}>{t(language, 'createScene')}</button>
           </article>
         ))}
       </div>
@@ -1219,32 +1290,54 @@ function Inspector({
   const issues = checkReport.split('\n').filter((line) => line.startsWith('- ['))
   return (
     <div className="inspector-content">
-      <h3>Context & Checks</h3>
-      <InspectorCard title="Assembled context" ok>
-        <p>{context ? `${context.length.toLocaleString()} 字符已组装` : '未组装'}</p>
+      <h3>{t(language, 'contextAndChecks')}</h3>
+      <InspectorCard title={t(language, 'assembledContext')} ok language={language}>
+        <p>
+          {context
+            ? `${context.length.toLocaleString()} ${t(language, 'charsAssembled')}`
+            : t(language, 'notAssembled')}
+        </p>
       </InspectorCard>
-      <InspectorCard title="Canon constraints" ok>
+      <InspectorCard title={t(language, 'canonConstraints')} ok language={language}>
         {canon.map((item) => (
           <p key={item.data.id}>• {item.data.title}</p>
         ))}
       </InspectorCard>
-      <InspectorCard title={`Character state: ${pov?.data.title ?? '未选择'}`} ok>
-        <p>身份：{String(pov?.data.role ?? '')}</p>
+      <InspectorCard
+        title={`${t(language, 'characterState')}: ${pov?.data.title ?? t(language, 'notSelected')}`}
+        ok
+        language={language}
+      >
         <p>
-          情绪：
+          {t(language, 'identity')}: {String(pov?.data.role ?? '')}
+        </p>
+        <p>
+          {t(language, 'emotion')}:
           {String(
             (pov?.data.scene_state as Record<string, unknown> | undefined)?.emotional_state ?? '未记录'
           )}
         </p>
       </InspectorCard>
-      <InspectorCard title={`Timeline node: ${timeline?.data.title ?? '未选择'}`} ok>
-        <p>时间：{String(timeline?.data.date ?? '')}</p>
-        <p>事件：{timeline?.content.slice(0, 80)}</p>
+      <InspectorCard
+        title={`${t(language, 'timelineNode')}: ${timeline?.data.title ?? t(language, 'notSelected')}`}
+        ok
+        language={language}
+      >
+        <p>
+          {t(language, 'time')}: {String(timeline?.data.date ?? '')}
+        </p>
+        <p>
+          {t(language, 'event')}: {timeline?.content.slice(0, 80)}
+        </p>
       </InspectorCard>
-      <InspectorCard title={`Location: ${location?.data.title ?? '未选择'}`} ok>
+      <InspectorCard
+        title={`${t(language, 'location')}: ${location?.data.title ?? t(language, 'notSelected')}`}
+        ok
+        language={language}
+      >
         <p>{String(location?.data.description ?? '')}</p>
       </InspectorCard>
-      <InspectorCard title="Consistency check results" ok={issues.length === 0}>
+      <InspectorCard title={t(language, 'consistencyResults')} ok={issues.length === 0} language={language}>
         {issues.length ? (
           issues.map((issue, i) => <p key={i}>{issue}</p>)
         ) : (
@@ -1255,12 +1348,22 @@ function Inspector({
   )
 }
 
-function InspectorCard({ title, ok, children }: { title: string; ok?: boolean; children: React.ReactNode }) {
+function InspectorCard({
+  title,
+  ok,
+  children,
+  language
+}: {
+  title: string
+  ok?: boolean
+  children: React.ReactNode
+  language: LanguageName
+}) {
   return (
     <article className="inspector-card">
       <div className="card-head">
         <strong>{title}</strong>
-        <span className={ok ? 'badge ok' : 'badge warn'}>{ok ? '符合' : '注意'}</span>
+        <span className={ok ? 'badge ok' : 'badge warn'}>{ok ? t(language, 'ok') : t(language, 'warn')}</span>
       </div>
       <div className="card-body">{children}</div>
     </article>
@@ -1271,12 +1374,14 @@ function RunPanel({
   root,
   runs,
   sceneId,
-  onAccepted
+  onAccepted,
+  language
 }: {
   root: string
   runs: RunSummary[]
   sceneId: string | null
   onAccepted: () => Promise<void>
+  language: LanguageName
 }) {
   const filtered = runs.filter((run) => !sceneId || run.scene_id === sceneId)
   const [selectedRun, setSelectedRun] = useState<string | null>(null)
@@ -1323,28 +1428,28 @@ function RunPanel({
               className={activeFile === file ? 'active' : ''}
               onClick={() => setActiveFile(file)}
             >
-              {file}
+              {runFileLabel(file, language)}
             </button>
           )
         )}
         <span className="spacer" />
         <button onClick={accept} disabled={!currentRun}>
-          Accept Raw
+          {t(language, 'acceptRaw')}
         </button>
         <button onClick={() => setActiveFile('diff')} disabled={!currentRun}>
-          Compare
+          {t(language, 'compare')}
         </button>
       </div>
       <div className="run-split">
         <div className="run-table">
           <div className="run-row header">
-            <span>类型</span>
-            <span>模型</span>
-            <span>时间</span>
-            <span>状态</span>
+            <span>{t(language, 'type')}</span>
+            <span>{t(language, 'model')}</span>
+            <span>{t(language, 'time')}</span>
+            <span>{t(language, 'status')}</span>
           </div>
           {filtered.length === 0 ? (
-            <div className="empty-row">暂无 run。点击 Dry Run 或 Generate 可创建记录。</div>
+            <div className="empty-row">{t(language, 'noRuns')}</div>
           ) : (
             filtered.map((run) => (
               <button
@@ -1364,6 +1469,17 @@ function RunPanel({
       </div>
     </footer>
   )
+}
+
+function runFileLabel(file: string, language: LanguageName): string {
+  const labels: Record<string, keyof typeof I18N.zh> = {
+    'metadata.yaml': 'runMetadata',
+    'prompt.md': 'runPrompt',
+    'output-raw.md': 'runRaw',
+    'output-accepted.md': 'runAccepted',
+    'check-report.md': 'runCheckReport'
+  }
+  return labels[file] ? t(language, labels[file]) : file
 }
 
 function buildSimpleDiff(raw: string, accepted: string): string {
@@ -1386,9 +1502,9 @@ function WordProgress({ content, target }: { content: string; target: number }) 
   )
 }
 
-function buildScenePath(docs: DocEntry[], scene: DocEntry): string {
+function buildScenePath(docs: DocEntry[], scene: DocEntry, language: LanguageName): string {
   const section = docs.find((doc) => doc.data.id === scene.data.section)
-  return `写作 / ${section?.data.title ?? '节'} / ${scene.data.title}`
+  return `${t(language, 'writing')} / ${section?.data.title ?? t(language, 'section')} / ${scene.data.title}`
 }
 
 const I18N = {
@@ -1401,16 +1517,80 @@ const I18N = {
     novelTitle: '小说名',
     openExistingProject: '打开已有项目',
     bookOutline: '全书大纲',
+    book: '全书',
+    writing: '写作',
+    canon: 'Canon',
+    characters: '人物',
+    timeline: '时间线',
+    locations: '地点',
+    runs: '运行记录',
     collapse: '收起',
     outline: '大纲',
+    beats: '节拍板',
     checks: '检查',
     noScene: '还没有场景',
+    noSceneSelected: '未选择场景',
+    scene: '场景',
+    section: '节',
+    save: '保存',
+    saved: '已保存',
+    startWriting: '开始写作...',
     noSceneHint: '先在 Outline 或 Beats 中创建节纲和场景，正文会显示在这里。',
     aiReady: 'AI 已配置',
     aiNotConfigured: 'AI 未配置',
     initLocalGit: '初始化本地 Git',
     privacyLocal: '隐私默认：无远端',
     settings: '设置',
+    paper: '纸页',
+    ink: '墨色',
+    mist: '雾白',
+    bamboo: '竹青',
+    comfortable: '舒适',
+    compact: '紧凑',
+    dryRun: '试运行',
+    generate: '生成',
+    rewrite: '重写',
+    checkAction: '检查',
+    accept: '采纳',
+    context: '上下文',
+    provider: '服务商',
+    baseUrl: '接口地址',
+    apiKey: 'API 密钥',
+    model: '模型',
+    newTitle: '新建标题',
+    create: '新建',
+    emptyBody: '暂无正文。',
+    status: '状态',
+    strength: '强度',
+    none: '无',
+    searchHint: '搜索：标题和正文由 CLI 索引',
+    acceptRaw: '采纳原文',
+    compare: '对比',
+    type: '类型',
+    time: '时间',
+    noRuns: '暂无运行记录。点击试运行或生成可创建记录。',
+    runMetadata: '元数据',
+    runPrompt: '提示词',
+    runRaw: '原始输出',
+    runAccepted: '已采纳输出',
+    runCheckReport: '检查报告',
+    newSectionOutline: '新建节纲',
+    createScene: '生成场景',
+    contextAndChecks: '上下文与检查',
+    assembledContext: '已组装上下文',
+    charsAssembled: '字符已组装',
+    notAssembled: '未组装',
+    canonConstraints: 'Canon 约束',
+    characterState: '人物状态',
+    notSelected: '未选择',
+    identity: '身份',
+    emotion: '情绪',
+    timelineNode: '时间节点',
+    event: '事件',
+    location: '地点',
+    consistencyResults: '一致性检查结果',
+    ok: '符合',
+    warn: '注意',
     privacyHint: '小说项目默认只保存在本地 Obsidian 目录。远端仓库必须手动配置，建议使用私有仓库。',
     aiSettings: 'AI 配置',
     prose: '正文',
@@ -1430,16 +1610,80 @@ const I18N = {
     novelTitle: 'Novel title',
     openExistingProject: 'Open Existing Project',
     bookOutline: 'Book Outline',
+    book: 'Book',
+    writing: 'Writing',
+    canon: 'Canon',
+    characters: 'Characters',
+    timeline: 'Timeline',
+    locations: 'Locations',
+    runs: 'Runs',
     collapse: 'Collapse',
     outline: 'Outline',
+    beats: 'Beats',
     checks: 'Checks',
     noScene: 'No scene yet',
+    noSceneSelected: 'No scene selected',
+    scene: 'Scene',
+    section: 'Section',
+    save: 'Save',
+    saved: 'Saved',
+    startWriting: 'Start writing...',
     noSceneHint: 'Create section outlines and scenes in Outline or Beats first. Prose will appear here.',
     aiReady: 'AI configured',
     aiNotConfigured: 'AI not configured',
     initLocalGit: 'Initialize Local Git',
     privacyLocal: 'Private default: no remote',
     settings: 'Settings',
+    paper: 'Paper',
+    ink: 'Ink',
+    mist: 'Mist',
+    bamboo: 'Bamboo',
+    comfortable: 'Comfortable',
+    compact: 'Compact',
+    dryRun: 'Dry Run',
+    generate: 'Generate',
+    rewrite: 'Rewrite',
+    checkAction: 'Check',
+    accept: 'Accept',
+    context: 'Context',
+    provider: 'Provider',
+    baseUrl: 'Base URL',
+    apiKey: 'API Key',
+    model: 'Model',
+    newTitle: 'New title',
+    create: 'Create',
+    emptyBody: 'No body yet.',
+    status: 'Status',
+    strength: 'Strength',
+    none: 'None',
+    searchHint: 'Search: title and body are indexed by CLI',
+    acceptRaw: 'Accept Raw',
+    compare: 'Compare',
+    type: 'Type',
+    time: 'Time',
+    noRuns: 'No runs yet. Click Dry Run or Generate to create one.',
+    runMetadata: 'Metadata',
+    runPrompt: 'Prompt',
+    runRaw: 'Raw output',
+    runAccepted: 'Accepted output',
+    runCheckReport: 'Check report',
+    newSectionOutline: 'New Section Outline',
+    createScene: 'Create Scene',
+    contextAndChecks: 'Context & Checks',
+    assembledContext: 'Assembled context',
+    charsAssembled: 'characters assembled',
+    notAssembled: 'Not assembled',
+    canonConstraints: 'Canon constraints',
+    characterState: 'Character state',
+    notSelected: 'Not selected',
+    identity: 'Identity',
+    emotion: 'Emotion',
+    timelineNode: 'Timeline node',
+    event: 'Event',
+    location: 'Location',
+    consistencyResults: 'Consistency check results',
+    ok: 'OK',
+    warn: 'Review',
     privacyHint:
       'Novel projects stay in your local Obsidian vault by default. Remotes must be configured explicitly; private repositories are recommended.',
     aiSettings: 'AI Settings',
