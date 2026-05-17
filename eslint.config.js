@@ -3,7 +3,7 @@ import tseslint from 'typescript-eslint'
 
 export default [
   {
-    ignores: ['**/dist/**', '**/node_modules/**', '**/*.tsbuildinfo']
+    ignores: ['**/dist/**', '**/node_modules/**', '**/*.tsbuildinfo', 'apps/desktop/electron/preload.cjs']
   },
   js.configs.recommended,
   ...tseslint.configs.recommended,

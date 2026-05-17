@@ -43,7 +43,7 @@ async function createWindow() {
     title: 'Quillarium',
     backgroundColor: '#f4f0e7',
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(__dirname, '../../electron/preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false
     }

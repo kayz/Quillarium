@@ -86,6 +86,10 @@ function App() {
 
   const refresh = async () => {
     try {
+      if (!window.quillarium) {
+        setError('Quillarium desktop bridge is not available. Please reload the Electron window.')
+        return
+      }
       const config = await window.quillarium.getConfig()
       if (config.theme) setTheme(config.theme as ThemeName)
       if (config.density) setDensity(config.density as DensityName)
@@ -489,7 +493,12 @@ function Workspace({
                   {dirty ? '保存 *' : '已保存'}
                 </button>
               </div>
-              {centerTab === 'editor' && (
+              {!selectedScene && centerTab === 'editor' ? (
+                <section className="editor-page empty-editor">
+                  <h2>还没有场景</h2>
+                  <p>先在 Outline 或 Beats 中创建节纲和场景，正文会显示在这里。</p>
+                </section>
+              ) : centerTab === 'editor' ? (
                 <section className="editor-page">
                   <input className="scene-title" value={(doc?.data.title as string) ?? ''} readOnly />
                   <textarea
@@ -525,7 +534,7 @@ function Workspace({
                     </button>
                   </div>
                 </section>
-              )}
+              ) : null}
               {centerTab === 'outline' && <OutlineBoard docs={docs} onCreate={createDoc} />}
               {centerTab === 'beats' && <BeatBoard docs={docs} onCreate={createDoc} />}
             </>
