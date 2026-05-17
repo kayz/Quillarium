@@ -11,6 +11,17 @@ export interface QuillariumConfig {
   obsidianDir?: string
   theme?: 'paper' | 'ink' | 'mist' | 'bamboo'
   density?: 'compact' | 'comfortable'
+  language?: 'zh' | 'en'
+  aiProfiles?: Partial<Record<'prose' | 'background' | 'check', AIProfileConfig>>
+}
+
+export interface AIProfileConfig {
+  provider: 'openai-compatible' | 'openai' | 'claude' | 'gemini' | 'deepseek' | 'ollama'
+  baseUrl?: string
+  apiKey?: string
+  model?: string
+  temperature?: number
+  maxTokens?: number
 }
 
 export function configDir(): string {

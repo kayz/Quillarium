@@ -7,6 +7,10 @@ const api = {
   setVault: (dir: string) => ipcRenderer.invoke('config:setVault', dir),
   setTheme: (theme: string) => ipcRenderer.invoke('config:setTheme', theme),
   setDensity: (density: string) => ipcRenderer.invoke('config:setDensity', density),
+  setLanguage: (language: string) => ipcRenderer.invoke('config:setLanguage', language),
+  saveAIProfile: (profile: string, input: unknown) =>
+    ipcRenderer.invoke('config:saveAIProfile', profile, input),
+  aiStatus: () => ipcRenderer.invoke('config:aiStatus'),
   listProjects: () => ipcRenderer.invoke('project:list'),
   createProject: (input: unknown) => ipcRenderer.invoke('project:create', input),
   chooseProject: () => ipcRenderer.invoke('project:choose'),

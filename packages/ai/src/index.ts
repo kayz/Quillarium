@@ -1,7 +1,7 @@
-import { createRun, writeRunFile, writeRunMetadata, type RunMetadata } from '@quillarium/core'
+import { createRun, loadConfig, writeRunFile, writeRunMetadata, type RunMetadata } from '@quillarium/core'
 
 export interface AIConfig {
-  provider: string
+  provider: 'openai-compatible' | 'openai' | 'claude' | 'gemini' | 'deepseek' | 'ollama'
   baseUrl: string
   apiKey: string
   model: string
@@ -11,13 +11,68 @@ export interface AIConfig {
 
 export function loadAIConfig(env: NodeJS.ProcessEnv = process.env): AIConfig {
   return {
-    provider: env.QUILL_AI_PROVIDER ?? 'openai-compatible',
+    provider: (env.QUILL_AI_PROVIDER as AIConfig['provider']) ?? 'openai-compatible',
     baseUrl: env.QUILL_AI_BASE_URL ?? 'https://api.openai.com/v1',
     apiKey: env.QUILL_AI_API_KEY ?? '',
     model: env.QUILL_AI_MODEL ?? 'gpt-4o-mini',
     temperature: Number(env.QUILL_AI_TEMPERATURE ?? '0.7'),
     maxTokens: Number(env.QUILL_AI_MAX_TOKENS ?? '2000')
   }
+}
+
+export async function loadAIProfile(
+  profile: 'prose' | 'background' | 'check' = 'prose',
+  env: NodeJS.ProcessEnv = process.env
+): Promise<AIConfig> {
+  const fallback = loadAIConfig(env)
+  const saved = (await loadConfig()).aiProfiles?.[profile]
+  if (!saved) return fallback
+  return {
+    provider: saved.provider ?? fallback.provider,
+    baseUrl: saved.baseUrl ?? defaultBaseUrl(saved.provider ?? fallback.provider),
+    apiKey: saved.apiKey ?? '',
+    model: saved.model ?? defaultModel(saved.provider ?? fallback.provider),
+    temperature: saved.temperature ?? fallback.temperature,
+    maxTokens: saved.maxTokens ?? fallback.maxTokens
+  }
+}
+
+export function defaultBaseUrl(provider: AIConfig['provider']): string {
+  switch (provider) {
+    case 'openai':
+    case 'openai-compatible':
+      return 'https://api.openai.com/v1'
+    case 'claude':
+      return 'https://api.anthropic.com/v1'
+    case 'gemini':
+      return 'https://generativelanguage.googleapis.com/v1beta'
+    case 'deepseek':
+      return 'https://api.deepseek.com/v1'
+    case 'ollama':
+      return 'http://localhost:11434/v1'
+  }
+}
+
+export function defaultModel(provider: AIConfig['provider']): string {
+  switch (provider) {
+    case 'openai':
+    case 'openai-compatible':
+      return 'gpt-4o-mini'
+    case 'claude':
+      return 'claude-3-5-sonnet-latest'
+    case 'gemini':
+      return 'gemini-1.5-pro'
+    case 'deepseek':
+      return 'deepseek-chat'
+    case 'ollama':
+      return 'llama3.1'
+  }
+}
+
+export function isAIConfigured(config: AIConfig): boolean {
+  return Boolean(
+    config.model && (config.apiKey || config.provider === 'ollama' || config.baseUrl.includes('localhost'))
+  )
 }
 
 export function buildSectionPrompt(context: string): string {

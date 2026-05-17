@@ -22,6 +22,25 @@ type ThemeName = 'paper' | 'ink' | 'mist' | 'bamboo'
 type ModuleName = 'write' | 'canon' | 'characters' | 'timeline' | 'locations' | 'runs'
 type CenterTab = 'editor' | 'outline' | 'beats'
 type DensityName = 'compact' | 'comfortable'
+type LanguageName = 'zh' | 'en'
+type AIProfileName = 'prose' | 'background' | 'check'
+type AIProviderName = 'openai-compatible' | 'openai' | 'claude' | 'gemini' | 'deepseek' | 'ollama'
+
+interface AIProfileForm {
+  provider: AIProviderName
+  baseUrl: string
+  apiKey: string
+  model: string
+  temperature: number
+  maxTokens: number
+}
+
+interface AIStatus {
+  prose: boolean
+  background: boolean
+  check: boolean
+  ready: boolean
+}
 
 interface ProjectListItem {
   root: string
@@ -71,6 +90,13 @@ interface GitState {
 function App() {
   const [theme, setTheme] = useState<ThemeName>('paper')
   const [density, setDensity] = useState<DensityName>('comfortable')
+  const [language, setLanguage] = useState<LanguageName>('zh')
+  const [aiStatus, setAiStatus] = useState<AIStatus>({
+    prose: false,
+    background: false,
+    check: false,
+    ready: false
+  })
   const [vault, setVault] = useState<string | null>(null)
   const [projects, setProjects] = useState<ProjectListItem[]>([])
   const [workspaceRoot, setWorkspaceRoot] = useState<string | null>(null)
@@ -93,9 +119,11 @@ function App() {
       const config = await window.quillarium.getConfig()
       if (config.theme) setTheme(config.theme as ThemeName)
       if (config.density) setDensity(config.density as DensityName)
+      if (config.language) setLanguage(config.language as LanguageName)
       const v = await window.quillarium.getVault()
       setVault(v)
       setProjects(await window.quillarium.listProjects())
+      setAiStatus(await window.quillarium.aiStatus())
       setError(null)
     } catch (err) {
       setError(String(err))
@@ -113,9 +141,13 @@ function App() {
         projects={projects}
         theme={theme}
         density={density}
+        language={language}
+        aiStatus={aiStatus}
         error={error}
         onTheme={setTheme}
         onDensity={setDensity}
+        onLanguage={setLanguage}
+        onAIStatus={setAiStatus}
         onRefresh={refresh}
         onOpen={setWorkspaceRoot}
       />
@@ -128,8 +160,12 @@ function App() {
         root={workspaceRoot}
         theme={theme}
         density={density}
+        language={language}
+        aiStatus={aiStatus}
         onTheme={setTheme}
         onDensity={setDensity}
+        onLanguage={setLanguage}
+        onAIStatus={setAiStatus}
         onBack={() => setWorkspaceRoot(null)}
       />
     </ErrorBoundary>
@@ -154,9 +190,13 @@ function Welcome({
   projects,
   theme,
   density,
+  language,
+  aiStatus,
   error,
   onTheme,
   onDensity,
+  onLanguage,
+  onAIStatus,
   onRefresh,
   onOpen
 }: {
@@ -164,9 +204,13 @@ function Welcome({
   projects: ProjectListItem[]
   theme: ThemeName
   density: DensityName
+  language: LanguageName
+  aiStatus: AIStatus
   error: string | null
   onTheme: (theme: ThemeName) => void
   onDensity: (density: DensityName) => void
+  onLanguage: (language: LanguageName) => void
+  onAIStatus: (status: AIStatus) => void
   onRefresh: () => Promise<void>
   onOpen: (root: string) => void
 }) {
@@ -201,8 +245,12 @@ function Welcome({
       <TopChrome
         theme={theme}
         density={density}
+        language={language}
+        aiStatus={aiStatus}
         onTheme={onTheme}
         onDensity={onDensity}
+        onLanguage={onLanguage}
+        onAIStatus={onAIStatus}
         projectName="Quillarium"
         path="羽笔馆"
       />
@@ -210,19 +258,19 @@ function Welcome({
         <section className="welcome-hero">
           <div className="brand-mark">Q</div>
           <h1>Quillarium</h1>
-          <p>为长篇小说而建的 AI 写作书房。世界、人物、时间线与手稿一起生长。</p>
+          <p>{t(language, 'welcomeSubtitle')}</p>
           <button className="primary" onClick={chooseVault}>
-            <FolderOpen size={16} /> {vault ? '更换 Obsidian 目录' : '选择 Obsidian 目录'}
+            <FolderOpen size={16} /> {vault ? t(language, 'changeVault') : t(language, 'chooseVault')}
           </button>
           {vault && <code>{vault}</code>}
           {error && <div className="error-box">{error}</div>}
         </section>
         <section className="welcome-panel">
           <div className="panel-title">
-            <BookOpen size={17} /> 小说项目
+            <BookOpen size={17} /> {t(language, 'novelProjects')}
           </div>
           {projects.length === 0 ? (
-            <div className="empty">还没有项目。创建后会出现在 Obsidian 目录的 novels 文件夹下。</div>
+            <div className="empty">{t(language, 'noProjects')}</div>
           ) : (
             <div className="project-list">
               {projects.map((project) => (
@@ -237,7 +285,7 @@ function Welcome({
             <input
               value={form.title}
               onChange={(e) => setForm({ ...form, title: e.target.value })}
-              placeholder="小说名"
+              placeholder={t(language, 'novelTitle')}
             />
             <input
               value={form.genre}
@@ -274,7 +322,7 @@ function Welcome({
               创建小说
             </button>
             <button className="secondary" onClick={chooseProject}>
-              <FolderOpen size={16} /> 打开已有项目
+              <FolderOpen size={16} /> {t(language, 'openExistingProject')}
             </button>
           </div>
         </section>
@@ -287,15 +335,23 @@ function Workspace({
   root,
   theme,
   density,
+  language,
+  aiStatus,
   onTheme,
   onDensity,
+  onLanguage,
+  onAIStatus,
   onBack
 }: {
   root: string
   theme: ThemeName
   density: DensityName
+  language: LanguageName
+  aiStatus: AIStatus
   onTheme: (theme: ThemeName) => void
   onDensity: (density: DensityName) => void
+  onLanguage: (language: LanguageName) => void
+  onAIStatus: (status: AIStatus) => void
   onBack: () => void
 }) {
   const [data, setData] = useState<WorkspaceData | null>(null)
@@ -423,8 +479,12 @@ function Workspace({
       <TopChrome
         theme={theme}
         density={density}
+        language={language}
+        aiStatus={aiStatus}
         onTheme={onTheme}
         onDensity={onDensity}
+        onLanguage={onLanguage}
+        onAIStatus={onAIStatus}
         projectName={data.project.title}
         path={projectPath}
         onBack={onBack}
@@ -436,8 +496,8 @@ function Workspace({
       <div className="workspace">
         <aside className="sidebar">
           <div className="sidebar-header">
-            <span>全书大纲</span>
-            <button onClick={() => setLeftOpen(false)}>收起</button>
+            <span>{t(language, 'bookOutline')}</span>
+            <button onClick={() => setLeftOpen(false)}>{t(language, 'collapse')}</button>
           </div>
           <StructureTree docs={docs} selectedSceneId={selectedSceneId} onSelect={setSelectedSceneId} />
           <ModuleNav active={activeModule} onSelect={setActiveModule} />
@@ -445,12 +505,12 @@ function Workspace({
         <main className="center">
           {!leftOpen && (
             <button className="panel-toggle left" onClick={() => setLeftOpen(true)}>
-              大纲
+              {t(language, 'outline')}
             </button>
           )}
           {!rightOpen && (
             <button className="panel-toggle right" onClick={() => setRightOpen(true)}>
-              检查
+              {t(language, 'checks')}
             </button>
           )}
           {activeModule === 'write' ? (
@@ -495,8 +555,8 @@ function Workspace({
               </div>
               {!selectedScene && centerTab === 'editor' ? (
                 <section className="editor-page empty-editor">
-                  <h2>还没有场景</h2>
-                  <p>先在 Outline 或 Beats 中创建节纲和场景，正文会显示在这里。</p>
+                  <h2>{t(language, 'noScene')}</h2>
+                  <p>{t(language, 'noSceneHint')}</p>
                 </section>
               ) : centerTab === 'editor' ? (
                 <section className="editor-page">
@@ -547,7 +607,13 @@ function Workspace({
             <span>上下文</span>
             <button onClick={() => setRightOpen(false)}>收起</button>
           </div>
-          <Inspector docs={docs} scene={selectedScene} context={context} checkReport={checkReport} />
+          <Inspector
+            docs={docs}
+            scene={selectedScene}
+            context={context}
+            checkReport={checkReport}
+            language={language}
+          />
         </aside>
       </div>
       <RunPanel root={root} runs={data.runs} sceneId={selectedSceneId} onAccepted={load} />
@@ -558,8 +624,12 @@ function Workspace({
 function TopChrome({
   theme,
   density,
+  language,
+  aiStatus,
   onTheme,
   onDensity,
+  onLanguage,
+  onAIStatus,
   projectName,
   path,
   onBack,
@@ -570,8 +640,12 @@ function TopChrome({
 }: {
   theme: ThemeName
   density: DensityName
+  language: LanguageName
+  aiStatus: AIStatus
   onTheme: (theme: ThemeName) => void
   onDensity: (density: DensityName) => void
+  onLanguage: (language: LanguageName) => void
+  onAIStatus: (status: AIStatus) => void
   projectName: string
   path: string
   onBack?: () => void
@@ -593,7 +667,8 @@ function TopChrome({
       <div className="path-label">{path}</div>
       <div className="top-spacer" />
       <div className="status-pill">
-        <Circle size={10} className="green" /> AI 就绪
+        <Circle size={10} className={aiStatus.ready ? 'green' : 'amber'} />{' '}
+        {aiStatus.ready ? t(language, 'aiReady') : t(language, 'aiNotConfigured')}
       </div>
       {git ? (
         git.initialized ? (
@@ -602,12 +677,12 @@ function TopChrome({
           </button>
         ) : (
           <button className="status-pill" onClick={onGitInit} title="只初始化本地 Git，不配置远端">
-            <GitBranch size={14} /> 初始化本地 Git
+            <GitBranch size={14} /> {t(language, 'initLocalGit')}
           </button>
         )
       ) : (
         <div className="status-pill">
-          <GitBranch size={14} /> 隐私默认：无远端
+          <GitBranch size={14} /> {t(language, 'privacyLocal')}
         </div>
       )}
       <select
@@ -635,26 +710,92 @@ function TopChrome({
         <option value="comfortable">comfortable</option>
         <option value="compact">compact</option>
       </select>
+      <select
+        className="theme-select language-select"
+        value={language}
+        onChange={async (e) => {
+          const next = e.target.value as LanguageName
+          onLanguage(next)
+          await window.quillarium.setLanguage(next)
+        }}
+      >
+        <option value="zh">中文</option>
+        <option value="en">English</option>
+      </select>
       <button className="status-pill" onClick={() => setShowSettings(true)}>
-        设置
+        {t(language, 'settings')}
       </button>
-      {showSettings && <SettingsModal root={root} git={git ?? null} onClose={() => setShowSettings(false)} />}
+      {showSettings && (
+        <SettingsModal
+          root={root}
+          git={git ?? null}
+          language={language}
+          onAIStatus={onAIStatus}
+          onClose={() => setShowSettings(false)}
+        />
+      )}
     </header>
   )
 }
 
-function SettingsModal({ root, git, onClose }: { root?: string; git: GitState | null; onClose: () => void }) {
+function SettingsModal({
+  root,
+  git,
+  language,
+  onAIStatus,
+  onClose
+}: {
+  root?: string
+  git: GitState | null
+  language: LanguageName
+  onAIStatus: (status: AIStatus) => void
+  onClose: () => void
+}) {
   const [remote, setRemote] = useState(git?.remote ?? '')
+  const [profiles, setProfiles] = useState<Record<AIProfileName, AIProfileForm>>({
+    prose: defaultAIProfile('openai-compatible'),
+    background: defaultAIProfile('openai-compatible'),
+    check: defaultAIProfile('openai-compatible')
+  })
+
+  useEffect(() => {
+    async function loadProfiles() {
+      const config = await window.quillarium.getConfig()
+      setProfiles({
+        prose: { ...defaultAIProfile('openai-compatible'), ...(config.aiProfiles?.prose ?? {}) },
+        background: { ...defaultAIProfile('openai-compatible'), ...(config.aiProfiles?.background ?? {}) },
+        check: { ...defaultAIProfile('openai-compatible'), ...(config.aiProfiles?.check ?? {}) }
+      })
+    }
+    void loadProfiles()
+  }, [])
+
   const saveRemote = async () => {
     if (!root || !remote.trim()) return
     await window.quillarium.gitSetRemote(root, remote.trim())
     onClose()
   }
+  const saveAI = async () => {
+    for (const profile of Object.keys(profiles) as AIProfileName[]) {
+      await window.quillarium.saveAIProfile(profile, profiles[profile])
+    }
+    onAIStatus(await window.quillarium.aiStatus())
+  }
+  const updateProfile = (profile: AIProfileName, patch: Partial<AIProfileForm>) => {
+    setProfiles((current) => {
+      const next = { ...current[profile], ...patch }
+      if (patch.provider) {
+        next.baseUrl = defaultBaseUrl(patch.provider)
+        next.model = defaultModel(patch.provider)
+      }
+      return { ...current, [profile]: next }
+    })
+  }
   return (
     <div className="modal-backdrop">
-      <section className="modal">
-        <h2>设置</h2>
-        <p>小说项目默认只保存在本地 Obsidian 目录。远端仓库必须手动配置，建议使用私有仓库。</p>
+      <section className="modal settings-modal">
+        <h2>{t(language, 'settings')}</h2>
+        <p>{t(language, 'privacyHint')}</p>
         <label>
           Git remote origin
           <input
@@ -663,17 +804,107 @@ function SettingsModal({ root, git, onClose }: { root?: string; git: GitState | 
             placeholder="git@github.com:user/private-repo.git"
           />
         </label>
+        <h3>{t(language, 'aiSettings')}</h3>
+        <div className="ai-profile-grid">
+          {(['prose', 'background', 'check'] as AIProfileName[]).map((profile) => (
+            <article key={profile} className="ai-profile-card">
+              <strong>{t(language, profile)}</strong>
+              <label>
+                Provider
+                <select
+                  value={profiles[profile].provider}
+                  onChange={(e) => updateProfile(profile, { provider: e.target.value as AIProviderName })}
+                >
+                  <option value="openai-compatible">OpenAI Compatible</option>
+                  <option value="openai">OpenAI</option>
+                  <option value="claude">Claude</option>
+                  <option value="gemini">Gemini</option>
+                  <option value="deepseek">DeepSeek</option>
+                  <option value="ollama">Ollama</option>
+                </select>
+              </label>
+              <label>
+                Base URL
+                <input
+                  value={profiles[profile].baseUrl}
+                  onChange={(e) => updateProfile(profile, { baseUrl: e.target.value })}
+                />
+              </label>
+              <label>
+                API Key
+                <input
+                  type="password"
+                  value={profiles[profile].apiKey}
+                  onChange={(e) => updateProfile(profile, { apiKey: e.target.value })}
+                />
+              </label>
+              <label>
+                Model
+                <input
+                  value={profiles[profile].model}
+                  onChange={(e) => updateProfile(profile, { model: e.target.value })}
+                />
+              </label>
+            </article>
+          ))}
+        </div>
         <div className="modal-actions">
           <button className="secondary" onClick={onClose}>
-            关闭
+            {t(language, 'close')}
           </button>
           <button className="primary" onClick={saveRemote} disabled={!root || !remote.trim()}>
-            保存远端
+            {t(language, 'saveRemote')}
+          </button>
+          <button className="primary" onClick={saveAI}>
+            {t(language, 'saveAI')}
           </button>
         </div>
       </section>
     </div>
   )
+}
+
+function defaultAIProfile(provider: AIProviderName): AIProfileForm {
+  return {
+    provider,
+    baseUrl: defaultBaseUrl(provider),
+    apiKey: '',
+    model: defaultModel(provider),
+    temperature: 0.7,
+    maxTokens: 2000
+  }
+}
+
+function defaultBaseUrl(provider: AIProviderName): string {
+  switch (provider) {
+    case 'openai':
+    case 'openai-compatible':
+      return 'https://api.openai.com/v1'
+    case 'claude':
+      return 'https://api.anthropic.com/v1'
+    case 'gemini':
+      return 'https://generativelanguage.googleapis.com/v1beta'
+    case 'deepseek':
+      return 'https://api.deepseek.com/v1'
+    case 'ollama':
+      return 'http://localhost:11434/v1'
+  }
+}
+
+function defaultModel(provider: AIProviderName): string {
+  switch (provider) {
+    case 'openai':
+    case 'openai-compatible':
+      return 'gpt-4o-mini'
+    case 'claude':
+      return 'claude-3-5-sonnet-latest'
+    case 'gemini':
+      return 'gemini-1.5-pro'
+    case 'deepseek':
+      return 'deepseek-chat'
+    case 'ollama':
+      return 'llama3.1'
+  }
 }
 
 function StructureTree({
@@ -769,7 +1000,7 @@ function ModuleView({
     )
   }
   return (
-    <section className="module-view">
+    <section className="module-view module-view-full">
       <ModuleCreateForm module={module} docs={docs} onCreate={onCreate} />
       <ModuleFilters module={module} docs={docs} />
       <div className="cards-grid">
@@ -971,12 +1202,14 @@ function Inspector({
   docs,
   scene,
   context,
-  checkReport
+  checkReport,
+  language
 }: {
   docs: DocEntry[]
   scene: DocEntry | null
   context: string
   checkReport: string
+  language: LanguageName
 }) {
   const find = (id?: unknown) => docs.find((doc) => doc.data.id === id)
   const pov = find(scene?.data.pov)
@@ -1012,7 +1245,11 @@ function Inspector({
         <p>{String(location?.data.description ?? '')}</p>
       </InspectorCard>
       <InspectorCard title="Consistency check results" ok={issues.length === 0}>
-        {issues.length ? issues.map((issue, i) => <p key={i}>{issue}</p>) : <p>未发现确定性问题</p>}
+        {issues.length ? (
+          issues.map((issue, i) => <p key={i}>{issue}</p>)
+        ) : (
+          <p>{language === 'zh' ? '未发现确定性问题' : 'No deterministic issues found'}</p>
+        )}
       </InspectorCard>
     </div>
   )
@@ -1152,6 +1389,71 @@ function WordProgress({ content, target }: { content: string; target: number }) 
 function buildScenePath(docs: DocEntry[], scene: DocEntry): string {
   const section = docs.find((doc) => doc.data.id === scene.data.section)
   return `写作 / ${section?.data.title ?? '节'} / ${scene.data.title}`
+}
+
+const I18N = {
+  zh: {
+    welcomeSubtitle: '为长篇小说而建的 AI 写作书房。世界、人物、时间线与手稿一起生长。',
+    changeVault: '更换 Obsidian 目录',
+    chooseVault: '选择 Obsidian 目录',
+    novelProjects: '小说项目',
+    noProjects: '还没有项目。创建后会出现在 Obsidian 目录的 novels 文件夹下。',
+    novelTitle: '小说名',
+    openExistingProject: '打开已有项目',
+    bookOutline: '全书大纲',
+    collapse: '收起',
+    outline: '大纲',
+    checks: '检查',
+    noScene: '还没有场景',
+    noSceneHint: '先在 Outline 或 Beats 中创建节纲和场景，正文会显示在这里。',
+    aiReady: 'AI 已配置',
+    aiNotConfigured: 'AI 未配置',
+    initLocalGit: '初始化本地 Git',
+    privacyLocal: '隐私默认：无远端',
+    settings: '设置',
+    privacyHint: '小说项目默认只保存在本地 Obsidian 目录。远端仓库必须手动配置，建议使用私有仓库。',
+    aiSettings: 'AI 配置',
+    prose: '正文',
+    background: '背景',
+    check: '检查',
+    close: '关闭',
+    saveRemote: '保存远端',
+    saveAI: '保存 AI 配置'
+  },
+  en: {
+    welcomeSubtitle:
+      'An AI writing studio for long-form fiction, where worlds, characters, timelines, and drafts grow together.',
+    changeVault: 'Change Obsidian Vault',
+    chooseVault: 'Choose Obsidian Vault',
+    novelProjects: 'Novel Projects',
+    noProjects: 'No projects yet. New projects will appear under the novels folder in your Obsidian vault.',
+    novelTitle: 'Novel title',
+    openExistingProject: 'Open Existing Project',
+    bookOutline: 'Book Outline',
+    collapse: 'Collapse',
+    outline: 'Outline',
+    checks: 'Checks',
+    noScene: 'No scene yet',
+    noSceneHint: 'Create section outlines and scenes in Outline or Beats first. Prose will appear here.',
+    aiReady: 'AI configured',
+    aiNotConfigured: 'AI not configured',
+    initLocalGit: 'Initialize Local Git',
+    privacyLocal: 'Private default: no remote',
+    settings: 'Settings',
+    privacyHint:
+      'Novel projects stay in your local Obsidian vault by default. Remotes must be configured explicitly; private repositories are recommended.',
+    aiSettings: 'AI Settings',
+    prose: 'Prose',
+    background: 'Background',
+    check: 'Checks',
+    close: 'Close',
+    saveRemote: 'Save Remote',
+    saveAI: 'Save AI Settings'
+  }
+} as const
+
+function t(language: LanguageName, key: keyof typeof I18N.zh): string {
+  return I18N[language][key]
 }
 
 createRoot(document.getElementById('root')!).render(<App />)

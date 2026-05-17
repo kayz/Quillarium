@@ -29,7 +29,14 @@ import {
   type BaseDoc
 } from '@quillarium/core'
 import { checkScene, formatCheckReport } from '@quillarium/checks'
-import { createGenerationRun, generateIntoRun, loadAIConfig } from '@quillarium/ai'
+import {
+  createGenerationRun,
+  defaultBaseUrl,
+  defaultModel,
+  generateIntoRun,
+  isAIConfigured,
+  loadAIProfile
+} from '@quillarium/ai'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const execFileAsync = promisify(execFile)
@@ -83,6 +90,43 @@ ipcMain.handle('config:setDensity', async (_event, density: 'compact' | 'comfort
   const config = { ...(await loadConfig()), density }
   await saveConfig(config)
   return config
+})
+ipcMain.handle('config:setLanguage', async (_event, language: 'zh' | 'en') => {
+  const config = { ...(await loadConfig()), language }
+  await saveConfig(config)
+  return config
+})
+ipcMain.handle('config:saveAIProfile', async (_event, profile: 'prose' | 'background' | 'check', input) => {
+  const provider = input.provider ?? 'openai-compatible'
+  const config = {
+    ...(await loadConfig()),
+    aiProfiles: {
+      ...(await loadConfig()).aiProfiles,
+      [profile]: {
+        provider,
+        baseUrl: input.baseUrl || defaultBaseUrl(provider),
+        apiKey: input.apiKey ?? '',
+        model: input.model || defaultModel(provider),
+        temperature: Number(input.temperature ?? 0.7),
+        maxTokens: Number(input.maxTokens ?? 2000)
+      }
+    }
+  }
+  await saveConfig(config)
+  return config
+})
+ipcMain.handle('config:aiStatus', async () => {
+  const profiles = {
+    prose: await loadAIProfile('prose'),
+    background: await loadAIProfile('background'),
+    check: await loadAIProfile('check')
+  }
+  return {
+    prose: isAIConfigured(profiles.prose),
+    background: isAIConfigured(profiles.background),
+    check: isAIConfigured(profiles.check),
+    ready: Object.values(profiles).every(isAIConfigured)
+  }
 })
 
 ipcMain.handle('project:list', async () => {
@@ -178,12 +222,12 @@ ipcMain.handle('scene:checkIntoRun', async (_event, root: string, sceneId: strin
 })
 ipcMain.handle('scene:generateDryRun', async (_event, root: string, sceneId: string) => {
   const context = await assembleContext(root, sceneId)
-  const config = loadAIConfig()
+  const config = await loadAIProfile('prose')
   return createGenerationRun(root, sceneId, context, config)
 })
 ipcMain.handle('scene:generate', async (_event, root: string, sceneId: string) => {
   const context = await assembleContext(root, sceneId)
-  const config = loadAIConfig()
+  const config = await loadAIProfile('prose')
   const run = await createGenerationRun(root, sceneId, context, config)
   const output = await generateIntoRun(root, run, context, config)
   return { run, output }

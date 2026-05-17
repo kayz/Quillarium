@@ -166,6 +166,10 @@ button:disabled {
   color: #71c174;
   fill: #71c174;
 }
+.amber {
+  color: #d0a04b;
+  fill: #d0a04b;
+}
 
 .welcome {
   height: 100vh;
@@ -431,6 +435,9 @@ select {
   gap: 0;
   position: relative;
 }
+.center:has(.module-view-full) {
+  grid-template-rows: 1fr;
+}
 .panel-toggle {
   position: absolute;
   z-index: 2;
@@ -676,6 +683,9 @@ select {
   padding: 24px;
   overflow: auto;
 }
+.module-view-full {
+  min-height: 0;
+}
 .module-head {
   display: flex;
   align-items: center;
@@ -742,11 +752,16 @@ select {
 }
 .modal {
   width: min(520px, calc(100vw - 40px));
+  max-height: calc(100vh - 56px);
+  overflow: auto;
   background: var(--bg-panel);
   color: var(--text-main);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 22px;
+}
+.settings-modal {
+  width: min(1080px, calc(100vw - 40px));
 }
 .modal p {
   color: var(--text-muted);
@@ -762,4 +777,19 @@ select {
   justify-content: flex-end;
   gap: 10px;
   margin-top: 18px;
+}
+.ai-profile-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.ai-profile-card {
+  border: 1px solid var(--border);
+  background: var(--bg-editor);
+  border-radius: 8px;
+  padding: 12px;
+}
+.ai-profile-card label {
+  margin-top: 10px;
+  font-size: 13px;
 }
