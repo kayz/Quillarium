@@ -1207,7 +1207,7 @@ function CanonWorkspace({
       setTranscript(`${nextTranscript}\n\n### ${t(language, 'canonCurator')}\n${reply}`)
       setMessage('')
     } catch (err) {
-      setError(String(err))
+      setError(formatCanonAIError(err, language))
     } finally {
       setAiBusy(false)
     }
@@ -1234,7 +1234,7 @@ function CanonWorkspace({
       if (parsed.source) setSource(parsed.source)
       setTranscript(`${transcript}\n\n### ${t(language, 'canonCurator')}\n${reply}`)
     } catch (err) {
-      setError(String(err))
+      setError(formatCanonAIError(err, language))
     } finally {
       setAiBusy(false)
     }
@@ -1377,6 +1377,28 @@ function parseCanonSummary(text: string): {
   const strength = text.match(/strength:\s*(hard|soft)/i)?.[1]
   const source = text.match(/source:\s*(user|ai|imported|historical)/i)?.[1]
   return { content, status, strength, source }
+}
+
+function formatCanonAIError(err: unknown, language: LanguageName): string {
+  const raw = err instanceof Error ? err.message : String(err)
+  const message = raw.replace(/^Error invoking remote method 'canon:discuss':\s*/i, '')
+  if (/fetch failed|AI connection failed/i.test(message)) {
+    return language === 'zh'
+      ? [
+          'AI 连接失败：请检查背景 AI 的接口地址、API 密钥和网络/代理。',
+          '如果上一轮输出很长，系统已在本次请求中自动裁剪旧讨论；仍失败时可以先点“归纳为 Canon”或手动删掉部分讨论记录后继续。'
+        ].join('')
+      : [
+          'AI connection failed. Check the background AI endpoint, API key, and network/proxy.',
+          'If the previous response was long, old discussion is now trimmed automatically; if it still fails, summarize to Canon or remove part of the transcript before continuing.'
+        ].join(' ')
+  }
+  if (/context|maximum|too large|413|400/i.test(message)) {
+    return language === 'zh'
+      ? 'AI 请求过大：请先点“归纳为 Canon”，或删掉部分讨论记录后继续。'
+      : 'AI request is too large. Summarize to Canon or remove part of the transcript before continuing.'
+  }
+  return message
 }
 
 function ModuleFilters({

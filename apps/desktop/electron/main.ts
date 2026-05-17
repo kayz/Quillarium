@@ -210,6 +210,8 @@ ipcMain.handle('doc:create', async (_event, root: string, kind: string, input) =
 ipcMain.handle('canon:discuss', async (_event, _root: string, input) => {
   const config = await loadAIProfile('background')
   const mode = input.mode === 'summarize' ? 'summarize' : 'discuss'
+  const content = limitText(input.content ?? '', 12000)
+  const transcript = limitText(input.transcript ?? '', mode === 'summarize' ? 24000 : 16000)
   const prompt = [
     `Mode: ${mode}`,
     `Canon title: ${input.title ?? ''}`,
@@ -218,10 +220,14 @@ ipcMain.handle('canon:discuss', async (_event, _root: string, input) => {
     `Current source: ${input.source ?? 'user'}`,
     '',
     'Current canon body:',
-    input.content ?? '',
+    content.text,
+    content.truncated ? '\n[Older canon body was omitted because it exceeded the safe request size.]' : '',
     '',
     'Discussion transcript:',
-    input.transcript ?? '',
+    transcript.text,
+    transcript.truncated
+      ? '\n[Earlier discussion was omitted. Continue from the visible recent context and the writer message.]'
+      : '',
     '',
     mode === 'summarize'
       ? [
@@ -244,6 +250,11 @@ ipcMain.handle('canon:discuss', async (_event, _root: string, input) => {
   ].join('\n')
   return generateCanonText(prompt, config)
 })
+
+function limitText(value: string, maxChars: number): { text: string; truncated: boolean } {
+  if (value.length <= maxChars) return { text: value, truncated: false }
+  return { text: value.slice(value.length - maxChars), truncated: true }
+}
 
 ipcMain.handle('scene:context', async (_event, root: string, sceneId: string) =>
   assembleContext(root, sceneId)

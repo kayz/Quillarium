@@ -96,7 +96,8 @@ export async function generateText(
       'Missing QUILL_AI_API_KEY. Set QUILL_AI_API_KEY or use a local OpenAI-compatible endpoint.'
     )
   }
-  const response = await fetch(`${config.baseUrl.replace(/\/$/, '')}/chat/completions`, {
+  const url = `${config.baseUrl.replace(/\/$/, '')}/chat/completions`
+  const response = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -111,9 +112,22 @@ export async function generateText(
         { role: 'user', content: prompt }
       ]
     })
+  }).catch((error: unknown) => {
+    throw new Error(
+      [
+        `AI connection failed for ${config.provider} at ${url}.`,
+        'Please check the endpoint, API key, proxy/network, and whether the prompt is too large.',
+        `Original error: ${error instanceof Error ? error.message : String(error)}`
+      ].join(' ')
+    )
   })
   if (!response.ok) {
-    throw new Error(`AI request failed ${response.status}: ${await response.text()}`)
+    const detail = await response.text()
+    const hint =
+      response.status === 400 || response.status === 413
+        ? ' The request may exceed the model context window; reduce the discussion history or summarize it first.'
+        : ''
+    throw new Error(`AI request failed ${response.status}: ${detail}${hint}`)
   }
   const json = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> }
   return json.choices?.[0]?.message?.content ?? ''
