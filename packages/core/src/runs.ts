@@ -10,12 +10,17 @@ export async function createRun(
   sceneId: string,
   metadata: Partial<RunMetadata> = {}
 ): Promise<RunMetadata> {
-  const id = metadata.id ?? `${timestampId('run')}-${sceneId}`
+  const targetId = metadata.target_id ?? sceneId
+  const targetType = metadata.target_type ?? 'scene'
+  const id = metadata.id ?? `${timestampId('run')}-${targetId}`
   const runDir = path.join(projectRoot, 'runs', id)
   await ensureDir(runDir)
   const full: RunMetadata = {
     id,
     scene_id: sceneId,
+    target_type: targetType,
+    target_id: targetId,
+    source_outline: metadata.source_outline,
     created_at: metadata.created_at ?? new Date().toISOString(),
     provider: metadata.provider ?? 'none',
     model: metadata.model ?? 'none',
@@ -66,6 +71,9 @@ export async function listRuns(projectRoot: string): Promise<RunMetadata[]> {
     runs.push({
       id: get('id') ?? entry.name,
       scene_id: get('scene_id') ?? '',
+      target_type: (get('target_type') as RunMetadata['target_type']) ?? 'scene',
+      target_id: get('target_id') ?? get('scene_id') ?? '',
+      source_outline: get('source_outline') || undefined,
       created_at: get('created_at') ?? '',
       provider: get('provider') ?? '',
       model: get('model') ?? '',

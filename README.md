@@ -19,6 +19,16 @@ Most AI writing tools can generate prose, but long novels fail in quieter places
 
 Quillarium treats a novel as a structured project, not just a chat transcript.
 
+This repository now also includes a Writer-inspired workflow layer for serialized web novels:
+
+- final/accepted prose is the ratchet canon; planning documents must bend around it
+- outlines move from book to volume to act to chapter to section
+- volume and act outlines can store invariants, emotional curves, POV plans, and foreshadowing links
+- foreshadowing, worldbook entries, references, and open writing issues are first-class Markdown documents
+- Markdown import can ingest existing notes, including Writer-style Chinese frontmatter
+
+See `docs/AGENT-DESIGN.md` for the product decisions behind the writing agent workflow.
+
 ## Core Ideas
 
 - **Obsidian as storage**: every novel is a folder of Markdown and YAML files.
@@ -40,9 +50,13 @@ Obsidian Vault/
       characters/
       timeline/
       locations/
+      foreshadowing/
+      world/
+      references/
+      issues/
       factions/
       resources/
-      story-patterns/
+      patterns/
       outlines/
       scenes/
       prompts/

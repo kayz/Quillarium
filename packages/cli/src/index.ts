@@ -5,21 +5,39 @@ import dotenv from 'dotenv'
 import {
   appendTimelineEvent,
   assembleContext,
+  buildChapterWritingPlan,
+  buildFinalizeReviewPrompt,
   buildIndex,
+  buildImportPrompt,
   chooseObsidianDir,
   configPath,
+  confirmFinalizeImpact,
   createCanon,
+  createFinalizeReviewSession,
   createCharacter,
+  createForeshadowing,
+  createIssue,
   createLocation,
   createOutline,
+  createPattern,
   createProject,
+  createReference,
   createRoute,
   createScene,
+  createImportSessionPlan,
+  createWorldEntry,
   createRun,
+  ensureDefaultPrompts,
+  answerImportIssue,
   getObsidianDir,
   importCanonFile,
+  importMarkdownPath,
+  landImportSession,
+  loadFinalizeReviewSession,
+  loadImportSession,
   listRuns,
   listDocs,
+  readPrompt,
   readRunFile,
   requireDoc,
   searchCanon,
@@ -27,6 +45,7 @@ import {
   writeMarkdown,
   writeRunFile,
   type BaseDoc,
+  type DocType,
   type OutlineDoc,
   type SceneDoc,
   type TimelineEventDoc
@@ -198,6 +217,120 @@ projectOption(character.command('list').description('List characters')).action(a
   await printDocs(path.resolve(opts.project), 'character')
 })
 
+const foreshadowing = program.command('foreshadowing').description('Manage foreshadowing ledger entries')
+projectOption(
+  foreshadowing
+    .command('add')
+    .argument('<title>', 'Foreshadowing title or code')
+    .option('--level <level>', 'L1 | L2 | L3 | L4 | L5', 'L4')
+    .option('--summary <text>', 'One-line summary', '')
+    .option('--expires-at <text>', 'Safety expiry such as chapter-010 or 第十章', '')
+    .description('Add a foreshadowing ledger entry')
+).action(async (title, opts) => {
+  printPath(
+    await createForeshadowing(path.resolve(opts.project), title, {
+      code: title.startsWith('FB-') ? title : '',
+      level: opts.level,
+      summary: opts.summary,
+      expires_at: opts.expiresAt
+    })
+  )
+})
+projectOption(foreshadowing.command('list').description('List foreshadowing entries')).action(
+  async (opts) => {
+    await printDocs(path.resolve(opts.project), 'foreshadowing')
+  }
+)
+
+const world = program.command('world').description('Manage worldbook/lore entries')
+projectOption(
+  world
+    .command('add')
+    .argument('<title>', 'World entry title')
+    .option('--trigger <text...>', 'Trigger words')
+    .option('--role <role>', 'constraint | texture | both', 'both')
+    .option('--valid-from <text>', 'World-internal start time', '')
+    .description('Add a worldbook entry')
+).action(async (title, opts) => {
+  printPath(
+    await createWorldEntry(path.resolve(opts.project), title, {
+      triggers: opts.trigger ?? [],
+      role: opts.role,
+      valid_from: opts.validFrom,
+      entry_status: 'active'
+    })
+  )
+})
+projectOption(world.command('list').description('List worldbook entries')).action(async (opts) => {
+  await printDocs(path.resolve(opts.project), 'world_entry')
+})
+
+const reference = program.command('reference').description('Manage research/reference documents')
+projectOption(
+  reference
+    .command('add')
+    .argument('<title>', 'Reference title')
+    .option('--location <text>', 'URL or local path', '')
+    .option('--material-type <type>', 'book | paper | article | webpage | video | other', 'other')
+    .description('Add a reference document')
+).action(async (title, opts) => {
+  printPath(
+    await createReference(path.resolve(opts.project), title, {
+      location: opts.location,
+      material_type: opts.materialType
+    })
+  )
+})
+projectOption(reference.command('list').description('List reference documents')).action(async (opts) => {
+  await printDocs(path.resolve(opts.project), 'reference')
+})
+
+const issue = program.command('issue').description('Manage open writing questions')
+projectOption(
+  issue
+    .command('add')
+    .argument('<title>', 'Issue title')
+    .option('--priority <priority>', 'high | medium | low', 'medium')
+    .option('--due <text>', 'Due chapter/scene', '')
+    .option('--decision-needed <text>', 'Decision needed', '')
+    .description('Add an open writing issue')
+).action(async (title, opts) => {
+  printPath(
+    await createIssue(path.resolve(opts.project), title, {
+      priority: opts.priority,
+      due: opts.due,
+      decision_needed: opts.decisionNeeded
+    })
+  )
+})
+projectOption(issue.command('list').description('List open writing issues')).action(async (opts) => {
+  await printDocs(path.resolve(opts.project), 'issue')
+})
+
+const pattern = program.command('pattern').description('Manage story, writing, and prompt patterns')
+projectOption(
+  pattern
+    .command('add')
+    .argument('<title>', 'Pattern title')
+    .option('--kind <kind>', 'story | writing | prompt', 'story')
+    .option('--scope <scope>', 'book | volume | arc | chapter | section | agent | project', 'project')
+    .option('--source <source>', 'user | ai | accepted_prose | imported', 'user')
+    .option('--applies-to <items>', 'Comma-separated applicability tags')
+    .description('Add a reusable pattern')
+).action(async (title, opts) => {
+  printPath(
+    await createPattern(path.resolve(opts.project), title, {
+      kind: opts.kind,
+      scope: opts.scope,
+      source: opts.source,
+      applies_to: csv(opts.appliesTo)
+    })
+  )
+})
+projectOption(pattern.command('list').description('List patterns')).action(async (opts) => {
+  await printDocs(path.resolve(opts.project), 'pattern')
+})
+
 const timeline = program.command('timeline').description('Manage timeline events')
 projectOption(
   timeline
@@ -342,6 +475,91 @@ projectOption(program.command('index').description('Build project index')).actio
   console.log(`Indexed ${index.entries.length} documents.`)
 })
 
+const promptCmd = program.command('prompt').description('Manage Quillarium system prompts')
+projectOption(promptCmd.command('init').description('Create default prompt files')).action(async (opts) => {
+  const prompts = await ensureDefaultPrompts(path.resolve(opts.project))
+  for (const prompt of prompts) console.log(`${prompt.name}\t${prompt.title}`)
+})
+projectOption(
+  promptCmd
+    .command('show')
+    .argument('<name>', 'background-import | background-issue-followup | check-finalize-review | prose-scene-draft')
+    .description('Show a system prompt')
+).action(async (name, opts) => {
+  console.log(await readPrompt(path.resolve(opts.project), name))
+})
+
+const importCmd = program.command('import').description('Import external notes into a Quillarium project')
+projectOption(
+  importCmd
+    .command('markdown')
+    .argument('<path>', 'Markdown file or directory')
+    .option('--strategy <strategy>', 'auto | single | sections', 'auto')
+    .option('--type <type>', 'Default document type when no frontmatter is present')
+    .description('Import Markdown and map Writer-style frontmatter where possible')
+).action(async (inputPath, opts) => {
+  const results = await importMarkdownPath(path.resolve(opts.project), path.resolve(inputPath), {
+    strategy: opts.strategy,
+    defaultType: opts.type as DocType | undefined
+  })
+  for (const item of results) {
+    const note = item.notes.length ? `\t${item.notes.join(' ')}` : ''
+    console.log(
+      `${item.imported_type}\t${item.title}\t${path.relative(path.resolve(opts.project), item.path)}${note}`
+    )
+  }
+  console.log(`Imported ${results.length} Markdown document${results.length === 1 ? '' : 's'}.`)
+})
+projectOption(
+  importCmd
+    .command('ai-plan')
+    .argument('[path]', 'Markdown file or directory. Omit when using --text.')
+    .option('--text <markdown>', 'Markdown text to classify')
+    .option('--ai-response <json>', 'AI JSON response to store into the session')
+    .description('Create an AI-assisted import session and print the prompt or plan')
+).action(async (inputPath, opts) => {
+  const root = path.resolve(opts.project)
+  const session = await createImportSessionPlan(root, {
+    sourceKind: opts.text ? 'text' : inputPath ? 'file' : 'obsidian-scan',
+    sourcePaths: inputPath ? [path.resolve(inputPath)] : undefined,
+    markdownText: opts.text,
+    aiResponse: opts.aiResponse
+  })
+  console.log(`session: ${session.id}`)
+  console.log(`status: ${session.status}`)
+  console.log(`candidates: ${session.candidates.length}`)
+  console.log(`issues: ${session.issues.length}`)
+  if (!opts.aiResponse) console.log(buildImportPrompt(session))
+})
+projectOption(
+  importCmd
+    .command('answer')
+    .argument('<session-id>', 'Import session id')
+    .argument('<issue-id>', 'Issue id')
+    .argument('<answer>', 'Writer answer')
+    .description('Answer an import session issue')
+).action(async (sessionId, issueId, answer, opts) => {
+  const session = await answerImportIssue(path.resolve(opts.project), sessionId, issueId, answer)
+  console.log(`${session.id}\t${session.status}`)
+})
+projectOption(
+  importCmd
+    .command('land')
+    .argument('<session-id>', 'Import session id')
+    .description('Land confirmed import candidates')
+).action(async (sessionId, opts) => {
+  const session = await landImportSession(path.resolve(opts.project), sessionId)
+  for (const item of session.landed) console.log(`${item.type}\t${item.title}\t${item.path}`)
+})
+projectOption(
+  importCmd
+    .command('show')
+    .argument('<session-id>', 'Import session id')
+    .description('Show an import session JSON')
+).action(async (sessionId, opts) => {
+  console.log(JSON.stringify(await loadImportSession(path.resolve(opts.project), sessionId), null, 2))
+})
+
 projectOption(
   program
     .command('context')
@@ -395,6 +613,8 @@ projectOption(
       {
         id: opts.run,
         scene_id: sceneId,
+        target_type: 'scene',
+        target_id: sceneId,
         created_at: new Date().toISOString(),
         provider: 'none',
         model: 'none',
@@ -406,6 +626,68 @@ projectOption(
     )
   }
   console.log(formatted)
+})
+
+const finalize = program.command('finalize').description('Manage final draft review sessions')
+projectOption(
+  finalize
+    .command('review-plan')
+    .requiredOption('--chapter <id>', 'Chapter outline id')
+    .requiredOption('--draft-file <path>', 'Draft text file')
+    .requiredOption('--final-file <path>', 'Final text file')
+    .option('--scenes <ids>', 'Comma-separated scene ids')
+    .option('--ai-response <json>', 'AI JSON response to store into the session')
+    .description('Create a finalize back-check session')
+).action(async (opts) => {
+  const root = path.resolve(opts.project)
+  const session = await createFinalizeReviewSession(root, {
+    chapterId: opts.chapter,
+    sceneIds: csv(opts.scenes),
+    draft: await readFileText(path.resolve(opts.draftFile)),
+    final: await readFileText(path.resolve(opts.finalFile)),
+    aiResponse: opts.aiResponse
+  })
+  console.log(`session: ${session.id}`)
+  console.log(`status: ${session.status}`)
+  console.log(`impacts: ${session.impacts.length}`)
+  console.log(`questions: ${session.questions.length}`)
+  if (!opts.aiResponse) console.log(buildFinalizeReviewPrompt(session))
+})
+projectOption(
+  finalize
+    .command('show')
+    .argument('<session-id>', 'Review session id')
+    .description('Show finalize review session JSON')
+).action(async (sessionId, opts) => {
+  console.log(JSON.stringify(await loadFinalizeReviewSession(path.resolve(opts.project), sessionId), null, 2))
+})
+projectOption(
+  finalize
+    .command('confirm')
+    .argument('<session-id>', 'Review session id')
+    .argument('<impact-id>', 'Impact id')
+    .argument('<answer>', 'Writer answer')
+    .option('--reject', 'Reject the impact')
+    .description('Confirm or reject a finalize impact')
+).action(async (sessionId, impactId, answer, opts) => {
+  const session = await confirmFinalizeImpact(
+    path.resolve(opts.project),
+    sessionId,
+    impactId,
+    answer,
+    opts.reject ? 'rejected' : 'confirmed'
+  )
+  console.log(`${session.id}\t${session.status}`)
+})
+
+projectOption(
+  program
+    .command('chapter-plan')
+    .argument('<chapter-id>', 'Chapter outline id')
+    .description('Build ordered scene writing prompts for a chapter')
+).action(async (chapterId, opts) => {
+  const plan = await buildChapterWritingPlan(path.resolve(opts.project), chapterId)
+  console.log(JSON.stringify(plan, null, 2))
 })
 
 const run = program.command('run').description('Manage generation runs')
@@ -440,6 +722,8 @@ projectOption(
     {
       id: runId,
       scene_id: sceneId,
+      target_type: 'scene',
+      target_id: sceneId,
       created_at: new Date().toISOString(),
       provider: 'unknown',
       model: 'unknown',
@@ -469,6 +753,11 @@ function csv(value?: string): string[] {
         .map((s) => s.trim())
         .filter(Boolean)
     : []
+}
+
+async function readFileText(file: string): Promise<string> {
+  const { readFile } = await import('node:fs/promises')
+  return readFile(file, 'utf8')
 }
 
 async function inferSceneId(projectRoot: string, runId: string): Promise<string> {

@@ -13,6 +13,13 @@ export interface QuillariumConfig {
   density?: 'compact' | 'comfortable'
   language?: 'zh' | 'en'
   aiProfiles?: Partial<Record<'prose' | 'background' | 'check', AIProfileConfig>>
+  github?: GitHubConfig
+}
+
+export interface GitHubConfig {
+  token?: string
+  defaultOwner?: string
+  defaultVisibility?: 'private' | 'public'
 }
 
 export interface AIProfileConfig {

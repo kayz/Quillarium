@@ -29,6 +29,10 @@ This creates:
   characters/
   timeline/
   locations/
+  foreshadowing/
+  world/
+  references/
+  issues/
   resources/
   causality/
   outlines/
@@ -47,6 +51,9 @@ pnpm cli character add "Main Character" --project "./local-vaults/novels/My Nove
 pnpm cli location add "Old Palace" --project "./local-vaults/novels/My Novel"
 pnpm cli timeline append "Opening Night" --project "./local-vaults/novels/My Novel" --location loc-old-palace
 pnpm cli outline add section "Opening Section" --project "./local-vaults/novels/My Novel" --chapter-hook
+pnpm cli foreshadowing add "FB-L4-001" --project "./local-vaults/novels/My Novel" --summary "The old fleet still exists" --expires-at chapter-020
+pnpm cli world add "Granulated Powder" --project "./local-vaults/novels/My Novel" --trigger powder fire-lance --role constraint --valid-from 1449
+pnpm cli issue add "Decide first act POV order" --project "./local-vaults/novels/My Novel" --priority high --due chapter-003
 ```
 
 ## Create A Scene
@@ -93,4 +100,36 @@ pnpm cli check scene-opening-scene --project "./local-vaults/novels/My Novel"
 ```
 
 The first checker is deterministic: missing references, timeline links, location
-references, route existence, and simple scene constraints.
+references, route existence, foreshadowing references, world entry validity windows,
+due open issues, and simple scene constraints.
+
+## Import Markdown
+
+Import a Markdown file or a directory of Markdown files:
+
+```bash
+pnpm cli import markdown ./notes/blueprint.md --project "./local-vaults/novels/My Novel"
+```
+
+The importer reads YAML frontmatter and maps both English and Writer-style Chinese
+fields when possible:
+
+- `类型: 人物` -> character
+- `类型: 伏笔` -> foreshadowing
+- `类型: 词条` -> world entry
+- `类型: 参考资料` -> reference
+- `类型: 设定集` -> canon
+- `类型: 总纲 | 卷纲 | 幕纲 | 章纲 | 节纲` -> outline
+
+Markdown without frontmatter is classified from its path, first heading, and early
+content. Use section splitting for long source notes:
+
+```bash
+pnpm cli import markdown ./blueprint.md --project "./local-vaults/novels/My Novel" --strategy sections
+```
+
+You can force a type when importing unstructured notes:
+
+```bash
+pnpm cli import markdown ./research.md --project "./local-vaults/novels/My Novel" --type reference
+```

@@ -3,18 +3,29 @@ import { ensureDir, pathExists, readText, writeText } from './fs.js'
 import { objectToYaml, parseMarkdown } from './yaml.js'
 import { projectConfigSchema } from './schema.js'
 import type { ProjectConfig, ProjectPaths } from './types.js'
+import { ensureDefaultPrompts } from './prompts.js'
 
 export const PROJECT_DIRS = [
   'canon',
   'characters',
   'timeline',
   'locations',
+  'foreshadowing',
+  'world',
+  'references',
+  'issues',
+  'strategy',
+  'patterns',
+  'character-states',
   'resources',
   'causality',
   'outlines',
   'scenes',
   'prompts',
   'runs',
+  'imports',
+  'reviews',
+  'style',
   'exports',
   'sillytavern',
   '.quillarium'
@@ -59,6 +70,7 @@ export async function createProject(options: {
     path.join(root, 'README.md'),
     `# ${options.title}\n\nCreated by Quillarium.\n\nOpen this folder in Obsidian or manage it with the \`quill\` CLI.\n`
   )
+  await ensureDefaultPrompts(root)
   return paths
 }
 

@@ -151,9 +151,11 @@ export async function createGenerationRun(
   projectRoot: string,
   sceneId: string,
   context: string,
-  config: AIConfig
+  config: AIConfig,
+  metadata: Partial<RunMetadata> = {}
 ): Promise<RunMetadata> {
   const run = await createRun(projectRoot, sceneId, {
+    ...metadata,
     provider: config.provider,
     model: config.model,
     status: 'created'

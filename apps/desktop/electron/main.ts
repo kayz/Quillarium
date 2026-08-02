@@ -2,39 +2,70 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { app, BrowserWindow, dialog, ipcMain } from 'electron'
+import { app, BrowserWindow, Menu, dialog, ipcMain, shell } from 'electron'
+import { cp, mkdir, readdir, rename, rm } from 'node:fs/promises'
 import {
   assembleContext,
+  assembleContextPacket,
+  answerImportIssue,
+  buildChapterWritingPlan,
+  buildFinalizeReviewPrompt,
+  buildImportPrompt,
+  confirmFinalizeImpact,
   appendTimelineEvent,
+  createFinalizeReviewSession,
+  createImportSessionPlan,
   createProject,
   createRun,
   createCanon,
+  createCharacterState,
   createCharacter,
+  createForeshadowing,
+  createIssue,
   createLocation,
   createOutline,
+  createPattern,
+  createReference,
   createRoute,
   createScene,
+  createStrategy,
+  createWorldEntry,
   getObsidianDir,
+  ensureDefaultPrompts,
+  importMarkdownPath,
+  landImportSession,
+  listMarkdownFiles,
   loadConfig,
+  loadFinalizeReviewSession,
+  loadImportSession,
   listDocs,
   listRuns,
   loadProject,
   readRunFile,
   readMarkdown,
+  readPrompt,
   saveConfig,
   setObsidianDir,
   writeMarkdown,
+  writeText,
   writeRunFile,
   writeRunMetadata,
-  type BaseDoc
+  renderContextPacket,
+  type BaseDoc,
+  type CharacterDoc,
+  type LocationDoc,
+  type OutlineDoc,
+  type SceneDoc,
+  type TimelineEventDoc
 } from '@quillarium/core'
-import { checkScene, formatCheckReport } from '@quillarium/checks'
+import { checkScene, checkTarget, formatCheckReport } from '@quillarium/checks'
 import {
   createGenerationRun,
   defaultBaseUrl,
   defaultModel,
   generateCanonText,
   generateIntoRun,
+  generateText,
   isAIConfigured,
   loadAIProfile
 } from '@quillarium/ai'
@@ -66,6 +97,7 @@ async function createWindow() {
 }
 
 app.whenReady().then(createWindow)
+Menu.setApplicationMenu(null)
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
@@ -115,6 +147,30 @@ ipcMain.handle('config:saveAIProfile', async (_event, profile: 'prose' | 'backgr
   }
   await saveConfig(config)
   return config
+})
+ipcMain.handle('config:saveGithub', async (_event, input) => {
+  const defaultVisibility: 'private' | 'public' = input.defaultVisibility === 'public' ? 'public' : 'private'
+  const config = {
+    ...(await loadConfig()),
+    github: {
+      token: input.token ?? '',
+      defaultOwner: input.defaultOwner ?? '',
+      defaultVisibility
+    }
+  }
+  await saveConfig(config)
+  return config
+})
+ipcMain.handle('config:migrateVault', async () => {
+  const currentVault = await getObsidianDir()
+  const result = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] })
+  if (result.canceled || !result.filePaths[0]) return null
+  const targetVault = result.filePaths[0]
+  if (currentVault && path.resolve(currentVault) !== path.resolve(targetVault)) {
+    await migrateNovelProjects(currentVault, targetVault)
+  }
+  await setObsidianDir(targetVault)
+  return targetVault
 })
 ipcMain.handle('config:aiStatus', async () => {
   const profiles = {
@@ -182,6 +238,15 @@ ipcMain.handle(
     return true
   }
 )
+ipcMain.handle('doc:delete', async (_event, filePath: string) => {
+  await rm(filePath, { force: true })
+  return true
+})
+ipcMain.handle('doc:openExternal', async (_event, filePath: string) => {
+  const error = await shell.openPath(filePath)
+  if (error) throw new Error(error)
+  return true
+})
 ipcMain.handle('doc:create', async (_event, root: string, kind: string, input) => {
   switch (kind) {
     case 'canon':
@@ -192,6 +257,20 @@ ipcMain.handle('doc:create', async (_event, root: string, kind: string, input) =
       })
     case 'character':
       return createCharacter(root, input.title, input, input.content ?? '')
+    case 'character_state':
+      return createCharacterState(root, input.title, input, input.content ?? '')
+    case 'foreshadowing':
+      return createForeshadowing(root, input.title, input, input.content ?? '')
+    case 'world_entry':
+      return createWorldEntry(root, input.title, input, input.content ?? '')
+    case 'reference':
+      return createReference(root, input.title, input, input.content ?? '')
+    case 'issue':
+      return createIssue(root, input.title, input, input.content ?? '')
+    case 'strategy':
+      return createStrategy(root, input.title, input, input.content ?? '')
+    case 'pattern':
+      return createPattern(root, input.title, input, input.content ?? '')
     case 'timeline_event':
       return appendTimelineEvent(root, input.title, input, input.content ?? '')
     case 'location':
@@ -206,6 +285,60 @@ ipcMain.handle('doc:create', async (_event, root: string, kind: string, input) =
       throw new Error(`Unsupported document kind: ${kind}`)
   }
 })
+
+ipcMain.handle('import:chooseMarkdown', async (_event, root: string) => {
+  const result = await dialog.showOpenDialog({
+    title: '选择要导入的 Markdown',
+    properties: ['openFile', 'openDirectory', 'multiSelections'],
+    filters: [{ name: 'Markdown', extensions: ['md', 'markdown'] }]
+  })
+  if (result.canceled) return []
+  const imported = []
+  for (const filePath of result.filePaths) {
+    imported.push(...(await importMarkdownPath(root, filePath)))
+  }
+  return imported
+})
+
+ipcMain.handle('import:markdownText', async (_event, root: string, markdown: string, title?: string) => {
+  const name = (title || markdown.match(/^#\s+(.+)$/m)?.[1] || '粘贴导入').trim()
+  const file = path.join(root, '.quillarium', 'imports', `${Date.now()}-${slugImportName(name)}.md`)
+  await writeText(file, markdown)
+  return importMarkdownPath(root, file)
+})
+
+ipcMain.handle('import:syncMarkdown', async (_event, root: string) => {
+  const targets = (await listMarkdownFiles(root)).filter((file) => isUnmanagedMarkdown(root, file))
+  const imported = []
+  for (const target of targets) {
+    imported.push(...(await importMarkdownPath(root, target)))
+  }
+  return imported
+})
+
+ipcMain.handle('prompt:init', async (_event, root: string) => ensureDefaultPrompts(root))
+ipcMain.handle('prompt:read', async (_event, root: string, name) => readPrompt(root, name))
+
+ipcMain.handle('import:aiPlan', async (_event, root: string, input) => {
+  const session = await createImportSessionPlan(root, input)
+  const config = await loadAIProfile('background')
+  if (input?.callAI === false || input?.aiResponse) return session
+  const response = await generateText(
+    buildImportPrompt(session),
+    config,
+    'You are Quillarium Background Import Agent. Return strict JSON only.'
+  )
+  return createImportSessionPlan(root, { ...input, aiResponse: response })
+})
+ipcMain.handle('import:session', async (_event, root: string, sessionId: string) =>
+  loadImportSession(root, sessionId)
+)
+ipcMain.handle('import:answerIssue', async (_event, root: string, sessionId: string, issueId: string, answer: string) =>
+  answerImportIssue(root, sessionId, issueId, answer)
+)
+ipcMain.handle('import:landSession', async (_event, root: string, sessionId: string) =>
+  landImportSession(root, sessionId)
+)
 
 ipcMain.handle('canon:discuss', async (_event, _root: string, input) => {
   const config = await loadAIProfile('background')
@@ -256,9 +389,54 @@ function limitText(value: string, maxChars: number): { text: string; truncated: 
   return { text: value.slice(value.length - maxChars), truncated: true }
 }
 
+function slugImportName(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[\\/:*?"<>|]+/g, '-')
+    .replace(/\s+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 48) || 'markdown'
+}
+
+function isUnmanagedMarkdown(root: string, file: string): boolean {
+  const relative = path.relative(root, file)
+  if (!relative || relative.startsWith('..')) return false
+  const first = relative.split(path.sep)[0]
+  const managed = new Set([
+    '.quillarium',
+    'canon',
+    'characters',
+    'timeline',
+    'locations',
+    'foreshadowing',
+    'world',
+    'references',
+    'issues',
+    'strategy',
+    'patterns',
+    'character-states',
+    'resources',
+    'causality',
+    'outlines',
+    'scenes',
+    'prompts',
+    'runs'
+  ])
+  if (managed.has(first)) return false
+  return path.basename(file).toLowerCase() !== 'project.md'
+}
+
 ipcMain.handle('scene:context', async (_event, root: string, sceneId: string) =>
   assembleContext(root, sceneId)
 )
+ipcMain.handle('target:context', async (_event, root: string, target: { type: 'outline' | 'scene'; id: string }) => {
+  const packet = await assembleContextPacket(root, target)
+  return { packet, markdown: renderContextPacket(packet) }
+})
+ipcMain.handle('target:check', async (_event, root: string, target: { type: 'outline' | 'scene'; id: string }) => {
+  const report = await checkTarget(root, target)
+  return { report, markdown: formatCheckReport(report) }
+})
 ipcMain.handle('scene:check', async (_event, root: string, sceneId: string) => {
   const report = await checkScene(root, sceneId)
   return { report, markdown: formatCheckReport(report) }
@@ -282,6 +460,39 @@ ipcMain.handle('scene:generate', async (_event, root: string, sceneId: string) =
   const output = await generateIntoRun(root, run, context, config)
   return { run, output }
 })
+ipcMain.handle('outline:generate', async (_event, root: string, outlineId: string) => {
+  const scene = await ensureSceneForOutline(root, outlineId)
+  const packet = await assembleContextPacket(root, { type: 'outline', id: outlineId })
+  const context = renderContextPacket(packet)
+  const config = await loadAIProfile('prose')
+  const run = await createGenerationRun(root, scene.data.id, context, config, {
+    target_type: 'outline',
+    target_id: outlineId,
+    source_outline: outlineId
+  })
+  const output = await generateIntoRun(root, run, context, config)
+  return { run, output, scene }
+})
+ipcMain.handle('chapter:writingPlan', async (_event, root: string, chapterId: string, selectedByScene) =>
+  buildChapterWritingPlan(root, chapterId, selectedByScene ?? {})
+)
+ipcMain.handle('finalize:reviewPlan', async (_event, root: string, input) => {
+  const session = await createFinalizeReviewSession(root, input)
+  const config = await loadAIProfile('check')
+  if (input?.callAI === false || input?.aiResponse) return session
+  const response = await generateText(
+    buildFinalizeReviewPrompt(session),
+    config,
+    'You are Quillarium Finalize Review Agent. Return strict JSON only.'
+  )
+  return createFinalizeReviewSession(root, { ...input, aiResponse: response })
+})
+ipcMain.handle('finalize:session', async (_event, root: string, sessionId: string) =>
+  loadFinalizeReviewSession(root, sessionId)
+)
+ipcMain.handle('finalize:confirmImpact', async (_event, root: string, sessionId: string, impactId: string, answer: string, state) =>
+  confirmFinalizeImpact(root, sessionId, impactId, answer, state === 'rejected' ? 'rejected' : 'confirmed')
+)
 ipcMain.handle('run:readFile', async (_event, root: string, runId: string, file: string) =>
   readRunFile(root, runId, file)
 )
@@ -310,15 +521,170 @@ ipcMain.handle('git:commit', async (_event, root: string, message: string) => {
   await git(root, ['commit', '-m', message || 'Update novel project'])
   return gitStatus(root)
 })
+ipcMain.handle('git:sync', async (_event, root: string, message: string) => {
+  const status = await gitStatus(root)
+  if (!status.initialized) await git(root, ['init'])
+  const nextStatus = await gitStatus(root)
+  if (!nextStatus.remote) throw new Error('当前小说还没有 GitHub remote。请先创建或绑定仓库。')
+  await git(root, ['add', '.'])
+  const dirty = (await git(root, ['status', '--short'])).stdout.trim().length > 0
+  if (dirty) {
+    await git(root, ['commit', '-m', message || 'Update novel project']).catch(async (error) => {
+      const text = String(error)
+      if (!text.includes('nothing to commit')) throw error
+    })
+  }
+  await git(root, ['push', '-u', 'origin', nextStatus.branch || 'main'])
+  return gitStatus(root)
+})
 ipcMain.handle('git:setRemote', async (_event, root: string, url: string) => {
   const existing = await git(root, ['remote', 'get-url', 'origin']).catch(() => null)
   if (existing) await git(root, ['remote', 'set-url', 'origin', url])
   else await git(root, ['remote', 'add', 'origin', url])
   return gitStatus(root)
 })
+ipcMain.handle('github:createRepoForProject', async (_event, root: string) => {
+  const config = await loadConfig()
+  const token = config.github?.token
+  const owner = config.github?.defaultOwner
+  if (!token) throw new Error('请先在设置中保存 GitHub Token。')
+  const project = await loadProject(root)
+  const repoName = slugRepoName(project.title)
+  const response = await fetch('https://api.github.com/user/repos', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/vnd.github+json',
+      'Content-Type': 'application/json',
+      'X-GitHub-Api-Version': '2022-11-28'
+    },
+    body: JSON.stringify({
+      name: repoName,
+      private: true,
+      description: `Quillarium novel project: ${project.title}`
+    })
+  })
+  if (!response.ok) {
+    const detail = await response.text()
+    throw new Error(formatGitHubCreateRepoError(response.status, detail))
+  }
+  const json = (await response.json()) as { ssh_url?: string; clone_url?: string }
+  const remote = json.clone_url ?? json.ssh_url
+  if (!remote) throw new Error('GitHub 返回中没有可用 remote 地址。')
+  await git(root, ['init']).catch(() => undefined)
+  await git(root, ['branch', '-M', 'main']).catch(() => undefined)
+  const existing = await git(root, ['remote', 'get-url', 'origin']).catch(() => null)
+  if (existing) await git(root, ['remote', 'set-url', 'origin', remote])
+  else await git(root, ['remote', 'add', 'origin', remote])
+  await git(root, ['add', '.'])
+  const dirty = (await git(root, ['status', '--short'])).stdout.trim().length > 0
+  if (dirty) {
+    await git(root, ['commit', '-m', `Initialize ${project.title}`]).catch((error) => {
+      const text = String(error)
+      if (!text.includes('nothing to commit')) throw error
+    })
+  }
+  await git(root, ['push', '-u', 'origin', 'main'])
+  if (owner && !remote.includes(owner)) {
+    // The default owner is retained for future organization support; current GitHub API call uses the token owner.
+  }
+  return gitStatus(root)
+})
 
 async function git(root: string, args: string[]) {
   return execFileAsync('git', args, { cwd: root, windowsHide: true })
+}
+
+function slugRepoName(title: string): string {
+  const ascii = title
+    .normalize('NFKD')
+    .replace(/[^\w.-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .toLowerCase()
+  return ascii || `novel-${Date.now()}`
+}
+
+function formatGitHubCreateRepoError(status: number, detail: string): string {
+  if (status === 401) {
+    return `GitHub Token 无效或已过期。请在设置里重新保存 Token。\n\nGitHub 返回：${detail}`
+  }
+  if (status === 403) {
+    return [
+      'GitHub Token 无权创建仓库。',
+      '请使用 classic token 并勾选 repo scope；如果使用 fine-grained token，需要允许创建仓库，并授予新仓库 Administration: write 权限。',
+      '当前版本只支持用 Token 所属账号创建私有仓库；组织仓库后续再单独接入。',
+      '',
+      `GitHub 返回：${detail}`
+    ].join('\n')
+  }
+  if (status === 422) {
+    return [
+      'GitHub 仓库创建失败：仓库名可能已存在，或请求参数不符合 GitHub 要求。',
+      '可以修改小说名后重试，或先手工创建仓库再绑定 remote。',
+      '',
+      `GitHub 返回：${detail}`
+    ].join('\n')
+  }
+  return `GitHub 仓库创建失败 ${status}: ${detail}`
+}
+
+async function migrateNovelProjects(fromVault: string, toVault: string) {
+  const fromNovels = path.join(fromVault, 'novels')
+  const toNovels = path.join(toVault, 'novels')
+  await mkdir(toNovels, { recursive: true })
+  let entries
+  try {
+    entries = await readdir(fromNovels, { withFileTypes: true })
+  } catch {
+    return
+  }
+  for (const entry of entries) {
+    const from = path.join(fromNovels, entry.name)
+    const to = path.join(toNovels, entry.name)
+    try {
+      await rename(from, to)
+    } catch {
+      await cp(from, to, { recursive: true, force: false, errorOnExist: true })
+      await rm(from, { recursive: true, force: true })
+    }
+  }
+}
+
+async function ensureSceneForOutline(root: string, outlineId: string) {
+  const existing = (await listDocs<SceneDoc>(root, 'scene')).find((scene) => scene.data.section === outlineId)
+  if (existing) return existing
+  const outline = (await listDocs<OutlineDoc>(root, 'outline')).find((doc) => doc.data.id === outlineId)
+  if (!outline) throw new Error(`Outline not found: ${outlineId}`)
+  const timeline =
+    outline.data.related_timeline?.[0] ??
+    (await listDocs<TimelineEventDoc>(root, 'timeline_event')).find(Boolean)?.data.id
+  const location =
+    (await listDocs<LocationDoc>(root, 'location')).find(Boolean)?.data.id ??
+    (await listDocs<TimelineEventDoc>(root, 'timeline_event')).find((event) => event.data.location)?.data.location
+  const pov =
+    outline.data.related_characters?.[0] ??
+    outline.data.povs?.[0] ??
+    (await listDocs<CharacterDoc>(root, 'character')).find(Boolean)?.data.id
+  if (!timeline || !location || !pov) {
+    throw new Error('Cannot create a chapter scene before timeline, location, and POV character are available.')
+  }
+  const file = await createScene(
+    root,
+    `${outline.data.title} 正文`,
+    {
+      section: outline.data.id,
+      timeline_node: timeline,
+      location,
+      pov,
+      characters: [...new Set([pov, ...(outline.data.related_characters ?? [])])],
+      target_words: Number(outline.data.target_words ?? 1000),
+      chapter_hook: Boolean(outline.data.chapter_hook),
+      tags: ['volume-01', `chapter-${String(outline.data.order + 1).padStart(3, '0')}`]
+    },
+    '## Draft\n'
+  )
+  const parsed = await readMarkdown<Record<string, unknown>>(file)
+  return { path: file, data: parsed.data as unknown as SceneDoc, content: parsed.content }
 }
 
 async function gitStatus(root: string) {
