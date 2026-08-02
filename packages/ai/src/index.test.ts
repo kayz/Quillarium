@@ -5,7 +5,14 @@ import {
   withUpdatedAIProfileApiKey
 } from '@quillarium/core'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { AIRequestError, DEFAULT_AI_TIMEOUT_MS, generateText, loadAIProfile, type AIConfig } from './index.js'
+import {
+  AIRequestError,
+  DEFAULT_AI_TIMEOUT_MS,
+  generateText,
+  loadAIConfig,
+  loadAIProfile,
+  type AIConfig
+} from './index.js'
 
 vi.mock('@quillarium/core', async () => {
   const actual = await vi.importActual<typeof import('@quillarium/core')>('@quillarium/core')
@@ -31,6 +38,39 @@ afterEach(() => {
   vi.clearAllMocks()
   vi.useRealTimers()
   vi.unstubAllGlobals()
+})
+
+describe('loadAIConfig', () => {
+  it('uses provider-aware DeepSeek defaults', () => {
+    expect(loadAIConfig({ QUILL_AI_PROVIDER: 'deepseek' })).toEqual({
+      provider: 'deepseek',
+      baseUrl: 'https://api.deepseek.com',
+      apiKey: '',
+      model: 'deepseek-v4-flash',
+      temperature: 0.7,
+      maxTokens: 2000
+    })
+  })
+
+  it('preserves explicit environment overrides for DeepSeek', () => {
+    expect(
+      loadAIConfig({
+        QUILL_AI_PROVIDER: 'deepseek',
+        QUILL_AI_BASE_URL: 'https://gateway.example.test/deepseek',
+        QUILL_AI_API_KEY: 'environment-key',
+        QUILL_AI_MODEL: 'deepseek-v4-pro',
+        QUILL_AI_TEMPERATURE: '0.2',
+        QUILL_AI_MAX_TOKENS: '4096'
+      })
+    ).toEqual({
+      provider: 'deepseek',
+      baseUrl: 'https://gateway.example.test/deepseek',
+      apiKey: 'environment-key',
+      model: 'deepseek-v4-pro',
+      temperature: 0.2,
+      maxTokens: 4096
+    })
+  })
 })
 
 describe('loadAIProfile', () => {
@@ -223,6 +263,46 @@ describe('generateText', () => {
       model: 'test-model',
       messages: [{ role: 'system' }, { role: 'user', content: 'Continue the scene' }]
     })
+    expect(JSON.parse(String(init.body))).not.toHaveProperty('thinking')
+    expect(JSON.parse(String(init.body))).not.toHaveProperty('response_format')
+  })
+
+  it('uses the DeepSeek endpoint with non-thinking and optional JSON response modes', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(completionResponse('{"issues":[]}'))
+    vi.stubGlobal('fetch', fetchMock)
+    const deepseekConfig = loadAIConfig({
+      QUILL_AI_PROVIDER: 'deepseek',
+      QUILL_AI_API_KEY: 'deepseek-test-key'
+    })
+
+    await expect(
+      generateText('Check the scene', deepseekConfig, undefined, {
+        timeoutMs: 0,
+        responseFormat: 'json_object'
+      })
+    ).resolves.toBe('{"issues":[]}')
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe('https://api.deepseek.com/chat/completions')
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      model: 'deepseek-v4-flash',
+      thinking: { type: 'disabled' },
+      response_format: { type: 'json_object' }
+    })
+  })
+
+  it('allows callers to opt into DeepSeek thinking mode', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(completionResponse('Thoughtful response'))
+    vi.stubGlobal('fetch', fetchMock)
+    const deepseekConfig = loadAIConfig({
+      QUILL_AI_PROVIDER: 'deepseek',
+      QUILL_AI_API_KEY: 'deepseek-test-key'
+    })
+
+    await generateText('Prompt', deepseekConfig, undefined, { timeoutMs: 0, thinkingMode: 'enabled' })
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(JSON.parse(String(init.body))).toMatchObject({ thinking: { type: 'enabled' } })
   })
 
   it('throws a structured error before fetching when the API key is missing', async () => {
@@ -368,6 +448,16 @@ describe('generateText', () => {
 
     expect(error).toMatchObject({ provider: 'openai', status: 200 })
     expect(error.message).toContain('choices[0].message.content')
+  })
+
+  it('rejects whitespace-only completion content', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(completionResponse('  \n\t'))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const error = await captureRequestError(generateText('Prompt', config, undefined, { timeoutMs: 0 }))
+
+    expect(error).toMatchObject({ provider: 'openai', status: 200 })
+    expect(error.message).toContain('empty choices[0].message.content')
   })
 })
 

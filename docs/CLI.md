@@ -166,6 +166,18 @@ QUILL_AI_TEMPERATURE=0.7
 QUILL_AI_MAX_TOKENS=2000
 ```
 
+For DeepSeek V4 Flash, the provider-aware defaults select the current endpoint and model, so the
+minimal configuration is:
+
+```text
+QUILL_AI_PROVIDER=deepseek
+QUILL_AI_API_KEY=...
+```
+
+This resolves to `https://api.deepseek.com` and `deepseek-v4-flash`. DeepSeek requests use
+non-thinking mode by default so prose and structured semantic output are returned in
+`message.content`; callers of the AI package can explicitly opt into thinking mode when needed.
+
 The CLI reads AI configuration from the environment only; it does not read or decrypt saved desktop
 AI profiles. A key is required for non-local endpoints. A `localhost` OpenAI-compatible endpoint can
 run without one. Keep `.env` and other secret-bearing files out of source control.

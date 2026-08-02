@@ -204,7 +204,7 @@ async function seedExportProject(root: string): Promise<{ volumeOneId: string; v
 }
 
 function configureSemanticAI(): void {
-  vi.stubEnv('QUILL_AI_PROVIDER', 'openai-compatible')
+  vi.stubEnv('QUILL_AI_PROVIDER', 'deepseek')
   vi.stubEnv('QUILL_AI_BASE_URL', 'https://semantic.test/v1')
   vi.stubEnv('QUILL_AI_API_KEY', 'semantic-test-key')
   vi.stubEnv('QUILL_AI_MODEL', 'semantic-test-model')
@@ -621,6 +621,12 @@ describe('CLI smoke flow', () => {
     expect(report).toContain('  - evidence: The sealed gate opens.')
     expect(report).toContain('  - related_ids: canon-main')
     expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(
+      fetchMock.mock.calls.every(([, init]) => {
+        const body = JSON.parse(String(init?.body)) as { response_format?: { type?: string } }
+        return body.response_format?.type === 'json_object'
+      })
+    ).toBe(true)
   })
 
   it('writes the merged semantic report when --semantic and --run are combined', async () => {

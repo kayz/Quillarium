@@ -674,7 +674,10 @@ export function buildProgram(): Command {
         })
       } else {
         const semanticIssues = await runSemanticChecks(root, targetId, (prompt) =>
-          generateText(prompt, config, undefined, { timeoutMs: SEMANTIC_CHECK_TIMEOUT_MS })
+          generateText(prompt, config, undefined, {
+            timeoutMs: SEMANTIC_CHECK_TIMEOUT_MS,
+            ...(config.provider === 'deepseek' ? { responseFormat: 'json_object' as const } : {})
+          })
         )
         report.semantic_status = semanticStatusFromIssues(semanticIssues)
         report.issues.push(...semanticIssues)

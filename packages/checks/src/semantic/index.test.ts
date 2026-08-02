@@ -80,6 +80,24 @@ function inputFromPrompt(prompt: string): Record<string, unknown> {
   return JSON.parse(prompt.slice(prompt.indexOf(marker) + marker.length)) as Record<string, unknown>
 }
 
+function boundedListFixture(label: string): string[] {
+  return [
+    `${label}_FIRST`,
+    `${label}_SECOND`,
+    `${label}_LONG_${'x'.repeat(2_500)}`,
+    ...Array.from({ length: 19 }, (_, index) => `${label}_TAIL_${index}`)
+  ]
+}
+
+function expectBoundedList(values: string[], label: string): void {
+  expect(values).toHaveLength(20)
+  expect(values.slice(0, 2)).toEqual([`${label}_FIRST`, `${label}_SECOND`])
+  expect(values[2]).toHaveLength(2_001)
+  expect(values[2].startsWith(`${label}_LONG_`)).toBe(true)
+  expect(values[2].endsWith('…')).toBe(true)
+  expect(values).not.toContain(`${label}_TAIL_18`)
+}
+
 describe('semantic checks', () => {
   it('merges normal OOC, state drift, and Canon conflict findings with stable codes', async () => {
     const root = await project()
@@ -126,6 +144,39 @@ describe('semantic checks', () => {
     ])
     expect(aiInvoke).toHaveBeenCalledTimes(3)
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('filters explicit non-issues while preserving true and legacy findings', async () => {
+    const root = await project()
+    await seedScene(root)
+    const aiInvoke = vi.fn<SemanticAIInvoke>(async (prompt) => {
+      const kind = kindFromPrompt(prompt)
+      return JSON.stringify({
+        issues: [
+          {
+            is_issue: false,
+            severity: 'info',
+            message: `explained ${kind}`,
+            evidence: 'consistent on page'
+          },
+          { is_issue: true, severity: 'error', message: `true ${kind}` },
+          { severity: 'warning', message: `legacy ${kind}` }
+        ]
+      })
+    })
+
+    const issues = await runSemanticChecks(root, 'scene-main', aiInvoke)
+
+    expect(issues).toEqual([
+      { severity: 'error', code: 'semantic-ooc', message: 'true ooc' },
+      { severity: 'warning', code: 'semantic-ooc', message: 'legacy ooc' },
+      { severity: 'error', code: 'semantic-state-drift', message: 'true state-drift' },
+      { severity: 'warning', code: 'semantic-state-drift', message: 'legacy state-drift' },
+      { severity: 'error', code: 'semantic-canon-conflict', message: 'true canon-conflict' },
+      { severity: 'warning', code: 'semantic-canon-conflict', message: 'legacy canon-conflict' }
+    ])
+    expect(issues.every((issue) => !('is_issue' in issue))).toBe(true)
+    expect(issues.every((issue) => !issue.message.startsWith('explained'))).toBe(true)
   })
 
   it('accepts common JSON fenced responses', async () => {
@@ -206,10 +257,174 @@ describe('semantic checks', () => {
     expect(issues.every((issue) => issue.message.includes('timed out'))).toBe(true)
   })
 
+  it('includes imported motivation anchors and bounded Markdown profiles for sparse characters', async () => {
+    const root = await project()
+    await Promise.all([
+      writeTestDoc(
+        root,
+        'character',
+        'character-main',
+        {
+          role: '',
+          speech_style: '',
+          desire: '',
+          fear: '',
+          bottom_line: '',
+          motivation_anchors: ['IMPORTED_MOTIVATION_SENTINEL'],
+          ooc_guardrails: []
+        },
+        'IMPORTED_PROFILE_SENTINEL'
+      ),
+      writeTestDoc(root, 'canon', 'canon-main', {}, 'CANON_SENTINEL'),
+      writeTestDoc(
+        root,
+        'scene',
+        'scene-main',
+        {
+          section: 'section-main',
+          timeline_node: 'event-main',
+          location: 'location-main',
+          pov: 'character-main',
+          characters: ['character-main']
+        },
+        'Scene body.'
+      )
+    ])
+    const prompts: string[] = []
+
+    await runSemanticChecks(root, 'scene-main', async (prompt) => {
+      prompts.push(prompt)
+      return JSON.stringify({ issues: [] })
+    })
+
+    const oocInput = inputFromPrompt(prompts.find((prompt) => kindFromPrompt(prompt) === 'ooc')!) as {
+      characters: Array<{
+        desire: string
+        fear: string
+        ooc_guardrails: string[]
+        motivation_anchors: string[]
+        profile: string
+      }>
+    }
+    const stateInput = inputFromPrompt(
+      prompts.find((prompt) => kindFromPrompt(prompt) === 'state-drift')!
+    ) as { characters: Array<{ recent_state: { id: string } | null }> }
+    const canonInput = inputFromPrompt(prompts.find((prompt) => kindFromPrompt(prompt) === 'canon-conflict')!)
+
+    expect(oocInput.characters[0]).toMatchObject({
+      desire: '',
+      fear: '',
+      ooc_guardrails: [],
+      motivation_anchors: ['IMPORTED_MOTIVATION_SENTINEL']
+    })
+    expect(oocInput.characters[0].profile.trim()).toBe('IMPORTED_PROFILE_SENTINEL')
+    expect(stateInput.characters[0]).not.toHaveProperty('motivation_anchors')
+    expect(stateInput.characters[0]).not.toHaveProperty('profile')
+    expect(JSON.stringify(stateInput)).not.toContain('IMPORTED_PROFILE_SENTINEL')
+    expect(JSON.stringify(stateInput)).not.toContain('IMPORTED_MOTIVATION_SENTINEL')
+    expect(canonInput).not.toHaveProperty('characters')
+    expect(JSON.stringify(canonInput)).not.toContain('IMPORTED_PROFILE_SENTINEL')
+    expect(JSON.stringify(canonInput)).not.toContain('IMPORTED_MOTIVATION_SENTINEL')
+  })
+
+  it('preserves first and second bounded list values across character, state, and Canon payloads', async () => {
+    const root = await project()
+    await Promise.all([
+      writeTestDoc(root, 'character', 'character-main', {
+        ooc_guardrails: boundedListFixture('GUARDRAIL'),
+        scene_state: {
+          outfit_layers: boundedListFixture('OUTFIT'),
+          wounds: boundedListFixture('WOUND'),
+          carried_items: boundedListFixture('ITEM'),
+          known_facts: boundedListFixture('SCENE_FACT')
+        }
+      }),
+      writeTestDoc(root, 'character_state', 'state-main', {
+        character: 'character-main',
+        scope_type: 'scene',
+        scope_id: 'scene-main',
+        knowledge: boundedListFixture('KNOWLEDGE'),
+        public_disclosure: boundedListFixture('DISCLOSURE')
+      }),
+      writeTestDoc(root, 'canon', 'canon-main', { tags: boundedListFixture('CANON_TAG') }),
+      writeTestDoc(root, 'scene', 'scene-main', {
+        section: 'section-main',
+        timeline_node: 'event-main',
+        location: 'location-main',
+        pov: 'character-main',
+        characters: ['character-main']
+      })
+    ])
+    const prompts: string[] = []
+
+    await runSemanticChecks(root, 'scene-main', async (prompt) => {
+      prompts.push(prompt)
+      return JSON.stringify({ issues: [] })
+    })
+
+    type ListCharacter = {
+      ooc_guardrails: string[]
+      scene_state: {
+        outfit_layers: string[]
+        wounds: string[]
+        carried_items: string[]
+        known_facts: string[]
+      }
+      recent_state: null | {
+        knowledge: string[]
+        public_disclosure: string[]
+      }
+    }
+    const oocInput = inputFromPrompt(prompts.find((prompt) => kindFromPrompt(prompt) === 'ooc')!) as {
+      characters: ListCharacter[]
+    }
+    const stateInput = inputFromPrompt(
+      prompts.find((prompt) => kindFromPrompt(prompt) === 'state-drift')!
+    ) as { characters: ListCharacter[] }
+    const canonInput = inputFromPrompt(
+      prompts.find((prompt) => kindFromPrompt(prompt) === 'canon-conflict')!
+    ) as { canon: Array<{ tags: string[] }> }
+
+    const oocCharacter = oocInput.characters[0]
+    expectBoundedList(oocCharacter.ooc_guardrails, 'GUARDRAIL')
+    expectBoundedList(oocCharacter.scene_state.outfit_layers, 'OUTFIT')
+    expectBoundedList(oocCharacter.scene_state.wounds, 'WOUND')
+    expectBoundedList(oocCharacter.scene_state.carried_items, 'ITEM')
+    expectBoundedList(oocCharacter.scene_state.known_facts, 'SCENE_FACT')
+    expectBoundedList(oocCharacter.recent_state!.knowledge, 'KNOWLEDGE')
+    expectBoundedList(oocCharacter.recent_state!.public_disclosure, 'DISCLOSURE')
+
+    const stateCharacter = stateInput.characters[0]
+    expectBoundedList(stateCharacter.recent_state!.knowledge, 'KNOWLEDGE')
+    expectBoundedList(stateCharacter.recent_state!.public_disclosure, 'DISCLOSURE')
+    expect(stateCharacter).not.toHaveProperty('profile')
+    expect(stateCharacter).not.toHaveProperty('motivation_anchors')
+    expectBoundedList(canonInput.canon[0].tags, 'CANON_TAG')
+  })
+
   it('bounds characters, selects one recent state each, truncates text, and caps Canon at 20', async () => {
     const root = await project()
     const characterIds = Array.from({ length: 14 }, (_, index) => `character-${index}`)
-    await Promise.all(characterIds.map((id) => writeTestDoc(root, 'character', id, { role: 'supporting' })))
+    const longProfile = `PROFILE_SENTINEL ${'p'.repeat(2_500)}`
+    const longAnchor = `ANCHOR_SENTINEL ${'a'.repeat(2_500)}`
+    const motivationAnchors = [
+      longAnchor,
+      ...Array.from({ length: 21 }, (_, index) => `motivation-anchor-${index}`)
+    ]
+    await Promise.all(
+      characterIds.map((id, index) =>
+        writeTestDoc(
+          root,
+          'character',
+          id,
+          {
+            role: 'supporting',
+            ...(index === 0 ? { motivation_anchors: motivationAnchors } : {})
+          },
+          index === 0 ? longProfile : 'Supporting profile.'
+        )
+      )
+    )
     await Promise.all([
       writeTestDoc(root, 'character_state', 'state-old', {
         character: 'character-0',
@@ -256,8 +471,16 @@ describe('semantic checks', () => {
     await runSemanticChecks(root, 'scene-main', aiInvoke)
     const oocInput = inputFromPrompt(prompts.find((prompt) => kindFromPrompt(prompt) === 'ooc')!) as {
       scene: { content: string }
-      characters: Array<{ id: string; recent_state: { id: string } | null }>
+      characters: Array<{
+        id: string
+        motivation_anchors: string[]
+        profile: string
+        recent_state: { id: string } | null
+      }>
     }
+    const stateInput = inputFromPrompt(
+      prompts.find((prompt) => kindFromPrompt(prompt) === 'state-drift')!
+    ) as { characters: Array<{ recent_state: { id: string } | null }> }
     const canonInput = inputFromPrompt(
       prompts.find((prompt) => kindFromPrompt(prompt) === 'canon-conflict')!
     ) as {
@@ -272,22 +495,89 @@ describe('semantic checks', () => {
     expect(JSON.stringify(oocInput)).not.toContain('OLDER_STATE_SENTINEL')
     expect(oocInput.scene.content).toHaveLength(12_001)
     expect(oocInput.scene.content.endsWith('…')).toBe(true)
+    expect(oocInput.characters[0].profile).toHaveLength(2_001)
+    expect(oocInput.characters[0].profile.endsWith('…')).toBe(true)
+    expect(oocInput.characters[0].motivation_anchors).toHaveLength(20)
+    expect(oocInput.characters[0].motivation_anchors[0]).toHaveLength(2_001)
+    expect(oocInput.characters[0].motivation_anchors[0].endsWith('…')).toBe(true)
+    expect(oocInput.characters[0].motivation_anchors).not.toContain('motivation-anchor-20')
+    expect(stateInput.characters[0].recent_state?.id).toBe('state-recent')
+    expect(stateInput.characters[0]).not.toHaveProperty('profile')
+    expect(stateInput.characters[0]).not.toHaveProperty('motivation_anchors')
+    expect(JSON.stringify(stateInput)).not.toContain('PROFILE_SENTINEL')
+    expect(JSON.stringify(stateInput)).not.toContain('ANCHOR_SENTINEL')
     expect(canonInput.canon).toHaveLength(20)
     expect(canonInput.canon.map((item) => item.id)).not.toContain('canon-deprecated')
     expect(canonInput.canon.every((item) => item.content.length <= 2_001)).toBe(true)
+    expect(canonInput).not.toHaveProperty('characters')
+    expect(JSON.stringify(canonInput)).not.toContain('PROFILE_SENTINEL')
+    expect(JSON.stringify(canonInput)).not.toContain('ANCHOR_SENTINEL')
   })
 
-  it('uses Markdown prompt resources and a tested embedded fallback', async () => {
-    const source = await loadSemanticPromptTemplate('ooc')
-    const fallback = await loadSemanticPromptTemplate(
-      'ooc',
-      new URL('./prompts/does-not-exist.md', import.meta.url)
-    )
+  it('keeps resource and fallback prompts aligned on live-quality guardrails', async () => {
+    const cases = [
+      {
+        kind: 'ooc' as const,
+        phrases: [
+          'is transient and is not a hard personality guardrail',
+          'stable characterization',
+          'Scope is only behavior, dialogue, motivation, or decision',
+          'Chronology, wounds, possessions, and Canon contradictions',
+          'belong to other checks',
+          'unless they themselves demonstrate',
+          'trust established on page',
+          'narrated causal transitions',
+          'motivation_anchors'
+        ]
+      },
+      {
+        kind: 'state-drift' as const,
+        phrases: [
+          'transient earlier snapshot',
+          'character state only, not world chronology or Canon',
+          'affirmative before-and-after evidence',
+          'Absence or non-mention',
+          'not a relationship delta',
+          'Internal deliberation',
+          'new information',
+          'narrated causal transitions',
+          'emotion or motivation changes',
+          'not drift'
+        ]
+      },
+      {
+        kind: 'canon-conflict' as const,
+        phrases: [
+          'objective scene or world assertions',
+          "character's beliefs, memories",
+          'predictions',
+          'not scene or world assertions',
+          'direct contradictions',
+          'bounded Canon',
+          'external historical knowledge'
+        ]
+      }
+    ]
 
-    expect(source).toContain('Quillarium OOC consistency checker')
-    expect(source).toContain('Return JSON only')
-    expect(fallback).toContain('Quillarium OOC consistency checker')
-    expect(fallback).toContain('Return JSON only')
+    for (const { kind, phrases } of cases) {
+      const source = await loadSemanticPromptTemplate(kind)
+      const fallback = await loadSemanticPromptTemplate(
+        kind,
+        new URL(`./prompts/does-not-exist-${kind}.md`, import.meta.url)
+      )
+
+      for (const prompt of [source, fallback]) {
+        expect(prompt).toContain('Return JSON only')
+        expect(prompt).toContain('at most 5 independent issues')
+        expect(prompt).toContain('one short sentence')
+        expect(prompt).toContain('Omit explained, consistent, or reassuring candidates')
+        expect(prompt).toContain('Never mark reassurance, consistency, or an explained change')
+        expect(prompt).toContain('is_issue')
+        expect(prompt).toContain('false')
+        expect(prompt).toContain('"is_issue":true')
+        for (const phrase of phrases) expect(prompt).toContain(phrase)
+      }
+    }
   })
 
   it('downgrades missing scene input preparation failures instead of throwing', async () => {

@@ -1,4 +1,4 @@
-# Quillarium 合成 Dogfooding 报告
+# Quillarium Dogfooding 报告
 
 > 执行日期：2026-08-02
 > 起始基线：`86ce7f8`；报告包含其后的本轮修复，CLI `0.1.0`
@@ -6,9 +6,10 @@
 
 ## 结论与证据边界
 
-这次验证使用的是仓库自带示例文档和临时创建的合成项目，不是真实小说项目，不是已有
+首轮验证使用的是仓库自带示例文档和临时创建的合成项目，不是真实小说项目，不是已有
 真人稿件，不包含真人作者的冷启动体验，也没有调用真实 AI。报告不能用于判断生成正文质量、
-真实语义检查质量、桌面安装体验或长期写作可用性。
+真实语义检查质量、桌面安装体验或长期写作可用性。后文的“真实项目与 DeepSeek 补充验证”
+单独扩展了其中的真实项目和 provider 边界，但仍不包含真人作者试用。
 
 已实际走通的本地流程是：`init` → 导入既有 Markdown → 补大纲和场景 →
 `generate --dry-run` → 确定性 `check` → 无 key 的 `check --semantic` 降级 →
@@ -20,14 +21,37 @@ lorebook 导出。
 验证。
 
 共记录 20 条有实际证据的摩擦点。发现时包括高 2 条、中 13 条、低 5 条；其中 10 条已在本轮
-修复并完成最小复测，1 条部分缓解，另有 9 条尚未修复。当前剩余高风险为 0；应优先处理
-大纲关键结构字段、导出行为的误导性反馈和 SillyTavern 可用性细节。
+修复并完成最小复测，1 条部分缓解，另有 9 条尚未修复。当前剩余高风险为 0；其中 DF-14、
+DF-15 随 SillyTavern 目标退休而退出当前范围，应优先处理大纲关键结构字段和导出反馈。
 
 执行结束后，dogfood 前的用户配置已按 SHA-256 哈希原样恢复；主流程及修复复测的临时 vault、
 run、导出物和临时配置备份均已删除，`TEMP_EXISTS_AFTER=False`、
 `FIX_PROBE_EXISTS_AFTER=False`、`ROUNDTRIP_PROBE_EXISTS_AFTER=False`、
 `CLI_GAP_PROBE_EXISTS_AFTER=False`、`CONFIG_PROBE_EXISTS_AFTER=False`、
 `SET_OUTPUT_PROBE_EXISTS_AFTER=False`、`SET_OUTPUT_STATE_PROBE_EXISTS_AFTER=False`。
+
+## 真实项目与 DeepSeek 补充验证
+
+本轮按 Human 决策使用 DeepSeek `deepseek-v4-flash`，并定位到已配置 Obsidian vault 中的两份
+项目：`景泰蓝` 是完整导入版，`景泰蓝（暂名）` 只有 1 条 Canon，未作为测试对象。完整项目有
+250 个文件、8 名人物、7 条 Canon、13 个时间线事件、185 条 world entry，但没有 scene、location
+或 character state。权威 OneDrive 项目保持只读；测试在 Git 忽略的本地快照中补齐首个 section、
+location、人物状态和 scene。
+
+真实调用均通过进程环境注入临时 key，报告和仓库不记录凭据。调用边界会向 DeepSeek 发送裁剪后的
+场景、参与人物资料和最多 20 条 Canon。首个真实生成请求暴露 V4 默认 thinking 在 2,000 token
+上限内返回空 `content`、客户端仍把 run 标为 generated；修复为 DeepSeek 默认非思考模式并拒绝
+空 completion 后，同一资料生成 3,462 字符正文，accept 后确定性检查 0 issue。
+
+语义检查采用同一正文的未注入基线和冲突探针对照。最终候选结果：
+
+| 场景                         |   elapsed | semantic status | 结果                        | 人工判定                                                      |
+| ---------------------------- | --------: | --------------- | --------------------------- | ------------------------------------------------------------- |
+| 未注入基线（最终两次）       | 6.9–7.6 s | completed       | 0 issue                     | 试验级误报 0/2                                                |
+| OOC / state / Canon 冲突探针 |    10.0 s | completed       | 11 issues，三类 code 均出现 | 类别召回 3/3；全部指向注入段落，1 条时间矛盾仍被 OOC 重复分类 |
+
+该结果证明真实端点、JSON 输出、三路并发、降噪和命中链路可用；样本只有一个真实项目场景，不能把
+0/2 基线误报或 3/3 类别召回外推成长期作品总体指标。探针也显示跨类别去重仍有改进空间。
 
 ## 测试设置
 
@@ -528,24 +552,29 @@ SET_OUTPUT_STATE_PROBE_EXISTS_AFTER=False
 | DF-11 | E3/E9/E15：用 CLI 创建 world entry 后导 lorebook | 创建时可写正文，导出的 content 有实际知识         | 首轮只能得到占位正文；本轮新增 `--content` 后，lorebook 精确保留所写 registry 规则                                                       | 中（本轮已修复） | 保留正文到 lorebook 的精确映射测试；后续可补 `--file`/stdin 和空占位警告                     |
 | DF-12 | E8：分别请求 MD 和 TXT                           | `--format` 只生成所选格式，或明确选择是“显示路径” | 每次调用都重写 MD 和 TXT；`--format txt` 也更新 Markdown，文件名固定且无版本                                                             | 中               | 增加真正的单格式写入或改名为 `--report-format`；默认原子写入并提供 `--output`/`--force`      |
 | DF-13 | E8：导出英文合成项目                             | 输出语言一致，零缺口时没有多余尾部                | MD/TXT 都固定追加中文 `导出缺口`，即使 `count: 0` 也保留该段                                                                             | 中               | 根据项目/应用语言本地化；零缺口默认省略，或提供 `--include-gap-report`                       |
-| DF-14 | E9：把原生角色导出为 Character Card              | `description` 是有意义的角色描述                  | 原生空模板被导出为 `## Profile\n\n## Notes`，对 SillyTavern 用户几乎没有信息                                                             | 中               | 提供明确 description 字段映射，导出时识别并剔除脚手架占位标题                                |
-| DF-15 | E9：保存导入卡原始 JSON                          | raw 文件名简洁并可追溯来源                        | 输入 `char-card-traveler-card-v2.json` 生成 `char-card-traveler-card-v2-v2-raw.json`，版本词重复                                         | 中               | 规范化已含版本/`card` 后缀的 stem，并为重复导入设计稳定序号                                  |
+| DF-14 | E9：把原生角色导出为 Character Card              | `description` 是有意义的角色描述                  | 原生空模板被导出为 `## Profile\n\n## Notes`，对 SillyTavern 用户几乎没有信息                                                             | 中（已退出范围） | SillyTavern 目标已退休；保留事实，不再安排兼容修复                                           |
+| DF-15 | E9：保存导入卡原始 JSON                          | raw 文件名简洁并可追溯来源                        | 输入 `char-card-traveler-card-v2.json` 生成 `char-card-traveler-card-v2-v2-raw.json`，版本词重复                                         | 中（已退出范围） | SillyTavern 目标已退休；保留事实，不再安排兼容修复                                           |
 | DF-16 | E2-E9：连续执行项目命令                          | 一次选择项目后可复用上下文                        | 每条命令都必须重复带空格的长 `--project` 路径                                                                                            | 低               | 支持 `QUILL_PROJECT`、向上寻找 `project.yaml`，或提供 `config set-project`                   |
 | DF-17 | E3：把创建结果用于下一个命令                     | 输出直接给出 ID，支持脚本消费                     | 创建命令只打印绝对路径；必须从文件名推断 ID 或再跑 list                                                                                  | 低               | 同时打印 `id:` 与相对路径，并增加全局 `--json` 输出                                          |
 | DF-18 | E6：在工作区以 `pnpm cli` 执行只读命令           | 开发态反馈接近即时                                | 单次 `character list` 实测 3551 ms；该数字仅代表 pnpm+tsx 源码入口，不代表打包 binary                                                    | 低               | 在 CI 增加 built CLI 基准；开发脚本可使用常驻模式或先构建后调用 Node 入口                    |
 | DF-19 | E4：关联 run ID 与元数据时间                     | 同一时区、格式明确                                | run ID 是本地时间 `190213`，`created_at` 是未标注给用户的 UTC `11:02:13Z`                                                                | 低               | ID 与展示统一 UTC，或在 `run list` 明示/转换时区                                             |
 | DF-20 | E18：根据 `scene create --help` 准备参数         | 所有必填引用在帮助中一眼可辨                      | 首轮帮助只写普通描述，实际缺 section/timeline/location/pov 会逐项退出 1；本轮四项均明确加上 `Required` 并通过帮助测试                    | 低（本轮已修复） | 保留 required help 契约测试；后续可让 Commander 的格式层统一渲染必填标识                     |
+| DF-21 | 真实 DeepSeek provider-only 配置                 | `provider=deepseek` 自动选择当前端点和模型        | `loadAIConfig` 仍回落到 OpenAI URL / `gpt-4o-mini`，DeepSeek 默认模型另为已退役的 `deepseek-chat`                                        | 高（本轮已修复） | provider-aware 默认改为 `https://api.deepseek.com` / `deepseek-v4-flash` 并加契约测试        |
+| DF-22 | V4 Flash 生成长上下文                            | 成功态必须有非空正文                              | 默认 thinking 耗尽输出额度，API 成功但 `content` 为空；run 被错误标为 generated                                                          | 高（本轮已修复） | DeepSeek 默认 non-thinking；空白 completion 抛结构化错误；真实复测生成 3,462 字符            |
+| DF-23 | 真实人物/状态数组进入 semantic prompt            | guardrail、知识、伤势、物品和 Canon tag 保持内容  | `.map(clip)` 把数组索引传入裁剪上限，第一项只剩省略号，后续项仅剩极少字符                                                                | 高（本轮已修复） | 全部改为显式单参数回调，并覆盖首项、次项、2,000 字符和 20 项上限                             |
+| DF-24 | DeepSeek 语义输出质量                            | 只返回真实问题，解释充分/一致结论不进入 issues    | 首轮基线把“已解释、不算漂移、不构成冲突”仍作为 issue，Canon 长输出还会截断                                                               | 中（本轮已修复） | JSON mode + `is_issue` 过滤 + 最多 5 项 + 三类职责提示；最终基线 0 issue、探针 3/3 类命中    |
 
 ## 下一轮验证
 
-本次仅完成 synthetic 路径，不能将 WP-E1 视为完整验收。下一轮仍需：
+本轮已从 synthetic 扩展到 `景泰蓝` 真实项目资料和真实 DeepSeek，但仍不能将 WP-E1 视为完整验收。
+下一轮仍需：
 
-1. 使用有实质体量的真实小说稿和复杂目录结构重复导入、规划、接受与导出。
+1. 在 `景泰蓝` 出现更多真实章节后扩大样本，按人物/章节分层复测命中、误报、重复分类和引文质量。
 2. 由真人作者独立完成桌面和 CLI 冷启动，记录说明文档之外的理解成本。
-3. 在明确授权和费用边界后，用真实 provider 执行三类 semantic check，人工评估有效发现、误报和
-   引文质量。
-4. 在打包产物完成后，从全新 Windows/macOS 环境验证安装、首次启动、凭据状态和导出。
-5. DF-01 至 DF-05、DF-07 至 DF-09、DF-11、DF-20 的修复和最小复测已完成；后续版本持续
+3. DF-06、DF-10、DF-12、DF-13、DF-16 至 DF-19 为当前低/中优先级遗留；DF-14、DF-15 已随
+   SillyTavern 目标退休。
+4. macOS DMG、真实 tag/Release 和全新机器安装/迁移/首次启动按 Human 决策延期，不列入当前门槛。
+5. DF-01 至 DF-05、DF-07 至 DF-09、DF-11、DF-20 至 DF-24 的修复和最小复测已完成；后续版本持续
    运行相同回归，防止数据丢失和 CLI 入口退化复发。
 
 计划状态见 [IMPROVEMENT-PLAN.md](IMPROVEMENT-PLAN.md)。

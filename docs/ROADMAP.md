@@ -43,12 +43,12 @@ See `docs/MVP-WORKLIST.md` for the first implementation checklist.
 - Character check.
 - Style guardrail check.
 
-## Milestone 6: SillyTavern Interop
+## Retired Milestone 6: SillyTavern Interop
 
-- Import character cards.
-- Export character cards.
-- Export canon as lorebook/world info.
-- Import model preset concepts.
+This milestone is retired. Obsidian is the sole active compatibility target. The existing character
+card import/export and Canon/world-info export package and CLI commands are retained as an optional,
+unsupported non-roadmap capability. No model-preset or broader SillyTavern compatibility work is
+planned.
 
 ## Milestone 7: Versioning
 

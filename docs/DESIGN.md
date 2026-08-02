@@ -158,14 +158,13 @@ Initial checkers:
 - style and genre guardrails
 - chapter-end hook
 
-## SillyTavern Compatibility
+## Compatibility Scope
 
-Quillarium should interoperate with SillyTavern where it makes sense:
+Obsidian is Quillarium's sole active compatibility target. It is the durable storage and manual
+editing surface for the core writing workflow.
 
-- import/export character cards
-- import/export lorebooks or world info
-- reuse API preset concepts
-- borrow the idea of author notes and contextual injection
-
-Avoid copying SillyTavern code unless the project intentionally accepts AGPL
-license obligations.
+The existing SillyTavern Character Card and World Info package and CLI commands are an optional
+retained implementation. They are not a supported compatibility surface, design goal, or roadmap
+commitment, and no preset or broader SillyTavern parity work is planned. They may remain while they do
+not interfere with the core Obsidian-backed workflow. Retaining them does not authorize copying
+SillyTavern code or accepting new license obligations.

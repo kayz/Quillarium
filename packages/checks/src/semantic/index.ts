@@ -31,21 +31,36 @@ const FALLBACK_PROMPTS: Record<SemanticCheckKind, string> = {
   ooc: [
     'You are the Quillarium OOC consistency checker.',
     'Use only the bounded scene, character profiles, and recent states supplied below.',
-    'Return JSON only: {"issues":[{"severity":"error|warning|info","message":"finding","evidence":"optional","related_ids":[]}]}'
+    'Treat profile, motivation_anchors, and ooc_guardrails as stable characterization evidence; recent_state is transient and is not a hard personality guardrail.',
+    'Scope is only behavior, dialogue, motivation, or decision versus stable characterization.',
+    'Chronology, wounds, possessions, and Canon contradictions belong to other checks; do not report them here unless they themselves demonstrate a direct stable-characterization violation.',
+    'Report only a direct conflict with stable characterization that the scene does not explain; on-page deliberation, dialogue, new information, changed circumstances, trust established on page, and narrated causal transitions are explanations.',
+    'Character profile values are clipped Markdown excerpts and motivation_anchors are capped; treat omitted material as unknown.',
+    'Omit explained, consistent, or reassuring candidates; if included for classification, set is_issue=false. Never mark reassurance, consistency, or an explained change as is_issue=true.',
+    'Return JSON only with at most 5 independent issues. Keep each message and evidence to one short sentence: {"issues":[{"is_issue":true,"severity":"error|warning|info","message":"finding","evidence":"optional","related_ids":[]}]}'
   ].join('\n'),
   'state-drift': [
     'You are the Quillarium character-state drift checker.',
-    'Report only unexplained state changes supported by the bounded input below.',
-    'Return JSON only: {"issues":[{"severity":"error|warning|info","message":"finding","evidence":"optional","related_ids":[]}]}'
+    'Compare character state only, not world chronology or Canon.',
+    'Treat recent_state as a transient earlier snapshot. Report only an unexplained discontinuity supported by the bounded input below.',
+    'Require affirmative before-and-after evidence of a character-state discontinuity. Absence or non-mention is not a relationship delta.',
+    'Internal deliberation, dialogue, new information, and narrated causal transitions are explanations; ordinary on-page emotion or motivation changes are not drift.',
+    'Omit explained, consistent, or reassuring candidates; if included for classification, set is_issue=false. Never mark reassurance, consistency, or an explained change as is_issue=true.',
+    'Return JSON only with at most 5 independent issues. Keep each message and evidence to one short sentence: {"issues":[{"is_issue":true,"severity":"error|warning|info","message":"finding","evidence":"optional","related_ids":[]}]}'
   ].join('\n'),
   'canon-conflict': [
     'You are the Quillarium Canon conflict checker.',
-    'Report only direct contradictions with the bounded Canon candidates below.',
-    'Return JSON only: {"issues":[{"severity":"error|warning|info","message":"finding","evidence":"optional","related_ids":[]}]}'
+    'Compare only objective scene or world assertions with the bounded Canon candidates below.',
+    "A character's beliefs, memories, claims, predictions, or intentions are not scene or world assertions and must not be treated as Canon conflicts.",
+    'Use only the bounded Canon candidates; do not use external historical knowledge or unstated facts.',
+    'Report only direct contradictions; absent information, speculation, and soft ambiguity are not contradictions.',
+    'Omit explained, consistent, or reassuring candidates; if included for classification, set is_issue=false. Never mark reassurance, consistency, or an explained change as is_issue=true.',
+    'Return JSON only with at most 5 independent issues. Keep each message and evidence to one short sentence: {"issues":[{"is_issue":true,"severity":"error|warning|info","message":"finding","evidence":"optional","related_ids":[]}]}'
   ].join('\n')
 }
 
 const findingSchema = z.object({
+  is_issue: z.boolean().default(true),
   severity: z.enum(['error', 'warning', 'info']).default('warning'),
   message: z.string().trim().min(1),
   evidence: z.string().trim().optional(),
@@ -86,7 +101,9 @@ interface BoundedSemanticInput {
     desire: string
     fear: string
     bottom_line: string
+    motivation_anchors: string[]
     ooc_guardrails: string[]
+    profile: string
     scene_state: CharacterDoc['scene_state']
     recent_state: null | {
       id: string
@@ -171,7 +188,13 @@ async function buildBoundedInput(projectRoot: string, sceneId: string): Promise<
         desire: clip(character.data.desire),
         fear: clip(character.data.fear),
         bottom_line: clip(character.data.bottom_line),
-        ooc_guardrails: character.data.ooc_guardrails.slice(0, MAX_LIST_ITEMS).map(clip),
+        motivation_anchors: character.data.motivation_anchors
+          .slice(0, MAX_LIST_ITEMS)
+          .map((anchor) => clip(anchor)),
+        ooc_guardrails: character.data.ooc_guardrails
+          .slice(0, MAX_LIST_ITEMS)
+          .map((guardrail) => clip(guardrail)),
+        profile: clip(character.content),
         scene_state: boundedSceneState(character.data.scene_state),
         recent_state: recent
           ? {
@@ -181,9 +204,11 @@ async function buildBoundedInput(projectRoot: string, sceneId: string): Promise<
               timeline_node: recent.data.timeline_node,
               motivation: clip(recent.data.motivation),
               emotion: clip(recent.data.emotion),
-              knowledge: recent.data.knowledge.slice(0, MAX_LIST_ITEMS).map(clip),
+              knowledge: recent.data.knowledge.slice(0, MAX_LIST_ITEMS).map((fact) => clip(fact)),
               relationship_delta: boundedRecord(recent.data.relationship_delta),
-              public_disclosure: recent.data.public_disclosure.slice(0, MAX_LIST_ITEMS).map(clip),
+              public_disclosure: recent.data.public_disclosure
+                .slice(0, MAX_LIST_ITEMS)
+                .map((disclosure) => clip(disclosure)),
               notes: clip(recent.data.notes)
             }
           : null
@@ -202,7 +227,7 @@ async function buildBoundedInput(projectRoot: string, sceneId: string): Promise<
       id: item.data.id,
       title: item.data.title,
       strength: item.data.strength,
-      tags: item.data.tags.slice(0, MAX_LIST_ITEMS).map(clip),
+      tags: item.data.tags.slice(0, MAX_LIST_ITEMS).map((tag) => clip(tag)),
       content: clip(item.content)
     }))
 
@@ -242,10 +267,10 @@ function stateScore(state: CharacterStateDoc, scene: SceneDoc): number {
 function boundedSceneState(state: CharacterDoc['scene_state']): CharacterDoc['scene_state'] {
   return {
     current_location: state.current_location ? clip(state.current_location) : undefined,
-    outfit_layers: state.outfit_layers?.slice(0, MAX_LIST_ITEMS).map(clip),
-    wounds: state.wounds?.slice(0, MAX_LIST_ITEMS).map(clip),
-    carried_items: state.carried_items?.slice(0, MAX_LIST_ITEMS).map(clip),
-    known_facts: state.known_facts?.slice(0, MAX_LIST_ITEMS).map(clip),
+    outfit_layers: state.outfit_layers?.slice(0, MAX_LIST_ITEMS).map((layer) => clip(layer)),
+    wounds: state.wounds?.slice(0, MAX_LIST_ITEMS).map((wound) => clip(wound)),
+    carried_items: state.carried_items?.slice(0, MAX_LIST_ITEMS).map((item) => clip(item)),
+    known_facts: state.known_facts?.slice(0, MAX_LIST_ITEMS).map((fact) => clip(fact)),
     emotional_state: state.emotional_state ? clip(state.emotional_state) : undefined
   }
 }
@@ -287,7 +312,14 @@ function buildPrompt(kind: SemanticCheckKind, template: string, input: BoundedSe
   const payload =
     kind === 'canon-conflict'
       ? { scene: input.scene, canon: input.canon }
-      : { scene: input.scene, characters: input.characters }
+      : kind === 'ooc'
+        ? { scene: input.scene, characters: input.characters }
+        : {
+            scene: input.scene,
+            characters: input.characters.map(
+              ({ motivation_anchors: _motivationAnchors, profile: _profile, ...character }) => character
+            )
+          }
   return `${template}\n\nCHECK_KIND: ${kind}\nINPUT_JSON:\n${JSON.stringify(payload, null, 2)}`
 }
 
@@ -308,13 +340,15 @@ async function runOneSemanticCheck(
         }
       ]
     }
-    return parsed.data.issues.map((finding) => ({
-      severity: finding.severity,
-      code: CHECK_CODE[kind],
-      message: finding.message,
-      ...(finding.evidence ? { evidence: finding.evidence } : {}),
-      ...(finding.related_ids.length ? { related_ids: finding.related_ids } : {})
-    }))
+    return parsed.data.issues
+      .filter((finding) => finding.is_issue)
+      .map((finding) => ({
+        severity: finding.severity,
+        code: CHECK_CODE[kind],
+        message: finding.message,
+        ...(finding.evidence ? { evidence: finding.evidence } : {}),
+        ...(finding.related_ids.length ? { related_ids: finding.related_ids } : {})
+      }))
   } catch (error) {
     return [unavailableIssue(CHECK_LABEL[kind], error)]
   }

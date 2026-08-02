@@ -16,6 +16,10 @@ export interface AIRequestOptions {
   maxRetries?: number
   /** Base delay for exponential retry backoff. Set to 0 for immediate retries. */
   retryDelayMs?: number
+  /** Request an OpenAI-compatible JSON object response. */
+  responseFormat?: 'json_object'
+  /** DeepSeek thinking mode. Defaults to disabled and is ignored for other providers. */
+  thinkingMode?: 'enabled' | 'disabled'
 }
 
 export type AIKeyDecryptor = (encrypted: string) => string | Promise<string>
@@ -52,11 +56,12 @@ const MAX_RETRY_DELAY_MS = 5_000
 const MAX_ERROR_DETAIL_LENGTH = 2_000
 
 export function loadAIConfig(env: NodeJS.ProcessEnv = process.env): AIConfig {
+  const provider = (env.QUILL_AI_PROVIDER as AIConfig['provider']) ?? 'openai-compatible'
   return {
-    provider: (env.QUILL_AI_PROVIDER as AIConfig['provider']) ?? 'openai-compatible',
-    baseUrl: env.QUILL_AI_BASE_URL ?? 'https://api.openai.com/v1',
+    provider,
+    baseUrl: env.QUILL_AI_BASE_URL ?? defaultBaseUrl(provider),
     apiKey: env.QUILL_AI_API_KEY ?? '',
-    model: env.QUILL_AI_MODEL ?? 'gpt-4o-mini',
+    model: env.QUILL_AI_MODEL ?? defaultModel(provider),
     temperature: Number(env.QUILL_AI_TEMPERATURE ?? '0.7'),
     maxTokens: Number(env.QUILL_AI_MAX_TOKENS ?? '2000')
   }
@@ -112,7 +117,7 @@ export function defaultBaseUrl(provider: AIConfig['provider']): string {
     case 'gemini':
       return 'https://generativelanguage.googleapis.com/v1beta'
     case 'deepseek':
-      return 'https://api.deepseek.com/v1'
+      return 'https://api.deepseek.com'
     case 'ollama':
       return 'http://localhost:11434/v1'
   }
@@ -128,7 +133,7 @@ export function defaultModel(provider: AIConfig['provider']): string {
     case 'gemini':
       return 'gemini-1.5-pro'
     case 'deepseek':
-      return 'deepseek-chat'
+      return 'deepseek-v4-flash'
     case 'ollama':
       return 'llama3.1'
   }
@@ -172,21 +177,26 @@ export async function generateText(
     DEFAULT_RETRY_DELAY_MS,
     MAX_RETRY_DELAY_MS
   )
+  const body = {
+    model: config.model,
+    temperature: config.temperature,
+    max_tokens: config.maxTokens,
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: prompt }
+    ],
+    ...(config.provider === 'deepseek'
+      ? { thinking: { type: options.thinkingMode ?? ('disabled' as const) } }
+      : {}),
+    ...(options.responseFormat ? { response_format: { type: options.responseFormat } } : {})
+  }
   const request: Omit<RequestInit, 'signal'> = {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${config.apiKey || 'local'}`
     },
-    body: JSON.stringify({
-      model: config.model,
-      temperature: config.temperature,
-      max_tokens: config.maxTokens,
-      messages: [
-        { role: 'system', content: systemPrompt },
-        { role: 'user', content: prompt }
-      ]
-    })
+    body: JSON.stringify(body)
   }
 
   for (let attempt = 0; ; attempt += 1) {
@@ -306,6 +316,13 @@ async function readCompletion(response: Response, provider: AIConfig['provider']
       provider,
       status: response.status,
       hint: 'Check that the endpoint implements the OpenAI-compatible chat completions response format.'
+    })
+  }
+  if (!content.trim()) {
+    throw new AIRequestError(`AI provider ${provider} returned empty choices[0].message.content.`, {
+      provider,
+      status: response.status,
+      hint: 'Retry the request or check the provider response and output token limit.'
     })
   }
   return content
