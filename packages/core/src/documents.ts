@@ -81,12 +81,43 @@ const DOC_SCHEMAS = {
   prompt: baseDocSchema.passthrough()
 }
 
+const reservedAutoIds = new Map<string, Set<string>>()
+
 export function dirForType(projectRoot: string, type: DocType): string {
   return path.join(projectRoot, TYPE_DIR[type])
 }
 
 export function fileForDoc(projectRoot: string, type: DocType, id: string, title: string): string {
   return path.join(dirForType(projectRoot, type), `${id}-${slugify(title)}.md`)
+}
+
+async function allocateAutoId(
+  projectRoot: string,
+  type: DocType,
+  prefix: string,
+  title: string
+): Promise<string> {
+  const suggested = makeId(prefix, title)
+  const reservationKey = `${path.resolve(projectRoot)}\0${type}`
+  const reserved = reservedAutoIds.get(reservationKey) ?? new Set<string>()
+  reservedAutoIds.set(reservationKey, reserved)
+  const existingIds = new Set(
+    (await listDocs<BaseDoc>(projectRoot, type)).map((document) => document.data.id)
+  )
+  if (!existingIds.has(suggested) && !reserved.has(suggested)) {
+    reserved.add(suggested)
+    return suggested
+  }
+
+  const base = `${prefix}-${slugify(title).toLocaleLowerCase()}`
+  for (let suffix = 2; suffix <= 100_000; suffix += 1) {
+    const candidate = `${base}-${suffix}`
+    if (!existingIds.has(candidate) && !reserved.has(candidate)) {
+      reserved.add(candidate)
+      return candidate
+    }
+  }
+  throw new Error(`Could not allocate a unique ${type} id for ${title}.`)
 }
 
 export async function createCanon(
@@ -96,7 +127,7 @@ export async function createCanon(
   partial: Partial<CanonDoc> = {}
 ): Promise<string> {
   const doc = canonSchema.parse({
-    id: partial.id ?? makeId('canon', title),
+    id: partial.id ?? (await allocateAutoId(projectRoot, 'canon', 'canon', title)),
     type: 'canon',
     schema_version: 1,
     title,
@@ -141,7 +172,7 @@ export async function createCharacter(
   content = ''
 ): Promise<string> {
   const doc = characterSchema.parse({
-    id: partial.id ?? makeId('char', name),
+    id: partial.id ?? (await allocateAutoId(projectRoot, 'character', 'char', name)),
     type: 'character',
     schema_version: 1,
     title: name,
@@ -173,7 +204,11 @@ export async function createForeshadowing(
   content = ''
 ): Promise<string> {
   const doc = foreshadowingSchema.parse({
-    id: partial.id ?? (partial.code ? partial.code.toLocaleLowerCase() : makeId('fb', title)),
+    id:
+      partial.id ??
+      (partial.code
+        ? partial.code.toLocaleLowerCase()
+        : await allocateAutoId(projectRoot, 'foreshadowing', 'fb', title)),
     type: 'foreshadowing',
     schema_version: 1,
     title,
@@ -203,7 +238,11 @@ export async function createWorldEntry(
   content = ''
 ): Promise<string> {
   const doc = worldEntrySchema.parse({
-    id: partial.id ?? (partial.code ? partial.code.toLocaleLowerCase() : makeId('world', title)),
+    id:
+      partial.id ??
+      (partial.code
+        ? partial.code.toLocaleLowerCase()
+        : await allocateAutoId(projectRoot, 'world_entry', 'world', title)),
     type: 'world_entry',
     schema_version: 1,
     title,
@@ -235,7 +274,7 @@ export async function createReference(
   content = ''
 ): Promise<string> {
   const doc = referenceSchema.parse({
-    id: partial.id ?? makeId('ref', title),
+    id: partial.id ?? (await allocateAutoId(projectRoot, 'reference', 'ref', title)),
     type: 'reference',
     schema_version: 1,
     title,
@@ -262,7 +301,7 @@ export async function createIssue(
   content = ''
 ): Promise<string> {
   const doc = issueSchema.parse({
-    id: partial.id ?? makeId('issue', title),
+    id: partial.id ?? (await allocateAutoId(projectRoot, 'issue', 'issue', title)),
     type: 'issue',
     schema_version: 1,
     title,
@@ -286,7 +325,7 @@ export async function createStrategy(
   content = ''
 ): Promise<string> {
   const doc = strategySchema.parse({
-    id: partial.id ?? makeId('strategy', title),
+    id: partial.id ?? (await allocateAutoId(projectRoot, 'strategy', 'strategy', title)),
     type: 'strategy',
     schema_version: 1,
     title,
@@ -309,7 +348,7 @@ export async function createPattern(
   content = ''
 ): Promise<string> {
   const doc = patternSchema.parse({
-    id: partial.id ?? makeId('pattern', title),
+    id: partial.id ?? (await allocateAutoId(projectRoot, 'pattern', 'pattern', title)),
     type: 'pattern',
     schema_version: 1,
     title,
@@ -332,7 +371,7 @@ export async function createCharacterState(
   content = ''
 ): Promise<string> {
   const doc = characterStateSchema.parse({
-    id: partial.id ?? makeId('state', title),
+    id: partial.id ?? (await allocateAutoId(projectRoot, 'character_state', 'state', title)),
     type: 'character_state',
     schema_version: 1,
     title,
@@ -364,7 +403,7 @@ export async function appendTimelineEvent(
   const previous =
     partial.previous === undefined ? (events.at(-1)?.data.id ?? null) : (partial.previous ?? null)
   const doc = timelineEventSchema.parse({
-    id: partial.id ?? makeId('evt', title),
+    id: partial.id ?? (await allocateAutoId(projectRoot, 'timeline_event', 'evt', title)),
     type: 'timeline_event',
     schema_version: 1,
     title,
@@ -390,7 +429,7 @@ export async function createLocation(
   content = ''
 ): Promise<string> {
   const doc = locationSchema.parse({
-    id: partial.id ?? makeId('loc', title),
+    id: partial.id ?? (await allocateAutoId(projectRoot, 'location', 'loc', title)),
     type: 'location',
     schema_version: 1,
     title,
@@ -412,7 +451,7 @@ export async function createRoute(
 ): Promise<string> {
   const title = partial.title ?? `${from} to ${to}`
   const doc = routeSchema.parse({
-    id: partial.id ?? makeId('route', title),
+    id: partial.id ?? (await allocateAutoId(projectRoot, 'route', 'route', title)),
     type: 'route',
     schema_version: 1,
     title,
@@ -438,7 +477,7 @@ export async function createOutline(
   content = ''
 ): Promise<string> {
   const doc = outlineSchema.parse({
-    id: partial.id ?? makeId(level, title),
+    id: partial.id ?? (await allocateAutoId(projectRoot, 'outline', level, title)),
     type: 'outline',
     schema_version: 1,
     title,
@@ -496,7 +535,7 @@ export async function createScene(
 ): Promise<string> {
   const project = await loadProject(projectRoot)
   const doc = sceneSchema.parse({
-    id: partial.id ?? makeId('scene', title),
+    id: partial.id ?? (await allocateAutoId(projectRoot, 'scene', 'scene', title)),
     type: 'scene',
     schema_version: 1,
     title,

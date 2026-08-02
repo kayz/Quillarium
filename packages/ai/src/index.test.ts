@@ -1,5 +1,18 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { AIRequestError, DEFAULT_AI_TIMEOUT_MS, generateText, type AIConfig } from './index.js'
+import {
+  loadConfig,
+  migrateAIProfileApiKeys,
+  withStoredAIProfileApiKey,
+  withUpdatedAIProfileApiKey
+} from '@quillarium/core'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { AIRequestError, DEFAULT_AI_TIMEOUT_MS, generateText, loadAIProfile, type AIConfig } from './index.js'
+
+vi.mock('@quillarium/core', async () => {
+  const actual = await vi.importActual<typeof import('@quillarium/core')>('@quillarium/core')
+  return { ...actual, loadConfig: vi.fn() }
+})
+
+const loadConfigMock = vi.mocked(loadConfig)
 
 const config: AIConfig = {
   provider: 'openai',
@@ -10,9 +23,187 @@ const config: AIConfig = {
   maxTokens: 512
 }
 
+beforeEach(() => {
+  loadConfigMock.mockResolvedValue({})
+})
+
 afterEach(() => {
+  vi.clearAllMocks()
   vi.useRealTimers()
   vi.unstubAllGlobals()
+})
+
+describe('loadAIProfile', () => {
+  it('prefers QUILL_AI_API_KEY without invoking the decryptor', async () => {
+    loadConfigMock.mockResolvedValue({
+      aiProfiles: {
+        prose: {
+          provider: 'openai',
+          apiKeyEncrypted: 'ciphertext',
+          apiKey: 'legacy-key'
+        }
+      }
+    })
+    const decrypt = vi.fn().mockReturnValue('decrypted-key')
+
+    const profile = await loadAIProfile('prose', { QUILL_AI_API_KEY: 'environment-key' }, decrypt)
+
+    expect(profile.apiKey).toBe('environment-key')
+    expect(decrypt).not.toHaveBeenCalled()
+  })
+
+  it('prefers a decrypted key over a legacy plaintext key', async () => {
+    loadConfigMock.mockResolvedValue({
+      aiProfiles: {
+        prose: {
+          provider: 'openai',
+          apiKeyEncrypted: 'ciphertext',
+          apiKey: 'legacy-key'
+        }
+      }
+    })
+    const decrypt = vi.fn().mockResolvedValue('decrypted-key')
+
+    const profile = await loadAIProfile('prose', {}, decrypt)
+
+    expect(profile.apiKey).toBe('decrypted-key')
+    expect(decrypt).toHaveBeenCalledWith('ciphertext')
+  })
+
+  it('falls back to the legacy plaintext key when decryption fails', async () => {
+    loadConfigMock.mockResolvedValue({
+      aiProfiles: {
+        prose: {
+          provider: 'openai',
+          apiKeyEncrypted: 'ciphertext',
+          apiKey: 'legacy-key'
+        }
+      }
+    })
+    const decrypt = vi.fn().mockRejectedValue(new Error('decryption failed'))
+
+    const profile = await loadAIProfile('prose', {}, decrypt)
+
+    expect(profile.apiKey).toBe('legacy-key')
+  })
+
+  it('returns an empty key when encrypted decryption fails without a legacy key', async () => {
+    loadConfigMock.mockResolvedValue({
+      aiProfiles: {
+        prose: {
+          provider: 'openai',
+          apiKeyEncrypted: 'ciphertext'
+        }
+      }
+    })
+
+    const profile = await loadAIProfile('prose', {}, () => {
+      throw new Error('decryption failed')
+    })
+
+    expect(profile.apiKey).toBe('')
+    expect(profile.apiKey).not.toContain('ciphertext')
+  })
+})
+
+describe('AI profile key persistence', () => {
+  it('serializes only ciphertext when encryption is available', () => {
+    const secret = 'plain-secret-that-must-not-reach-disk'
+    const stored = withStoredAIProfileApiKey(
+      {
+        provider: 'openai',
+        apiKey: 'old-plaintext',
+        apiKeyEncrypted: 'old-ciphertext'
+      },
+      secret,
+      (value) => {
+        expect(value).toBe(secret)
+        return 'encrypted-base64-payload'
+      }
+    )
+    const serialized = JSON.stringify({ aiProfiles: { prose: stored } })
+
+    expect(stored.apiKey).toBeUndefined()
+    expect(stored.apiKeyEncrypted).toBe('encrypted-base64-payload')
+    expect(serialized).not.toContain(secret)
+    expect(serialized).not.toContain('old-plaintext')
+  })
+
+  it('migrates plaintext profiles into a disk payload with no plaintext key fields', () => {
+    const secret = 'legacy-secret-on-disk'
+    const migrated = migrateAIProfileApiKeys(
+      {
+        language: 'en',
+        aiProfiles: {
+          prose: { provider: 'openai', apiKey: secret },
+          check: { provider: 'deepseek', apiKey: 'second-legacy-secret' }
+        }
+      },
+      (value) => `encrypted:${value.length}`
+    )
+    const serialized = JSON.stringify(migrated)
+
+    expect(migrated.aiProfiles?.prose?.apiKey).toBeUndefined()
+    expect(migrated.aiProfiles?.check?.apiKey).toBeUndefined()
+    expect(migrated.aiProfiles?.prose?.apiKeyEncrypted).toBe(`encrypted:${secret.length}`)
+    expect(serialized).not.toContain(secret)
+    expect(serialized).not.toContain('second-legacy-secret')
+  })
+
+  it('removes a stale plaintext field without replacing existing ciphertext', () => {
+    const migrated = migrateAIProfileApiKeys(
+      {
+        aiProfiles: {
+          prose: {
+            provider: 'openai',
+            apiKey: 'stale-plaintext',
+            apiKeyEncrypted: 'existing-ciphertext'
+          }
+        }
+      },
+      () => {
+        throw new Error('existing ciphertext must not be replaced')
+      }
+    )
+
+    expect(migrated.aiProfiles?.prose?.apiKey).toBeUndefined()
+    expect(migrated.aiProfiles?.prose?.apiKeyEncrypted).toBe('existing-ciphertext')
+    expect(JSON.stringify(migrated)).not.toContain('stale-plaintext')
+  })
+
+  it('preserves existing ciphertext when an ordinary settings save submits an empty key', () => {
+    const stored = withUpdatedAIProfileApiKey(
+      { provider: 'openai', model: 'next-model' },
+      { provider: 'openai', apiKeyEncrypted: 'existing-ciphertext' },
+      ''
+    )
+
+    expect(stored.model).toBe('next-model')
+    expect(stored.apiKey).toBeUndefined()
+    expect(stored.apiKeyEncrypted).toBe('existing-ciphertext')
+  })
+
+  it('clears both key fields only when explicitly requested', () => {
+    const stored = withUpdatedAIProfileApiKey(
+      { provider: 'openai' },
+      { provider: 'openai', apiKeyEncrypted: 'existing-ciphertext' },
+      '',
+      { clear: true }
+    )
+
+    expect(stored.apiKey).toBeUndefined()
+    expect(stored.apiKeyEncrypted).toBeUndefined()
+  })
+
+  it('keeps the legacy plaintext field only when no encryptor is supplied', () => {
+    const stored = withStoredAIProfileApiKey(
+      { provider: 'openai', apiKeyEncrypted: 'stale-ciphertext' },
+      'fallback-key'
+    )
+
+    expect(stored.apiKey).toBe('fallback-key')
+    expect(stored.apiKeyEncrypted).toBeUndefined()
+  })
 })
 
 describe('generateText', () => {

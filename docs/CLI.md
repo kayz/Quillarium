@@ -1,62 +1,65 @@
 # Quillarium CLI
 
-The CLI is the first working surface for Quillarium. It manages an Obsidian-backed
-novel project made of Markdown files with YAML frontmatter.
+The CLI manages a Quillarium novel as Markdown and YAML inside an Obsidian vault. The examples below
+run the TypeScript entry point from the repository root with `pnpm cli`; the built binary name is
+`quill`.
 
-## Create A Project
+## Quick Start
 
-First configure your Obsidian vault directory:
+Install and verify the workspace first:
+
+```bash
+pnpm install
+pnpm build
+pnpm cli --help
+```
+
+Configure an Obsidian vault and create a novel:
 
 ```bash
 pnpm cli config set-vault ./local-vaults
-```
-
-Then create a novel by name:
-
-```bash
 pnpm cli init "My Novel" --genre historical-political
 ```
 
-If no vault is configured, `quill init` attempts to open a system folder picker.
-On systems where that is unavailable, run `quill config set-vault <path>` first.
-
-This creates:
+If no vault is configured, `init` tries to open a system folder picker. If that is unavailable, use
+`config set-vault <path>` or pass `init --vault <path>`. The project root for this example is:
 
 ```text
-<Obsidian Vault>/novels/My Novel/
-  project.yaml
-  canon/
-  characters/
-  timeline/
-  locations/
-  foreshadowing/
-  world/
-  references/
-  issues/
-  resources/
-  causality/
-  outlines/
-  scenes/
-  prompts/
-  runs/
-  exports/
-  sillytavern/
+./local-vaults/novels/My Novel
 ```
 
-## Add Core Data
+All commands that operate on a novel require `-p, --project <path>`.
+
+For automation, portable sessions, or isolated tests, set `QUILL_CONFIG_DIR` before running CLI or
+desktop commands. Quillarium will read and write `config.json` there instead of the user-level
+`~/.quillarium` directory, so `init --vault` cannot alter the normal default vault.
+
+## Main Writing Flow
+
+### 1. Add structured material
 
 ```bash
-pnpm cli canon add "Core Rule" --project "./local-vaults/novels/My Novel" --content "Do not break canon."
-pnpm cli character add "Main Character" --project "./local-vaults/novels/My Novel" --role protagonist
+pnpm cli canon add "Succession Rule" --project "./local-vaults/novels/My Novel" --content "Only the elder line may inherit."
+pnpm cli character add "Lin Yue" --project "./local-vaults/novels/My Novel" --role protagonist --ooc "Never breaks an explicit oath"
 pnpm cli location add "Old Palace" --project "./local-vaults/novels/My Novel"
-pnpm cli timeline append "Opening Night" --project "./local-vaults/novels/My Novel" --location loc-old-palace
+pnpm cli timeline append "Opening Night" --project "./local-vaults/novels/My Novel" --location loc-old-palace --characters char-lin-yue
 pnpm cli outline add section "Opening Section" --project "./local-vaults/novels/My Novel" --chapter-hook
-pnpm cli foreshadowing add "FB-L4-001" --project "./local-vaults/novels/My Novel" --summary "The old fleet still exists" --expires-at chapter-020
-pnpm cli world add "Granulated Powder" --project "./local-vaults/novels/My Novel" --trigger powder fire-lance --role constraint --valid-from 1449
-pnpm cli issue add "Decide first act POV order" --project "./local-vaults/novels/My Novel" --priority high --due chapter-003
 ```
 
-## Create A Scene
+Create commands print the created file path. Use the corresponding `list` command to confirm the
+generated IDs before referring to them from another document.
+
+Other first-class records include world entries, foreshadowing, references, issues, patterns,
+routes, and book/volume/arc/chapter outlines:
+
+```bash
+pnpm cli world add "Granulated Powder" --project "./local-vaults/novels/My Novel" --trigger powder fire-lance --role constraint --valid-from 1449 --content "The powder ignites only when kept dry."
+pnpm cli foreshadowing add "FB-L4-001" --project "./local-vaults/novels/My Novel" --summary "The old fleet still exists" --expires-at chapter-020
+pnpm cli issue add "Decide first-act POV order" --project "./local-vaults/novels/My Novel" --priority high --due chapter-003
+pnpm cli strategy add "Courtroom Pressure" --project "./local-vaults/novels/My Novel" --category pacing --principle "Every exchange changes leverage" --avoid "Unopposed exposition"
+```
+
+### 2. Create a scene
 
 ```bash
 pnpm cli scene create "Opening Scene" \
@@ -64,72 +67,223 @@ pnpm cli scene create "Opening Scene" \
   --section section-opening-section \
   --timeline evt-opening-night \
   --location loc-old-palace \
-  --pov char-main-character \
-  --characters char-main-character \
+  --pov char-lin-yue \
+  --characters char-lin-yue \
   --chapter-hook
 ```
 
-## Assemble Context
+### 3. Inspect context and generate
+
+Print the assembled scene context:
 
 ```bash
 pnpm cli context scene-opening-scene --project "./local-vaults/novels/My Novel"
 ```
 
-## Generate
+Use `--run` to create a run directory and save `context.md`. A generation dry run creates the run,
+`context.md`, and `prompt.md` without calling a model:
 
-Set an OpenAI-compatible provider:
-
-```text
-QUILL_AI_BASE_URL=https://api.openai.com/v1
-QUILL_AI_API_KEY=...
-QUILL_AI_MODEL=gpt-4o-mini
+```bash
+pnpm cli generate scene-opening-scene --project "./local-vaults/novels/My Novel" --dry-run
 ```
 
-Then run:
+After configuring AI credentials, omit `--dry-run` to call the provider and record
+`output-raw.md`:
 
 ```bash
 pnpm cli generate scene-opening-scene --project "./local-vaults/novels/My Novel"
 ```
 
-Use `--dry-run` to create `context.md` and `prompt.md` without calling a model.
+### 4. Check and accept
 
-## Check
+The default scene check is deterministic and does not call a model:
 
 ```bash
 pnpm cli check scene-opening-scene --project "./local-vaults/novels/My Novel"
 ```
 
-The first checker is deterministic: missing references, timeline links, location
-references, route existence, foreshadowing references, world entry validity windows,
-due open issues, and simple scene constraints.
+Outline targets use the same report format:
+
+```bash
+pnpm cli check outline-volume-one --type outline --project "./local-vaults/novels/My Novel"
+```
+
+It checks document references, timeline and previous-scene links, locations and routes,
+foreshadowing references, world-entry validity, due open issues, and scene constraints. To also run
+AI-assisted OOC, character-state drift, and Canon-conflict checks, add `--semantic`:
+
+```bash
+pnpm cli check scene-opening-scene --semantic --project "./local-vaults/novels/My Novel"
+```
+
+Semantic findings are additive: deterministic checks still run first. Missing AI configuration,
+provider errors, 30-second semantic timeouts, or malformed structured model output are reported as
+informational issues instead of discarding the deterministic report. Use `--run <run-id>` to write
+the combined report to that run's `check-report.md`. Reports expose `semantic_status` as
+`not_requested`, `completed`, `partial`, or `unavailable`; the default command remains successful on
+semantic degradation so deterministic results are still usable.
+
+Inspect and accept generated output:
+
+```bash
+pnpm cli run list --project "./local-vaults/novels/My Novel"
+pnpm cli run show run-example --file output-raw.md --project "./local-vaults/novels/My Novel"
+pnpm cli run set-output run-example --file ./candidate-prose.md --project "./local-vaults/novels/My Novel"
+pnpm cli run accept run-example --project "./local-vaults/novels/My Novel"
+```
+
+`run set-output` loads a non-empty UTF-8 file into `output-raw.md` and marks the run generated. This
+supports reviewing prose produced outside the configured provider while retaining the run's original
+provider, model, and creation metadata.
+
+`run accept` copies a non-empty `output-raw.md` to `output-accepted.md`, marks the run accepted, and
+replaces the target scene body. Empty output is rejected so an unfinished dry run cannot erase scene
+prose. Pass `--scene <scene-id>` only when the scene recorded in run metadata must be overridden.
+
+### 5. Export accepted prose
+
+```bash
+pnpm cli export --format md --project "./local-vaults/novels/My Novel"
+pnpm cli export --format txt --volume outline-volume-one --project "./local-vaults/novels/My Novel"
+```
+
+`--format` accepts only `md` or `txt`; `--volume` accepts a volume-outline ID. The exporter writes a
+Markdown and a plain-text artifact under `exports/`, while the selected format controls which path
+the CLI reports. Only accepted run output, an accepted-output signal, or a final scene contributes
+prose. Skipped scenes are counted and listed as gaps in the export instead of being silently treated
+as manuscript text.
+
+## AI Configuration and Credential Security
+
+The CLI loads `.env` and the process environment through these variables:
+
+```text
+QUILL_AI_PROVIDER=openai-compatible
+QUILL_AI_BASE_URL=https://api.openai.com/v1
+QUILL_AI_API_KEY=...
+QUILL_AI_MODEL=gpt-4o-mini
+QUILL_AI_TEMPERATURE=0.7
+QUILL_AI_MAX_TOKENS=2000
+```
+
+The CLI reads AI configuration from the environment only; it does not read or decrypt saved desktop
+AI profiles. A key is required for non-local endpoints. A `localhost` OpenAI-compatible endpoint can
+run without one. Keep `.env` and other secret-bearing files out of source control.
+
+The desktop app has separate `prose`, `background`, and `check` profiles. For desktop AI calls,
+`QUILL_AI_API_KEY` takes precedence over a saved profile key. Desktop GitHub operations prefer
+`QUILL_GITHUB_TOKEN`, then `GITHUB_TOKEN`, then a saved token.
+
+When Electron secure storage is available, desktop credentials are stored as `apiKeyEncrypted` and
+`github.tokenEncrypted`; legacy plaintext values are migrated when configuration is loaded. The
+renderer receives only availability/status fields and a non-secret token mask, never plaintext or
+ciphertext. Empty or masked saves preserve existing credentials; clearing requires the explicit
+`clearApiKey: true` or `clearToken: true` IPC input.
+
+If secure storage is unavailable, or plaintext migration cannot be completed, the desktop keeps a
+legacy plaintext compatibility fallback and displays a warning. Treat `config.json` as secret in
+that mode: do not share it, copy it into a project, or commit it. Encrypted credentials are bound to
+the operating-system user context and are not portable CLI credentials.
 
 ## Import Markdown
 
-Import a Markdown file or a directory of Markdown files:
+Import a Markdown file or directory:
 
 ```bash
 pnpm cli import markdown ./notes/blueprint.md --project "./local-vaults/novels/My Novel"
 ```
 
-The importer reads YAML frontmatter and maps both English and Writer-style Chinese
-fields when possible:
+The importer maps English frontmatter and Writer-style Chinese fields when possible, including:
 
-- `类型: 人物` -> character
-- `类型: 伏笔` -> foreshadowing
-- `类型: 词条` -> world entry
-- `类型: 参考资料` -> reference
-- `类型: 设定集` -> canon
-- `类型: 总纲 | 卷纲 | 幕纲 | 章纲 | 节纲` -> outline
+- `类型: 人物` to character
+- `类型: 伏笔` to foreshadowing
+- `类型: 词条` to world entry
+- `类型: 参考资料` to reference
+- `类型: 设定集` to Canon
+- `类型: 总纲 | 卷纲 | 幕纲 | 章纲 | 节纲` to outline
 
-Markdown without frontmatter is classified from its path, first heading, and early
-content. Use section splitting for long source notes:
+Markdown without frontmatter is classified from its path, first heading, and early content. Use
+`--strategy auto|single|sections`, or force a default type for unstructured notes:
 
 ```bash
-pnpm cli import markdown ./blueprint.md --project "./local-vaults/novels/My Novel" --strategy sections
+pnpm cli import markdown ./blueprint.md --strategy sections --project "./local-vaults/novels/My Novel"
+pnpm cli import markdown ./research.md --type reference --project "./local-vaults/novels/My Novel"
 ```
 
-You can force a type when importing unstructured notes:
+The `import ai-plan`, `answer`, `land`, and `show` commands manage reviewable import sessions. The
+`ai-plan` command prints a prompt unless a structured `--ai-response <json>` is supplied; it does not
+silently call a provider.
+
+## SillyTavern Interchange
+
+Import a CCv2/CCv3 JSON card or a PNG Character Card:
 
 ```bash
-pnpm cli import markdown ./research.md --project "./local-vaults/novels/My Novel" --type reference
+pnpm cli st import-card ./cards/hero.png --project "./local-vaults/novels/My Novel"
+```
+
+The import creates a Quillarium character and preserves the original card JSON under
+`sillytavern/`. For PNG input, `ccv3` metadata is preferred over legacy `chara` metadata when both
+are present.
+
+Export one character as CCv2 JSON:
+
+```bash
+pnpm cli st export-card char-lin-yue --project "./local-vaults/novels/My Novel"
+```
+
+The stable output path is `sillytavern/<character-id>-card-v2.json`.
+
+Export Canon and world entries as SillyTavern World Info JSON:
+
+```bash
+pnpm cli st export-lorebook --project "./local-vaults/novels/My Novel"
+```
+
+The output path is `sillytavern/quillarium-world-info.json`. Archived/deprecated Canon and inactive,
+archived, or deprecated world entries are retained as disabled World Info entries. Current
+interchange does not support CHARX, CCv3 export, or materializing embedded CCv3 assets.
+
+## Command Map
+
+This map mirrors the current Commander tree. Use `--help` on any group or leaf command for arguments
+and options.
+
+| Command          | Subcommands or purpose                                                         |
+| ---------------- | ------------------------------------------------------------------------------ |
+| `config`         | `set-vault`, `get-vault`, `choose-vault`                                       |
+| `init`           | Create a project under `<vault>/novels/<title>`                                |
+| `canon`          | `add`, `import`, `list`, `search`                                              |
+| `character`      | `add`, `list`                                                                  |
+| `foreshadowing`  | `add`, `list`                                                                  |
+| `world`          | `add`, `list`                                                                  |
+| `reference`      | `add`, `list`                                                                  |
+| `issue`          | `add`, `list`                                                                  |
+| `strategy`       | `add`, `list`                                                                  |
+| `pattern`        | `add`, `list`                                                                  |
+| `timeline`       | `append`, `list`, `check`                                                      |
+| `location`       | `add`, `list`                                                                  |
+| `route`          | `add`                                                                          |
+| `outline`        | `add`, `list`                                                                  |
+| `scene`          | `create`, `list`                                                               |
+| `index`          | Rebuild the project index                                                      |
+| `export`         | Export accepted manuscript prose; format `md` or `txt`, optional `--volume`    |
+| `prompt`         | `init`, `show`                                                                 |
+| `import`         | `markdown`, `ai-plan`, `answer`, `land`, `show`                                |
+| `context`        | Assemble scene context; optional `--run`                                       |
+| `generate`       | Generate a scene; optional `--dry-run`                                         |
+| `check`          | Scene/outline checks via `--type`; scenes allow `--semantic`; optional `--run` |
+| `st`             | `import-card`, `export-card`, `export-lorebook`                                |
+| `finalize`       | `review-plan`, `show`, `confirm`                                               |
+| `chapter-plan`   | Build ordered scene-writing prompts for a chapter                              |
+| `run`            | `list`, `show`, `set-output`, `accept`                                         |
+| `help [command]` | Display help for a command                                                     |
+
+For example:
+
+```bash
+pnpm cli st --help
+pnpm cli st import-card --help
+pnpm cli check --help
+pnpm cli export --help
 ```

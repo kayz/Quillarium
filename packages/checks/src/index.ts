@@ -20,6 +20,8 @@ export interface CheckIssue {
   severity: 'error' | 'warning' | 'info'
   code: string
   message: string
+  evidence?: string
+  related_ids?: string[]
 }
 
 export interface CheckReport {
@@ -27,6 +29,7 @@ export interface CheckReport {
   target_type?: 'scene' | 'outline'
   target_id?: string
   generated_at: string
+  semantic_status?: 'not_requested' | 'completed' | 'partial' | 'unavailable'
   issues: CheckIssue[]
 }
 
@@ -488,10 +491,12 @@ async function checkCharacterLocation(projectRoot: string, scene: SceneDoc, issu
 }
 
 export function formatCheckReport(report: CheckReport): string {
+  const semanticStatus = report.semantic_status ?? 'not_requested'
   const lines = [
     `# Check Report: ${report.scene_id}`,
     '',
     `generated_at: ${report.generated_at}`,
+    `semantic_status: ${semanticStatus}`,
     '',
     `issues: ${report.issues.length}`,
     ''
@@ -501,16 +506,16 @@ export function formatCheckReport(report: CheckReport): string {
   } else {
     for (const issue of report.issues) {
       lines.push(`- [${issue.severity}] ${issue.code}: ${issue.message}`)
+      if (issue.evidence) lines.push(`  - evidence: ${issue.evidence}`)
+      if (issue.related_ids?.length) lines.push(`  - related_ids: ${issue.related_ids.join(', ')}`)
     }
   }
   lines.push(
     '',
     '## AI-Assisted Checks',
     '',
-    '- canon conflict: pending',
-    '- OOC: pending',
-    '- style guardrails: pending',
-    '- chapter hook: pending'
+    `status: ${semanticStatus}`,
+    'checks: OOC, state drift, Canon conflict'
   )
   return lines.join('\n')
 }
@@ -527,3 +532,5 @@ function chapterNumber(value: string | null | undefined): number | null {
   if (arabic) return Number(arabic[0])
   return null
 }
+
+export * from './semantic/index.js'

@@ -18,6 +18,8 @@ export interface AIRequestOptions {
   retryDelayMs?: number
 }
 
+export type AIKeyDecryptor = (encrypted: string) => string | Promise<string>
+
 export interface AIRequestErrorOptions {
   provider: AIConfig['provider']
   status?: number
@@ -62,7 +64,8 @@ export function loadAIConfig(env: NodeJS.ProcessEnv = process.env): AIConfig {
 
 export async function loadAIProfile(
   profile: 'prose' | 'background' | 'check' = 'prose',
-  env: NodeJS.ProcessEnv = process.env
+  env: NodeJS.ProcessEnv = process.env,
+  decryptApiKey?: AIKeyDecryptor
 ): Promise<AIConfig> {
   const fallback = loadAIConfig(env)
   const saved = (await loadConfig()).aiProfiles?.[profile]
@@ -70,11 +73,33 @@ export async function loadAIProfile(
   return {
     provider: saved.provider ?? fallback.provider,
     baseUrl: saved.baseUrl ?? defaultBaseUrl(saved.provider ?? fallback.provider),
-    apiKey: saved.apiKey ?? '',
+    apiKey: await resolveAIProfileApiKey(
+      env.QUILL_AI_API_KEY,
+      saved.apiKeyEncrypted,
+      saved.apiKey,
+      decryptApiKey
+    ),
     model: saved.model ?? defaultModel(saved.provider ?? fallback.provider),
     temperature: saved.temperature ?? fallback.temperature,
     maxTokens: saved.maxTokens ?? fallback.maxTokens
   }
+}
+
+async function resolveAIProfileApiKey(
+  environmentKey: string | undefined,
+  encryptedKey: string | undefined,
+  legacyKey: string | undefined,
+  decryptApiKey: AIKeyDecryptor | undefined
+): Promise<string> {
+  if (environmentKey !== undefined) return environmentKey
+  if (encryptedKey !== undefined && decryptApiKey) {
+    try {
+      return await decryptApiKey(encryptedKey)
+    } catch {
+      // A legacy plaintext key remains a compatibility fallback when decryption is unavailable or fails.
+    }
+  }
+  return legacyKey ?? ''
 }
 
 export function defaultBaseUrl(provider: AIConfig['provider']): string {

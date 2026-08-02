@@ -31,6 +31,7 @@ export function toYamlValue(value: unknown, indent = 0): string {
 export function objectToYaml(obj: Record<string, unknown>, indent = 0): string {
   const pad = ' '.repeat(indent)
   return Object.entries(obj)
+    .filter(([, value]) => value !== undefined)
     .map(([key, value]) => {
       if (Array.isArray(value) && value.length) {
         const rendered = toYamlValue(value, indent + 2)
@@ -38,7 +39,7 @@ export function objectToYaml(obj: Record<string, unknown>, indent = 0): string {
       }
       if (value && typeof value === 'object' && !Array.isArray(value)) {
         const rendered = toYamlValue(value, indent)
-        return `${pad}${key}:${rendered}`
+        return `${pad}${key}:${rendered.startsWith('\n') ? '' : ' '}${rendered}`
       }
       return `${pad}${key}: ${toYamlValue(value, indent)}`
     })

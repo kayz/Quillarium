@@ -6,7 +6,7 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "build": "tsc -b",
+    "build": "tsc -b && pnpm --filter @quillarium/checks copy:prompts",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "lint": "eslint .",

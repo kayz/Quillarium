@@ -367,7 +367,7 @@ describe('core project flow', () => {
         characters: [charId]
       })
       const eventId = path.basename(eventFile).split('-')[0]
-      const chapterFile = await createOutline(project.root, 'chapter', '第一章 夜谈', {
+      await createOutline(project.root, 'chapter', '第一章 夜谈', {
         id: 'chapter-001',
         chapter_goal: '让沈青接下任务。'
       })

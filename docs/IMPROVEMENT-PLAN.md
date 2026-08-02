@@ -6,7 +6,10 @@
 
 ---
 
-## 0. 现状基线(所有 Agent 开工前必读)
+## 0. 初始基线(历史记录)
+
+> 本节保留 2026-07-06 制定计划时的基线，不再代表当前仓库状态。2026-08-02 的可核实结果见
+> §9；各 WP 标题后的状态以当前验收进度为准。
 
 - Monorepo:pnpm workspace + TypeScript project references + Vitest。
 - 包结构:
@@ -67,7 +70,7 @@ Phase 0 ──► Track A ─┐
 
 ---
 
-## 2. Phase 0:仓库卫生(WP-0,单 Agent 串行执行)
+## 2. Phase 0:仓库卫生(WP-0,单 Agent 串行执行) ✅
 
 **目标**:消除环境噪音,让后续所有并行 Agent 有干净基线。
 
@@ -96,7 +99,7 @@ Phase 0 ──► Track A ─┐
 
 **Agent A 启动提示词要点**:你负责 Quillarium 的测试体系。只允许修改 `packages/checks`、`packages/cli`、以及各包内新增 `*.test.ts` 文件。不得修改被测实现的行为;如发现实现 bug,写一个 `it.fails(...)` 或 skip 的用例并在 `docs/plan-inbox.md` 记录,不要自行修复。
 
-### WP-A1:checks 包测试基建与规则级单测(最高优先级)
+### WP-A1:checks 包测试基建与规则级单测(最高优先级) ✅
 
 **目标**:`packages/checks` 是产品核心卖点(一致性检查),当前零测试。为每条规则建立正反用例。
 
@@ -112,7 +115,7 @@ Phase 0 ──► Track A ─┐
 
 **DoD**:`vitest run packages/checks` 全绿;`vitest run --coverage` 中 `packages/checks/src/index.ts` 行覆盖率 ≥ 85%;每个 `CheckIssue.code` 至少出现在一个断言中。
 
-### WP-A2:CLI 冒烟测试
+### WP-A2:CLI 冒烟测试 ✅
 
 **目标**:773 行 CLI 零测试,建立端到端冒烟层防回归。
 
@@ -126,7 +129,7 @@ Phase 0 ──► Track A ─┐
 
 **DoD**:≥ 10 个 CLI 用例全绿;测试不产生仓库内残留文件;不联网。
 
-### WP-A3:core 包补测
+### WP-A3:core 包补测 ✅
 
 **目标**:core 是所有上层的地基,现有 10 个用例不足。
 
@@ -182,15 +185,15 @@ apps/desktop/src/
   shared/                  # 跨 feature 的 hooks 与纯函数工具
 ```
 
-### WP-B1:类型与工具层抽离
+### WP-B1:类型与工具层抽离 ✅
 
 抽出 `app/types.ts`(所有跨组件 interface/type)与 `shared/` 纯函数(main.tsx 中非组件的 helper),`main.tsx` 通过 import 使用。**DoD**:`main.tsx` 行数下降且 build 绿;无任何组件逻辑改动(git diff 仅为搬移 + import)。
 
-### WP-B2:按 feature 目录搬移组件
+### WP-B2:按 feature 目录搬移组件 ✅
 
 按上述终态结构逐目录搬移(建议顺序:settings → runs → inspector → canon → writing → volume → outline → workspace → welcome → app)。每搬完一个目录提交一次。组件间 props 接口保持原样。**DoD**:`main.tsx` ≤ 30 行;每个组件文件 ≤ 500 行(`OutlineWorkbench` 等超大组件允许 ≤ 800 行,拆内部子组件排 Phase 3);build/lint 绿;手工冒烟通过。
 
-### WP-B3:桥接层收口
+### WP-B3:桥接层收口 ✅
 
 新建 `app/bridge.ts`:把散落在各组件里的 `window.quill.xxx` / `ipcRenderer.invoke` 调用统一收口成一个类型化模块(每个 IPC channel 一个函数,签名先按现状手写)。组件全部改为 import bridge。**这是与 Track C 的对接面**:WP-C2 产出共享类型后,bridge.ts 换成引用共享类型,届时仅此一个文件需要联动。**DoD**:`grep -rn "window.quill" src/ | grep -v bridge.ts` 为空;build 绿。
 
@@ -200,7 +203,7 @@ apps/desktop/src/
 
 **Agent C 启动提示词要点**:你负责 Electron 主进程拆分、IPC 类型化与密钥安全。只允许修改 `apps/desktop/electron/**`、`packages/ai/**`、`packages/core/src/config.ts`(仅追加)。不得改 renderer(`apps/desktop/src`)。
 
-### WP-C1:electron/main.ts 按域拆分
+### WP-C1:electron/main.ts 按域拆分 ✅
 
 **目标**:711 行、49 个 handler 的单文件按 IPC 前缀拆成模块。
 
@@ -222,7 +225,7 @@ apps/desktop/electron/
 
 **实现要点**:纯搬移;每个模块导出 `register(ipcMain, ctx)`;`ctx` 携带现有共享状态(窗口引用、配置缓存等)。**DoD**:49 个 channel 全部保留且名称不变(用 `grep -oE "ipcMain.handle\('[^']+'" -r electron/ | sort` 与基线比对);`pnpm desktop:dev` 冒烟通过。
 
-### WP-C2:IPC 契约类型化
+### WP-C2:IPC 契约类型化 ✅
 
 **目标**:renderer 与 main 之间目前靠约定,无类型保障。
 
@@ -237,7 +240,7 @@ apps/desktop/electron/
 
 **DoD**:main、preload、renderer 三侧 `tsc -b` 全绿且 renderer 侧对 `window.quill` 的调用获得完整类型推断(抽查:故意写错一个参数类型应编译失败,验证后还原)。
 
-### WP-C3:API key 安全存储
+### WP-C3:API key 安全存储 ✅
 
 **目标**:`config.json` 中 `aiProfiles[].apiKey` 明文落盘,改为 Electron `safeStorage` 加密,CLI 环境降级为环境变量优先。
 
@@ -252,7 +255,7 @@ apps/desktop/electron/
 
 **DoD**:桌面端保存 AI profile 后 `config.json` 中无明文 key;旧配置首次加载自动迁移;CLI `QUILL_AI_API_KEY` 优先级测试用例通过(测试放 `packages/ai/src/index.test.ts`,注入 fake 解密函数)。
 
-### WP-C4:ai 包健壮性
+### WP-C4:ai 包健壮性 ✅
 
 **目标**:统一错误处理与超时,当前 `fetch` 失败路径未验证。
 
@@ -266,7 +269,7 @@ apps/desktop/electron/
 
 ## 6. Phase 2:能力升级(依赖 Phase 1 对应 Track 完成)
 
-### WP-D1:语义一致性检查引擎(依赖 Track A;核心差异化功能)
+### WP-D1:语义一致性检查引擎(依赖 Track A;核心差异化功能) 🟡 实现完成，真实 AI 验证待办
 
 **目标**:README 承诺的"人物 OOC、服装/伤势/物品/知识状态漂移"检测,现有 checks 全是结构校验,无法覆盖。引入 AI 辅助语义检查,与结构检查统一到同一份 `CheckReport`。
 
@@ -286,7 +289,7 @@ apps/desktop/electron/
 
 **DoD**:mock 测试全绿;真实 AI 冒烟(任一 provider)在示例项目上产出至少一条有意义的 semantic issue;不配置 AI 时 `--semantic` 给出清晰提示而非报错。
 
-### WP-D2:SillyTavern 互导(依赖 Track C;ROADMAP Milestone 6)
+### WP-D2:SillyTavern 互导(依赖 Track C;ROADMAP Milestone 6) ✅
 
 **目标**:补齐 ROADMAP 承诺的最后一个未动工里程碑。
 
@@ -303,11 +306,11 @@ apps/desktop/electron/
 
 **DoD**:导入→导出→再导入 round-trip 后关键字段不丢;PNG 内嵌解析有单测;`pnpm build` 新包纳入 references。
 
-### WP-D3:桌面端设置页接入密钥迁移提示(依赖 WP-C3 + Track B;小)
+### WP-D3:桌面端设置页接入密钥迁移提示(依赖 WP-C3 + Track B;小) ✅
 
 SettingsModal 显示"密钥已加密存储 / 系统不支持加密"状态,并提供一键迁移旧明文配置按钮。**DoD**:两种状态可视;迁移后 config.json 无明文。
 
-### WP-D4:导出与发布物(依赖 Track B)
+### WP-D4:导出与发布物(依赖 Track B) ✅
 
 **目标**:写作成果出口。`exports/` 目录已在脚手架里但无实现。
 
@@ -317,17 +320,32 @@ SettingsModal 显示"密钥已加密存储 / 系统不支持加密"状态,并提
 
 ## 7. Phase 3:验证与发布
 
-### WP-E1:Dogfooding 验证项目(人机协作,Agent 辅助)
+### WP-E1:Dogfooding 验证项目(人机协作,Agent 辅助) 🟡 部分完成
 
 用真实小说项目(AGENT-DESIGN.md 的 First Validation Project)完整走一遍:init → 导入既有稿 → 大纲 → 生成 → 检查 → 接受 → 导出。Agent 的任务:全程记录摩擦点到 `docs/DOGFOODING-REPORT.md`(格式:场景 / 期望 / 实际 / 严重度),该报告生成下一版 worklist。**DoD**:报告 ≥ 15 条有效条目,按严重度排序。
 
-### WP-E2:打包分发
+**2026-08-02 状态**：已完成无真实联网的合成 CLI/core 全流程，记录 20 条有证据的摩擦点；
+其中 10 条已在本轮修复并复测，1 条部分缓解。该结果不是完整 DoD：真实小说稿、真实 provider
+的 semantic 质量、真人作者冷启动和桌面安装体验仍待验证。详见
+`docs/DOGFOODING-REPORT.md`。
+
+### WP-E2:打包分发 🟡 实现完成，跨平台验收待办
 
 `electron-builder` 接入:mac(dmg)+ Windows(nsis)目标;版本号与 git tag 联动;GitHub Actions release workflow(tag 触发,产物上传 Release)。暂不做代码签名(在 README 注明)。**DoD**:CI 能产出可安装包;冷启动可用。
 
-### WP-E3:文档刷新
+**2026-08-02 状态**：electron-builder 配置、Windows/macOS package 脚本和 tag 触发的 release
+workflow 已实现；Windows unpacked 与 NSIS 安装包已在本机实际构建，归档内容和 frozen install/
+两级 build 已验证。macOS runner 上的 DMG、真实 tag 触发的 GitHub Release，以及全新机器冷启动
+仍未实际验收，因此暂不标完整 ✅。
+
+### WP-E3:文档刷新 🟡 部分完成
 
 README 增加真实截图与 quickstart;`docs/CLI.md` 与实际命令逐条核对;为 `packages/*` 各补 README(公共 API 一页说明);超大组件二次拆分(WP-B2 遗留的 ≤ 800 行文件)。
+
+**2026-08-02 状态**：quickstart、CLI 命令核对、当前/不支持边界和五个包级 README 已完成；
+本轮新增的 strategy、outline check、world content 和隔离配置用法也已同步；桌面组件最大 739 行，
+最大生产 TS/TSX 文件 794 行，超大组件/文件项已完成。仍没有真实产品截图，installer 相关说明
+需在 E2 最终验收后按实际产物再次更新，因此暂不标完整完成。
 
 ---
 
@@ -371,16 +389,22 @@ t0+Y      Phase 3 串行收尾
 
 ---
 
-## 9. 成功度量(Phase 1-3 完成时)
+## 9. 成功度量(2026-08-02 可核实快照)
 
-| 指标                    | 现状            | 目标                            |
-| ----------------------- | --------------- | ------------------------------- |
-| 测试文件 / 用例数       | 2 / 10          | ≥ 10 / ≥ 80                     |
-| checks 行覆盖率         | 0%              | ≥ 85%                           |
-| core 行覆盖率           | 低              | ≥ 70%                           |
-| 最大单文件行数          | 4,333(main.tsx) | ≤ 800                           |
-| IPC 类型安全            | 无              | 49 channel 全契约化             |
-| 明文 API key            | 是              | 桌面端加密                      |
-| 语义检查                | 无              | OOC / 状态漂移 / canon 冲突三类 |
-| ROADMAP M6(SillyTavern) | 未动工          | 卡片+lorebook 互导              |
-| 可安装包                | 无              | mac + Windows CI 产出           |
+下表来自当前工作树的 `pnpm test:coverage`、源码行数扫描、IPC contract 和实际 dogfood/打包证据，
+不把尚未运行的 CI、真实 AI 或真人体验记为通过。
+
+| 指标                    | 初始基线            | 当前可核实值                                                                                       | 目标/剩余                                                |
+| ----------------------- | ------------------- | -------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| 测试文件 / 用例数       | 2 / 10              | 19 / 157，全绿                                                                                     | ≥ 10 / ≥ 80，已达到                                      |
+| 全仓行覆盖率            | 未记录              | 75.49%                                                                                             | 作为后续回归基线                                         |
+| checks 行覆盖率         | 0%                  | 结构检查 `index.ts` 100%；semantic `index.ts` 97.93%                                               | ≥ 85%，已达到                                            |
+| core 行覆盖率           | 低                  | 80.72%                                                                                             | ≥ 70%，已达到                                            |
+| 最大生产 TS/TSX 文件    | 4,333 行 `main.tsx` | 794 行 `cli/index.ts`；其次桌面组件 739 行、`core/importer.ts` 675 行                              | 全仓 ≤ 800，已达到                                       |
+| 桌面组件规模            | `main.tsx` 4,333 行 | `main.tsx` 5 行；最大组件 `TopChrome.tsx` 739 行                                                   | E3 的组件 ≤ 800 已达到                                   |
+| IPC 类型安全            | 无                  | 55/55 个当前 channel 已映射到 contract，contract 测试通过                                          | 原 49 channel 目标已随功能扩展为 55，当前全覆盖          |
+| API key 落盘            | 明文                | secureStorage 可用时加密并迁移；不可用时保留带警告的明文兼容 fallback                              | 加密路径已实现；fallback 仍必须按安全提示管理            |
+| 语义检查                | 无                  | OOC / state drift / Canon conflict 已实现；mock、超时、坏输出、无配置降级及 `semantic_status` 已测 | 真实 provider 有效性/误报率仍待验证                      |
+| ROADMAP M6(SillyTavern) | 未动工              | CCv2/CCv3 JSON 与 PNG 导入、CCv2 和 lorebook 导出；11 个包测试；native round-trip 复测通过         | CHARX/CCv3 asset 不在当前实现范围                        |
+| Dogfooding              | 无                  | 合成流程 20 条发现；10 条本轮修复、1 条部分缓解                                                    | 真实稿、真实 AI、真人冷启动仍待完成                      |
+| 可安装包                | 无                  | Windows unpacked + NSIS 本机构建通过；mac/release workflow 已配置                                  | macOS runner DMG、真实 tag Release、全新机器冷启动待验收 |

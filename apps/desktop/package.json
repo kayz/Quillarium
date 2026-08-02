@@ -2,26 +2,35 @@
   "name": "@quillarium/desktop",
   "version": "0.1.0",
   "private": true,
+  "description": "Quillarium desktop writing workspace for long-form fiction.",
+  "author": "Quillarium Contributors",
+  "packageManager": "pnpm@10.30.0",
   "type": "module",
   "main": "dist/main/main.js",
   "scripts": {
     "dev": "tsx scripts/dev.ts",
-    "build": "tsc -b && vite build && tsc -p tsconfig.main.json",
+    "build": "tsc -b && pnpm --filter @quillarium/checks copy:prompts && vite build && tsc -p tsconfig.main.json",
+    "package": "pnpm -w build && pnpm run build && electron-builder --config electron-builder.yml --publish never",
+    "package:dir": "pnpm -w build && pnpm run build && electron-builder --config electron-builder.yml --dir --publish never",
+    "package:win": "pnpm -w build && pnpm run build && electron-builder --config electron-builder.yml --win --publish never",
+    "package:mac": "pnpm -w build && pnpm run build && electron-builder --config electron-builder.yml --mac --publish never",
     "preview": "vite preview"
   },
   "dependencies": {
     "@quillarium/ai": "workspace:*",
     "@quillarium/checks": "workspace:*",
     "@quillarium/core": "workspace:*",
-    "@vitejs/plugin-react": "^4.3.4",
-    "vite": "^6.0.7",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
-    "lucide-react": "^0.468.0",
-    "electron": "^33.3.1"
+    "@quillarium/sillytavern": "workspace:*"
   },
   "devDependencies": {
     "@types/react": "^19.0.2",
-    "@types/react-dom": "^19.0.2"
+    "@types/react-dom": "^19.0.2",
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^33.3.1",
+    "electron-builder": "^26.15.3",
+    "lucide-react": "^0.468.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "vite": "^6.0.7"
   }
 }

@@ -1,80 +1,136 @@
 # Quillarium
 
-Quillarium is an Obsidian-backed writing system for long-form fiction with heavy AI assistance.
+Quillarium (羽笔馆) is a local-first, Obsidian-backed writing system for long-form fiction. It
+stores a novel as Markdown and YAML, keeps planning facts traceable, records AI runs, checks
+continuity, and exports accepted prose.
 
-It is designed for novels where continuity matters: canon, character arcs, timelines, locations,
-resources, outlines, prompts, generated drafts, and consistency reports should all stay traceable.
+## What Works Now
 
-Chinese name: 羽笔馆
+- A file-backed project model for Canon, characters and states, timelines, locations and routes,
+  world entries, foreshadowing, references, issues, strategies, patterns, hierarchical outlines,
+  scenes, imports, reviews, and generation runs.
+- A working source-run CLI for creating and editing those records, importing Markdown, assembling
+  context, generating drafts, running deterministic or opt-in semantic checks, accepting runs, and
+  exporting manuscripts.
+- An Electron desktop app for choosing an Obsidian vault, creating or opening projects, planning,
+  writing, importing Markdown text, generating/checking scenes, reviewing runs, and accepting prose.
+- Markdown and plain-text manuscript export from accepted outputs or final scenes, with explicit gap
+  reporting and optional volume filtering.
+- SillyTavern Character Card import from CCv2/CCv3 JSON or PNG, CCv2 JSON export, and Canon/world-entry
+  export as World Info JSON.
 
-## Why
+AI is optional for project management, import, context assembly, deterministic checks, and export.
+Generation and `check --semantic` require an OpenAI-compatible endpoint or configured provider.
 
-Most AI writing tools can generate prose, but long novels fail in quieter places:
+## Quick Start
 
-- canon drifts after dozens of chapters
-- characters become out of character
-- time and travel stop making sense
-- clothing, wounds, items, and knowledge states mutate between scenes
-- generated drafts cannot be traced back to the prompt and context that produced them
+Prerequisites are Node.js and pnpm. From the repository root:
 
-Quillarium treats a novel as a structured project, not just a chat transcript.
+```bash
+pnpm install
+pnpm build
+pnpm test
+```
 
-This repository now also includes a Writer-inspired workflow layer for serialized web novels:
+Create a local vault and project:
 
-- final/accepted prose is the ratchet canon; planning documents must bend around it
-- outlines move from book to volume to act to chapter to section
-- volume and act outlines can store invariants, emotional curves, POV plans, and foreshadowing links
-- foreshadowing, worldbook entries, references, and open writing issues are first-class Markdown documents
-- Markdown import can ingest existing notes, including Writer-style Chinese frontmatter
+```bash
+pnpm cli config set-vault ./local-vaults
+pnpm cli init "My Novel" --genre fantasy
+pnpm cli --help
+```
 
-See `docs/AGENT-DESIGN.md` for the product decisions behind the writing agent workflow.
+The project is created at `./local-vaults/novels/My Novel`. Continue with the
+[CLI guide](docs/CLI.md) for the end-to-end writing, checking, acceptance, export, and SillyTavern
+flows.
 
-## Core Ideas
+## Desktop Flow
 
-- **Obsidian as storage**: every novel is a folder of Markdown and YAML files.
-- **Canon first**: confirmed facts and rules are explicit constraints.
-- **Time as a chain**: the main timeline only moves forward; flashbacks reference earlier nodes.
-- **Space as a graph**: locations are nodes, routes are edges with distance, access, and travel cost.
-- **Characters as evolving states**: each important character has arcs and scene-level state.
-- **Every AI run is recorded**: context, prompt, model config, raw output, accepted output, and checks.
-- **SillyTavern compatibility where useful**: import/export character cards, lorebooks, and prompt ideas.
+Start the Electron app from source:
 
-## Planned Project Layout
+```bash
+pnpm desktop:dev
+```
+
+Then choose an Obsidian vault, create or open a novel, build its outline and supporting modules,
+select a scene, and edit or generate prose. The context/check inspector and recorded runs make the
+inputs and outputs reviewable; accepting a run writes its raw output to `output-accepted.md` and the
+scene document. AI profiles and credential status are managed from desktop settings.
+
+Use `pnpm desktop:build` to verify the desktop source build. Windows and macOS packaging is configured
+through `electron-builder`:
+
+```bash
+pnpm --filter @quillarium/desktop package:win
+pnpm --filter @quillarium/desktop package:mac
+```
+
+Artifacts are written under `apps/desktop/release/`. A `v<desktop-version>` tag triggers the release
+workflow, builds Windows NSIS and macOS DMG artifacts on native runners, and uploads them to the
+matching GitHub Release.
+
+## CLI Flow
+
+A typical CLI workflow is:
+
+1. Configure a vault and initialize a project.
+2. Add Canon, characters, locations, timeline events, an outline, and scenes.
+3. Assemble context or run `generate --dry-run` to inspect the recorded prompt without a network
+   call.
+4. Generate a draft, run deterministic checks, and optionally add `--semantic` for AI-assisted OOC,
+   state-drift, and Canon-conflict findings.
+5. Inspect and accept a run, then export accepted prose as Markdown or plain text.
+
+All CLI examples and the current command map are in [docs/CLI.md](docs/CLI.md). The runtime command
+help remains authoritative:
+
+```bash
+pnpm cli --help
+pnpm cli <command> --help
+```
+
+## Project Layout
 
 ```text
 Obsidian Vault/
   novels/
     My Novel/
       project.yaml
-      canon/
-      characters/
-      timeline/
-      locations/
-      foreshadowing/
-      world/
-      references/
-      issues/
-      factions/
-      resources/
-      patterns/
-      outlines/
-      scenes/
-      prompts/
-      runs/
-      exports/
-      sillytavern/
+      canon/              characters/       character-states/
+      timeline/           locations/        world/
+      foreshadowing/      references/       issues/
+      strategy/           patterns/         resources/
+      causality/          outlines/         scenes/
+      prompts/            runs/             imports/
+      reviews/            style/            exports/
+      sillytavern/        .quillarium/
 ```
 
-## Status
+## Packages
 
-Quillarium is at the design/bootstrap stage. The first milestone is a local desktop app that can:
+- [@quillarium/core](packages/core/README.md) — project storage, documents, context, imports, runs,
+  review, and manuscript export.
+- [@quillarium/checks](packages/checks/README.md) — deterministic and injectable semantic checks.
+- [@quillarium/ai](packages/ai/README.md) — AI configuration, requests, prompts, and recorded generation
+  runs.
+- [@quillarium/cli](packages/cli/README.md) — Commander-based CLI assembly.
+- [@quillarium/sillytavern](packages/sillytavern/README.md) — Character Card and World Info conversion.
 
-1. create a novel folder in an Obsidian vault
-2. import early notes and extract canon, characters, timeline, locations, and outline seeds
-3. generate one section from a section outline
-4. record the AI run
-5. run basic consistency checks
+The product and agent workflow rationale is documented in
+[docs/AGENT-DESIGN.md](docs/AGENT-DESIGN.md).
+
+## Current Boundaries
+
+- Desktop installers are unsigned and currently use Electron's default application icon. Windows
+  NSIS packaging has been exercised locally; the macOS DMG target still requires its first native
+  tag-build verification. Windows SmartScreen and macOS Gatekeeper may therefore display warnings.
+- Manuscript export supports Markdown and plain text, not PDF, EPUB, or word-processor formats.
+- SillyTavern import does not support CHARX archives. CCv3 cards can be imported, but embedded CCv3
+  assets are not materialized; the original card JSON is retained as a raw sidecar. Character export
+  is CCv2 JSON only.
+- The PNG reader extracts `ccv3` or `chara` text metadata; it is not a general PNG asset or CRC
+  validation library.
 
 ## License
 
-MIT
+[MIT](LICENSE)

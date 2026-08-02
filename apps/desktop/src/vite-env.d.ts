@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 
-import type { QuillariumAPI } from '../electron/preload'
+import type { QuillariumAPI } from '../electron/ipc/contract'
 
 declare global {
   interface Window {

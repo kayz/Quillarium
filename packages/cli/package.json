@@ -15,6 +15,7 @@
     "@quillarium/ai": "workspace:*",
     "@quillarium/checks": "workspace:*",
     "@quillarium/core": "workspace:*",
+    "@quillarium/sillytavern": "workspace:*",
     "commander": "^12.1.0",
     "dotenv": "^16.4.7"
   }
