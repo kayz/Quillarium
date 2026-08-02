@@ -56,8 +56,13 @@ const api = {
     ipcRenderer.invoke('finalize:reviewPlan', root, input),
   loadFinalizeReviewSession: (root: string, sessionId: string) =>
     ipcRenderer.invoke('finalize:session', root, sessionId),
-  confirmFinalizeImpact: (root: string, sessionId: string, impactId: string, answer: string, state?: string) =>
-    ipcRenderer.invoke('finalize:confirmImpact', root, sessionId, impactId, answer, state),
+  confirmFinalizeImpact: (
+    root: string,
+    sessionId: string,
+    impactId: string,
+    answer: string,
+    state?: string
+  ) => ipcRenderer.invoke('finalize:confirmImpact', root, sessionId, impactId, answer, state),
   readRunFile: (root: string, runId: string, file: string) =>
     ipcRenderer.invoke('run:readFile', root, runId, file),
   acceptRun: (root: string, runId: string) => ipcRenderer.invoke('run:accept', root, runId),

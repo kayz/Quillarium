@@ -70,9 +70,10 @@ export async function createFinalizeReviewSession(
     summary: parsed?.summary,
     impacts: parsed?.impacts ?? [],
     questions: parsed?.questions ?? [],
-    status: parsed && (parsed.impacts.some((item) => item.requires_confirmation) || parsed.questions.length)
-      ? 'needs-confirmation'
-      : 'planned'
+    status:
+      parsed && (parsed.impacts.some((item) => item.requires_confirmation) || parsed.questions.length)
+        ? 'needs-confirmation'
+        : 'planned'
   }
   await saveFinalizeReviewSession(projectRoot, session)
   return session
@@ -181,5 +182,8 @@ function parseFinalizeAIResponse(raw: string): {
 }
 
 function stripCodeFence(value: string): string {
-  return value.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '')
+  return value
+    .trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/i, '')
 }

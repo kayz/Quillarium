@@ -31,17 +31,17 @@
 
 同一 Phase 内,每个文件/目录只属于一个 Track。矩阵外文件默认冻结。
 
-| 路径 | Phase 1 所有权 |
-|---|---|
-| `packages/checks/**` | Track A(测试) |
-| `packages/cli/**` | Track A |
-| `packages/core/src/*.test.ts`(新增) | Track A |
-| `apps/desktop/src/**` | Track B(UI 拆分) |
-| `apps/desktop/electron/**` | Track C(主进程) |
-| `packages/ai/**` | Track C |
-| `packages/core/src/config.ts` | Track C(仅 WP-C3 的追加式修改) |
-| 根配置(`.gitattributes`、`.gitignore`、`pnpm-workspace.yaml`、CI) | Phase 0(串行,先于一切) |
-| `docs/**` | 各 Track 只允许新增自己的文档,不改他人文档 |
+| 路径                                                              | Phase 1 所有权                             |
+| ----------------------------------------------------------------- | ------------------------------------------ |
+| `packages/checks/**`                                              | Track A(测试)                              |
+| `packages/cli/**`                                                 | Track A                                    |
+| `packages/core/src/*.test.ts`(新增)                               | Track A                                    |
+| `apps/desktop/src/**`                                             | Track B(UI 拆分)                           |
+| `apps/desktop/electron/**`                                        | Track C(主进程)                            |
+| `packages/ai/**`                                                  | Track C                                    |
+| `packages/core/src/config.ts`                                     | Track C(仅 WP-C3 的追加式修改)             |
+| 根配置(`.gitattributes`、`.gitignore`、`pnpm-workspace.yaml`、CI) | Phase 0(串行,先于一切)                     |
+| `docs/**`                                                         | 各 Track 只允许新增自己的文档,不改他人文档 |
 
 跨 Track 需求的处理:在 `docs/plan-inbox.md` 追加一条记录(格式:`- [ ] <来源WP> 需要 <目标Track> 提供 <内容>`),由编排者调度,不得直接改对方文件。
 
@@ -335,14 +335,14 @@ README 增加真实截图与 quickstart;`docs/CLI.md` 与实际命令逐条核�
 
 ### 8.1 角色
 
-| Agent | 角色 | 负责 WP | 关键约束 |
-|---|---|---|---|
-| Orchestrator | 编排者(主 Agent) | 分派、审 PR、处理 plan-inbox、维护本文档勾选状态 | 不直接写业务代码 |
-| Agent-0 | 仓库卫生 | WP-0 | 串行,最先完成 |
-| Agent-A | 测试工程 | WP-A1 → A2 → A3 | 不改实现行为 |
-| Agent-B | UI 重构 | WP-B1 → B2 → B3 | 纯搬移零行为变化 |
-| Agent-C | 主进程/安全 | WP-C1 → C2 → C3 → C4 | 不碰 renderer |
-| Agent-D | 能力升级 | WP-D1..D4(Phase 2 起,可再并行拆 2 个 Agent:D1+D4 一个,D2+D3 一个) | 遵循新的所有权矩阵(D1: checks+cli;D2: packages/sillytavern;D3/D4 跨界改动需 Orchestrator 合并窗口) |
+| Agent        | 角色             | 负责 WP                                                           | 关键约束                                                                                           |
+| ------------ | ---------------- | ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| Orchestrator | 编排者(主 Agent) | 分派、审 PR、处理 plan-inbox、维护本文档勾选状态                  | 不直接写业务代码                                                                                   |
+| Agent-0      | 仓库卫生         | WP-0                                                              | 串行,最先完成                                                                                      |
+| Agent-A      | 测试工程         | WP-A1 → A2 → A3                                                   | 不改实现行为                                                                                       |
+| Agent-B      | UI 重构          | WP-B1 → B2 → B3                                                   | 纯搬移零行为变化                                                                                   |
+| Agent-C      | 主进程/安全      | WP-C1 → C2 → C3 → C4                                              | 不碰 renderer                                                                                      |
+| Agent-D      | 能力升级         | WP-D1..D4(Phase 2 起,可再并行拆 2 个 Agent:D1+D4 一个,D2+D3 一个) | 遵循新的所有权矩阵(D1: checks+cli;D2: packages/sillytavern;D3/D4 跨界改动需 Orchestrator 合并窗口) |
 
 ### 8.2 执行时序
 
@@ -373,14 +373,14 @@ t0+Y      Phase 3 串行收尾
 
 ## 9. 成功度量(Phase 1-3 完成时)
 
-| 指标 | 现状 | 目标 |
-|---|---|---|
-| 测试文件 / 用例数 | 2 / 10 | ≥ 10 / ≥ 80 |
-| checks 行覆盖率 | 0% | ≥ 85% |
-| core 行覆盖率 | 低 | ≥ 70% |
-| 最大单文件行数 | 4,333(main.tsx) | ≤ 800 |
-| IPC 类型安全 | 无 | 49 channel 全契约化 |
-| 明文 API key | 是 | 桌面端加密 |
-| 语义检查 | 无 | OOC / 状态漂移 / canon 冲突三类 |
-| ROADMAP M6(SillyTavern) | 未动工 | 卡片+lorebook 互导 |
-| 可安装包 | 无 | mac + Windows CI 产出 |
+| 指标                    | 现状            | 目标                            |
+| ----------------------- | --------------- | ------------------------------- |
+| 测试文件 / 用例数       | 2 / 10          | ≥ 10 / ≥ 80                     |
+| checks 行覆盖率         | 0%              | ≥ 85%                           |
+| core 行覆盖率           | 低              | ≥ 70%                           |
+| 最大单文件行数          | 4,333(main.tsx) | ≤ 800                           |
+| IPC 类型安全            | 无              | 49 channel 全契约化             |
+| 明文 API key            | 是              | 桌面端加密                      |
+| 语义检查                | 无              | OOC / 状态漂移 / canon 冲突三类 |
+| ROADMAP M6(SillyTavern) | 未动工          | 卡片+lorebook 互导              |
+| 可安装包                | 无              | mac + Windows CI 产出           |

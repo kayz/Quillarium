@@ -46,6 +46,7 @@ type CenterTab = 'editor' | 'outline' | 'beats'
 type WorkLevel = 'book' | 'volume' | 'arc' | 'chapter'
 type ViewMode = 'list' | 'tile'
 type LeftMode = 'write' | 'read'
+type WorkspaceMode = 'planning' | 'writing'
 type WorkspacePage = 'outline' | 'volume'
 type OutlineHomeSection =
   | 'volumes'
@@ -469,6 +470,7 @@ function Workspace({
   const [leftOpen, setLeftOpen] = useState(true)
   const [rightOpen, setRightOpen] = useState(false)
   const [middlePct, setMiddlePct] = useState(58)
+  const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>('planning')
   const [workspacePage, setWorkspacePage] = useState<WorkspacePage>('outline')
   const [outlineSection, setOutlineSection] = useState<OutlineHomeSection>('volumes')
   const [volumeSection, setVolumeSection] = useState<VolumeSection>('arcs')
@@ -501,19 +503,24 @@ function Workspace({
   const selectedScene = useMemo(
     () =>
       selectedTarget?.type === 'scene'
-        ? (data?.docs.find((item) => item.data.id === selectedTarget.id && item.data.type === 'scene') ?? null)
+        ? (data?.docs.find((item) => item.data.id === selectedTarget.id && item.data.type === 'scene') ??
+          null)
         : null,
     [data, selectedTarget?.type, selectedTarget?.id]
   )
   const selectedOutline = useMemo(
     () =>
       selectedTarget?.type === 'outline'
-        ? (data?.docs.find((item) => item.data.id === selectedTarget.id && item.data.type === 'outline') ?? null)
+        ? (data?.docs.find((item) => item.data.id === selectedTarget.id && item.data.type === 'outline') ??
+          null)
         : null,
     [data, selectedTarget?.type, selectedTarget?.id]
   )
   const selectedEntry = useMemo(
-    () => data?.docs.find((item) => item.data.id === selectedTarget?.id && item.data.type === selectedTarget?.type) ?? null,
+    () =>
+      data?.docs.find(
+        (item) => item.data.id === selectedTarget?.id && item.data.type === selectedTarget?.type
+      ) ?? null,
     [data, selectedTarget?.type, selectedTarget?.id]
   )
 
@@ -571,7 +578,11 @@ function Workspace({
     (selectedOutline?.data.level === 'volume'
       ? selectedOutline
       : selectedOutline
-        ? findAncestor(docs.filter((item) => item.data.type === 'outline'), selectedOutline, 'volume')
+        ? findAncestor(
+            docs.filter((item) => item.data.type === 'outline'),
+            selectedOutline,
+            'volume'
+          )
         : null) ??
     volumes[0] ??
     null
@@ -580,7 +591,12 @@ function Workspace({
     : selectedOutline
       ? buildOutlinePath(docs, selectedOutline)
       : '大纲'
-  const hierarchy = buildOutlineHierarchy(docs)
+  const writingOutline =
+    selectedOutline ??
+    (selectedScene
+      ? (docs.find((item) => item.data.type === 'outline' && item.data.id === selectedScene.data.section) ??
+        null)
+      : null)
   const visibleItems = outlineItemsForLevel(docs, workLevel, selectedOutline, selectedTarget)
   const filteredItems = filterDocs(visibleItems, search)
   const finalizedScenes = docs.filter((item) => item.data.type === 'scene' && item.data.status === 'final')
@@ -666,11 +682,25 @@ function Workspace({
     if (next) setSelectedTarget({ type: 'outline', id: next.data.id })
   }
 
+  const selectWritingTarget = (target: TargetSelection) => {
+    setSelectedTarget(target)
+    setActiveModule('write')
+    if (target.type === 'scene') {
+      setWorkLevel('chapter')
+      return
+    }
+    const targetOutline = docs.find((item) => item.data.type === 'outline' && item.data.id === target.id)
+    const level = String(targetOutline?.data.level ?? '')
+    if (level === 'section') setWorkLevel('chapter')
+    else if (isWorkLevel(level)) setWorkLevel(level)
+  }
+
   const createOutlineAtLevel = async (level: WorkLevel, parent?: string | null) => {
     const title = window.prompt(`新建${outlineLevelLabel(level)}名称`)
     if (!title?.trim()) return
     const siblings = docs.filter(
-      (item) => item.data.type === 'outline' && item.data.level === level && item.data.parent === (parent ?? null)
+      (item) =>
+        item.data.type === 'outline' && item.data.level === level && item.data.parent === (parent ?? null)
     )
     const created = await createDoc('outline', {
       title: title.trim(),
@@ -735,7 +765,13 @@ function Workspace({
   }
 
   return (
-    <div className={`app-shell outline-shell ${leftOpen ? '' : 'left-narrow'} ${rightOpen ? '' : 'right-narrow'}`}>
+    <div
+      className={
+        workspaceMode === 'writing'
+          ? `app-shell writing-shell level-${workLevel} ${leftOpen ? '' : 'left-collapsed'}`
+          : `app-shell outline-shell ${leftOpen ? '' : 'left-narrow'} ${rightOpen ? '' : 'right-narrow'}`
+      }
+    >
       <TopChrome
         theme={theme}
         density={density}
@@ -753,9 +789,112 @@ function Workspace({
         onGitCreateRemote={createGitHubRepo}
         onGitSync={syncGitHub}
         root={root}
-        locationLabel={workspacePage === 'volume' && activeVolume ? `大纲 / ${activeVolume.data.title}` : '大纲'}
+        locationLabel={
+          workspaceMode === 'writing'
+            ? `${t(language, 'writing')} / ${projectPath}`
+            : workspacePage === 'volume' && activeVolume
+              ? `大纲 / ${activeVolume.data.title}`
+              : '大纲'
+        }
+        workspaceMode={workspaceMode}
+        onWorkspaceMode={(mode) => {
+          setWorkspaceMode(mode)
+          if (mode === 'writing') setActiveModule('write')
+        }}
       />
-      {workspacePage === 'volume' && activeVolume ? (
+      {workspaceMode === 'writing' ? (
+        <>
+          <div className="workspace writing-route">
+            <aside className="sidebar writing-route-sidebar">
+              <div className="sidebar-header">
+                <span>{t(language, 'bookOutline')}</span>
+                <button onClick={() => setLeftOpen(false)}>{t(language, 'collapse')}</button>
+              </div>
+              <StructureTree
+                docs={docs}
+                selectedTarget={selectedTarget}
+                onSelect={selectWritingTarget}
+                language={language}
+              />
+              <ModuleNav
+                active={activeModule}
+                onSelect={(module) => setActiveModule(module)}
+                docs={docs}
+                language={language}
+              />
+            </aside>
+            <main className="center">
+              {!leftOpen && (
+                <button className="panel-toggle left" onClick={() => setLeftOpen(true)}>
+                  {t(language, 'bookOutline')}
+                </button>
+              )}
+              {activeModule === 'write' ? (
+                <WritingWorkspace
+                  docs={docs}
+                  level={workLevel}
+                  viewMode={viewMode}
+                  search={search}
+                  selectedOutline={writingOutline}
+                  selectedScene={selectedScene}
+                  selectedTarget={selectedTarget}
+                  doc={doc}
+                  contextPacket={contextPacket}
+                  checkReport={checkReport}
+                  dirty={dirty}
+                  busy={busy}
+                  visibleItems={filteredItems}
+                  finalizedScenes={finalizedScenes}
+                  leftMode={leftMode}
+                  onLevel={selectWorkLevel}
+                  onSearch={setSearch}
+                  onViewMode={setViewMode}
+                  onSelect={selectWritingTarget}
+                  onCreate={createOutlineAtLevel}
+                  onDocChange={(next) => {
+                    setDoc(next)
+                    setDirty(true)
+                  }}
+                  onSave={save}
+                  onCheck={runCheck}
+                  onGenerate={generate}
+                  onDryRun={dryRun}
+                  onRewrite={rewrite}
+                  onImportPanel={() => setImportOpen(true)}
+                  language={language}
+                />
+              ) : (
+                <ModuleView
+                  root={root}
+                  module={activeModule}
+                  docs={docs}
+                  runs={data.runs}
+                  onCreate={createDoc}
+                  onReload={load}
+                  language={language}
+                />
+              )}
+            </main>
+          </div>
+          <WritingBottomPanel
+            root={root}
+            docs={docs}
+            runs={data.runs}
+            level={workLevel}
+            sceneId={selectedScene?.data.id ?? null}
+            outline={writingOutline}
+            scene={selectedScene}
+            context={context}
+            contextPacket={contextPacket}
+            checkReport={checkReport}
+            busy={busy}
+            onCheck={runCheck}
+            onGenerate={generate}
+            onAccepted={load}
+            language={language}
+          />
+        </>
+      ) : workspacePage === 'volume' && activeVolume ? (
         <VolumeHome
           docs={docs}
           doc={doc}
@@ -892,7 +1031,9 @@ function Workspace({
         <div className="modal-backdrop">
           <section className="modal import-modal">
             <h2>粘贴 Markdown 导入</h2>
-            <p>后台会先走现有 Markdown 结构判断；接入背景 AI 后会在这里完成分类、pattern 标注和低置信 issue。</p>
+            <p>
+              后台会先走现有 Markdown 结构判断；接入背景 AI 后会在这里完成分类、pattern 标注和低置信 issue。
+            </p>
             <label>
               标题
               <input value={importTitle} onChange={(event) => setImportTitle(event.target.value)} />
@@ -905,7 +1046,11 @@ function Workspace({
               <button className="secondary" onClick={() => setImportOpen(false)}>
                 取消
               </button>
-              <button className="primary" onClick={importMarkdownFromText} disabled={busy || !importText.trim()}>
+              <button
+                className="primary"
+                onClick={importMarkdownFromText}
+                disabled={busy || !importText.trim()}
+              >
                 导入
               </button>
             </div>
@@ -1079,13 +1224,25 @@ function OutlineHome({
           <div className="overview-tools">
             <label className="search-box">
               <Search size={16} />
-              <input value={search} onChange={(event) => onSearch(event.target.value)} placeholder="搜索标题、字段或正文" />
+              <input
+                value={search}
+                onChange={(event) => onSearch(event.target.value)}
+                placeholder="搜索标题、字段或正文"
+              />
             </label>
             <div className="icon-segment">
-              <button className={viewMode === 'list' ? 'active' : ''} onClick={() => onViewMode('list')} title="列表">
+              <button
+                className={viewMode === 'list' ? 'active' : ''}
+                onClick={() => onViewMode('list')}
+                title="列表"
+              >
                 <List size={16} />
               </button>
-              <button className={viewMode === 'tile' ? 'active' : ''} onClick={() => onViewMode('tile')} title="平铺">
+              <button
+                className={viewMode === 'tile' ? 'active' : ''}
+                onClick={() => onViewMode('tile')}
+                title="平铺"
+              >
                 <LayoutGrid size={16} />
               </button>
             </div>
@@ -1099,7 +1256,9 @@ function OutlineHome({
               >
                 <span>
                   <b>{item.data.title}</b>
-                  <small>{docTypeLabel(item)} · {String(item.data.status ?? 'draft')}</small>
+                  <small>
+                    {docTypeLabel(item)} · {String(item.data.status ?? 'draft')}
+                  </small>
                 </span>
                 {viewMode === 'list' && <em>{structuredLineForSection(item)}</em>}
                 {viewMode === 'tile' && <StructuredTile doc={item} />}
@@ -1122,10 +1281,7 @@ function OutlineHome({
                     <ChevronDown size={16} />
                   </button>
                 </div>
-                <MetadataEditor
-                  data={doc.data}
-                  onChange={(data) => onDocChange({ ...doc, data })}
-                />
+                <MetadataEditor data={doc.data} onChange={(data) => onDocChange({ ...doc, data })} />
                 <label className="detail-editor">
                   正文
                   <textarea
@@ -1230,7 +1386,10 @@ function VolumeHome({
   const shellRef = useRef<HTMLDivElement | null>(null)
   const section = VOLUME_SECTIONS.find((item) => item.id === activeSection) ?? VOLUME_SECTIONS[0]
   const arcs = docs
-    .filter((item) => item.data.type === 'outline' && item.data.level === 'arc' && item.data.parent === volume.data.id)
+    .filter(
+      (item) =>
+        item.data.type === 'outline' && item.data.level === 'arc' && item.data.parent === volume.data.id
+    )
     .sort((a, b) => outlineSortKey(a).localeCompare(outlineSortKey(b)))
   const items = filterDocs(volumeSectionDocs(docs, volume, activeSection), search)
   const selected = selectedTarget
@@ -1272,7 +1431,9 @@ function VolumeHome({
   }
 
   return (
-    <main className={`outline-home volume-home ${leftOpen ? '' : 'left-narrow'} ${rightOpen ? '' : 'right-narrow'}`}>
+    <main
+      className={`outline-home volume-home ${leftOpen ? '' : 'left-narrow'} ${rightOpen ? '' : 'right-narrow'}`}
+    >
       <aside className="outline-nav">
         <div className="outline-nav-head">
           <button className="icon-button" onClick={onToggleLeft} title={leftOpen ? '收窄左栏' : '展开左栏'}>
@@ -1363,19 +1524,38 @@ function VolumeHome({
           <div className="overview-tools">
             <label className="search-box">
               <Search size={16} />
-              <input value={search} onChange={(event) => onSearch(event.target.value)} placeholder="搜索本卷标题、字段或正文" />
+              <input
+                value={search}
+                onChange={(event) => onSearch(event.target.value)}
+                placeholder="搜索本卷标题、字段或正文"
+              />
             </label>
             <div className="icon-segment">
-              <button className={viewMode === 'list' ? 'active' : ''} onClick={() => onViewMode('list')} title="列表">
+              <button
+                className={viewMode === 'list' ? 'active' : ''}
+                onClick={() => onViewMode('list')}
+                title="列表"
+              >
                 <List size={16} />
               </button>
-              <button className={viewMode === 'tile' ? 'active' : ''} onClick={() => onViewMode('tile')} title="平铺">
+              <button
+                className={viewMode === 'tile' ? 'active' : ''}
+                onClick={() => onViewMode('tile')}
+                title="平铺"
+              >
                 <LayoutGrid size={16} />
               </button>
             </div>
           </div>
           {activeSection === 'timeline' ? (
-            <VolumeTimeline docs={docs} volume={volume} arcs={arcs} items={items} onSelect={onSelect} selectedTarget={selectedTarget} />
+            <VolumeTimeline
+              docs={docs}
+              volume={volume}
+              arcs={arcs}
+              items={items}
+              onSelect={onSelect}
+              selectedTarget={selectedTarget}
+            />
           ) : (
             <div className={viewMode === 'tile' ? 'outline-tile-grid' : 'outline-list'}>
               {items.map((item) => (
@@ -1386,7 +1566,9 @@ function VolumeHome({
                 >
                   <span>
                     <b>{item.data.title}</b>
-                    <small>{docTypeLabel(item)} · {String(item.data.status ?? 'draft')}</small>
+                    <small>
+                      {docTypeLabel(item)} · {String(item.data.status ?? 'draft')}
+                    </small>
                   </span>
                   {viewMode === 'list' && <em>{structuredLineForSection(item)}</em>}
                   {viewMode === 'tile' && <StructuredTile doc={item} />}
@@ -1413,7 +1595,10 @@ function VolumeHome({
                 <MetadataEditor data={doc.data} onChange={(data) => onDocChange({ ...doc, data })} />
                 <label className="detail-editor">
                   正文
-                  <textarea value={doc.content} onChange={(event) => onDocChange({ ...doc, content: event.target.value })} />
+                  <textarea
+                    value={doc.content}
+                    onChange={(event) => onDocChange({ ...doc, content: event.target.value })}
+                  />
                 </label>
                 <div className="detail-actions">
                   <button onClick={onOpenExternal}>
@@ -1461,7 +1646,9 @@ function TopChrome({
   onGitCreateRemote,
   onGitSync,
   root,
-  locationLabel
+  locationLabel,
+  workspaceMode,
+  onWorkspaceMode
 }: {
   theme: ThemeName
   density: DensityName
@@ -1480,6 +1667,8 @@ function TopChrome({
   onGitSync?: () => void
   root?: string
   locationLabel?: string
+  workspaceMode?: WorkspaceMode
+  onWorkspaceMode?: (mode: WorkspaceMode) => void
 }) {
   const themes: ThemeName[] = ['paper', 'ink', 'mist', 'bamboo']
   const [showSettings, setShowSettings] = useState(false)
@@ -1492,6 +1681,22 @@ function TopChrome({
       <div className="project-label">
         《{projectName}》{locationLabel ? ` / ${locationLabel}` : path ? ` / ${path}` : ''}
       </div>
+      {workspaceMode && onWorkspaceMode && (
+        <nav className="workspace-mode-nav" aria-label={language === 'zh' ? '工作区模式' : 'Workspace mode'}>
+          <button
+            className={workspaceMode === 'planning' ? 'active' : ''}
+            onClick={() => onWorkspaceMode('planning')}
+          >
+            <BookOpen size={15} /> {language === 'zh' ? '规划' : 'Plan'}
+          </button>
+          <button
+            className={workspaceMode === 'writing' ? 'active' : ''}
+            onClick={() => onWorkspaceMode('writing')}
+          >
+            <PenLine size={15} /> {t(language, 'writing')}
+          </button>
+        </nav>
+      )}
       <div className="top-spacer" />
       <button className="status-pill" onClick={() => setShowSettings(true)} title="配置 AI 服务">
         <Circle size={10} className={aiStatus.ready ? 'green' : 'amber'} />{' '}
@@ -1568,7 +1773,8 @@ function TopChrome({
 
 function gitActionFor(git?: GitState | null): { label: string; title: string } {
   if (!git) return { label: 'GitHub 凭证', title: '配置 GitHub 登录凭证' }
-  if (!git.initialized) return { label: '创建 GitHub 仓库', title: '为当前小说创建私有 GitHub 仓库并初始化本地 Git' }
+  if (!git.initialized)
+    return { label: '创建 GitHub 仓库', title: '为当前小说创建私有 GitHub 仓库并初始化本地 Git' }
   if (!git.remote) return { label: '未绑定 GitHub', title: '为当前小说创建私有 GitHub 仓库' }
   if (git.dirty) return { label: '有修改，点击同步', title: '提交并推送当前小说修改' }
   return { label: 'GitHub 已同步', title: '无本地修改；点击可再次推送检查' }
@@ -1611,7 +1817,8 @@ function WritingSidebar({
       ? docs.find((item) => item.data.id === selectedTarget.id && item.data.type === 'outline')
       : null
   const childItems = childLevel
-    ? hierarchy.children.get(parent?.data.id ?? null)?.filter((item) => item.data.level === childLevel) ?? []
+    ? (hierarchy.children.get(parent?.data.id ?? null)?.filter((item) => item.data.level === childLevel) ??
+      [])
     : []
   const levelItems = outlineItemsForLevel(docs, level, parent ?? null, selectedTarget)
   return (
@@ -1639,7 +1846,10 @@ function WritingSidebar({
                     <FileText size={14} /> {item.data.title}
                   </button>
                 ))}
-                <button className="sidebar-create" onClick={() => onCreate(childLevel, parent?.data.id ?? null)}>
+                <button
+                  className="sidebar-create"
+                  onClick={() => onCreate(childLevel, parent?.data.id ?? null)}
+                >
                   <Plus size={14} /> 新增{outlineLevelLabel(childLevel)}
                 </button>
               </>
@@ -1659,7 +1869,10 @@ function WritingSidebar({
               </button>
             ))}
             {level !== 'book' && (
-              <button className="sidebar-create" onClick={() => onCreate(level, parentForNewLevel(docs, level, parent ?? null))}>
+              <button
+                className="sidebar-create"
+                onClick={() => onCreate(level, parentForNewLevel(docs, level, parent ?? null))}
+              >
                 <Plus size={14} /> 新增{outlineLevelLabel(level)}
               </button>
             )}
@@ -1784,24 +1997,43 @@ function WritingWorkspace({
           <div className="overview-tools">
             <label className="search-box">
               <Search size={16} />
-              <input value={search} onChange={(event) => onSearch(event.target.value)} placeholder="在本部分检索" />
+              <input
+                value={search}
+                onChange={(event) => onSearch(event.target.value)}
+                placeholder="在本部分检索"
+              />
             </label>
             <div className="icon-segment">
-              <button className={viewMode === 'list' ? 'active' : ''} onClick={() => onViewMode('list')} title="列表">
+              <button
+                className={viewMode === 'list' ? 'active' : ''}
+                onClick={() => onViewMode('list')}
+                title="列表"
+              >
                 <List size={16} />
               </button>
-              <button className={viewMode === 'tile' ? 'active' : ''} onClick={() => onViewMode('tile')} title="平铺">
+              <button
+                className={viewMode === 'tile' ? 'active' : ''}
+                onClick={() => onViewMode('tile')}
+                title="平铺"
+              >
                 <LayoutGrid size={16} />
               </button>
             </div>
           </div>
-          <OutlineSummary docs={docs} level={level} selected={selectedOutline} contextPacket={contextPacket} />
+          <OutlineSummary
+            docs={docs}
+            level={level}
+            selected={selectedOutline}
+            contextPacket={contextPacket}
+          />
           <div className={viewMode === 'tile' ? 'outline-tile-grid' : 'outline-list'}>
             {items.map((item) => (
               <button
                 key={item.data.id}
                 className={`outline-item ${selectedTarget?.id === item.data.id ? 'active' : ''}`}
-                onClick={() => onSelect({ type: item.data.type === 'scene' ? 'scene' : 'outline', id: item.data.id })}
+                onClick={() =>
+                  onSelect({ type: item.data.type === 'scene' ? 'scene' : 'outline', id: item.data.id })
+                }
               >
                 <span>
                   <b>{item.data.title}</b>
@@ -1890,8 +2122,10 @@ function OutlineSummary({
   const tasks = levelTasks(level)
   const child = nextWorkLevel(level)
   const childCount = child
-    ? docs.filter((item) => item.data.type === 'outline' && item.data.level === child && item.data.parent === selected?.data.id)
-        .length
+    ? docs.filter(
+        (item) =>
+          item.data.type === 'outline' && item.data.level === child && item.data.parent === selected?.data.id
+      ).length
     : docs.filter((item) => item.data.type === 'scene' && item.data.section === selected?.data.id).length
   return (
     <article className="overview-summary">
@@ -1956,6 +2190,8 @@ function WritingBottomPanel({
   onAccepted: () => Promise<void>
   language: LanguageName
 }) {
+  const [chapterPanel, setChapterPanel] = useState<'context' | 'runs'>('context')
+
   if (level === 'chapter') {
     return (
       <footer className="writing-bottom chapter-flow">
@@ -1963,8 +2199,16 @@ function WritingBottomPanel({
           <article>
             <strong>要素</strong>
             <p>地点：{docTitle(docs, scene?.data.location) || '未绑定'}</p>
-            <p>人物：{[scene?.data.pov, ...(asStringList(scene?.data.characters))].map((id) => docTitle(docs, id)).filter(Boolean).join(' / ') || '未绑定'}</p>
-            <p>时间：{docTitle(docs, scene?.data.timeline_node) || String(scene?.data.world_time ?? '未绑定')}</p>
+            <p>
+              人物：
+              {[scene?.data.pov, ...asStringList(scene?.data.characters)]
+                .map((id) => docTitle(docs, id))
+                .filter(Boolean)
+                .join(' / ') || '未绑定'}
+            </p>
+            <p>
+              时间：{docTitle(docs, scene?.data.timeline_node) || String(scene?.data.world_time ?? '未绑定')}
+            </p>
           </article>
           <article>
             <strong>章纲</strong>
@@ -1973,7 +2217,10 @@ function WritingBottomPanel({
           <article>
             <strong>伏笔</strong>
             <p>
-              {[...(asStringList(outline?.data.foreshadowing_planted)), ...(asStringList(outline?.data.foreshadowing_resolved))]
+              {[
+                ...asStringList(outline?.data.foreshadowing_planted),
+                ...asStringList(outline?.data.foreshadowing_resolved)
+              ]
                 .map((id) => docTitle(docs, id) || id)
                 .join(' / ') || '未选择'}
             </p>
@@ -1981,17 +2228,55 @@ function WritingBottomPanel({
           <article>
             <strong>动作</strong>
             <div className="flow-actions">
-              <button onClick={onCheck} disabled={busy}>
+              <button
+                onClick={async () => {
+                  await onCheck()
+                  setChapterPanel('context')
+                }}
+                disabled={busy}
+              >
                 <CheckCircle2 size={15} /> 检查
               </button>
-              <button onClick={onGenerate} disabled={busy || !outline}>
+              <button
+                onClick={async () => {
+                  await onGenerate()
+                  setChapterPanel('runs')
+                }}
+                disabled={busy || !outline}
+              >
                 <WandSparkles size={15} /> 组合提示词并撰写
               </button>
             </div>
           </article>
         </div>
         <div className="chapter-flow-runs">
-          <RunPanel root={root} runs={runs} sceneId={sceneId} onAccepted={onAccepted} language={language} />
+          <div className="chapter-panel-tabs">
+            <button
+              className={chapterPanel === 'context' ? 'active' : ''}
+              onClick={() => setChapterPanel('context')}
+            >
+              {t(language, 'contextAndChecks')}
+            </button>
+            <button
+              className={chapterPanel === 'runs' ? 'active' : ''}
+              onClick={() => setChapterPanel('runs')}
+            >
+              {t(language, 'runs')}
+            </button>
+          </div>
+          {chapterPanel === 'context' ? (
+            <Inspector
+              docs={docs}
+              scene={scene}
+              outline={outline}
+              context={context}
+              contextPacket={contextPacket}
+              checkReport={checkReport}
+              language={language}
+            />
+          ) : (
+            <RunPanel root={root} runs={runs} sceneId={sceneId} onAccepted={onAccepted} language={language} />
+          )}
         </div>
       </footer>
     )
@@ -2101,7 +2386,10 @@ function SettingsModal({
               <select
                 value={github.defaultVisibility}
                 onChange={(e) =>
-                  setGithub({ ...github, defaultVisibility: e.target.value as GitHubSettings['defaultVisibility'] })
+                  setGithub({
+                    ...github,
+                    defaultVisibility: e.target.value as GitHubSettings['defaultVisibility']
+                  })
                 }
               >
                 <option value="private">Private</option>
@@ -2925,9 +3213,9 @@ function OutlineWorkbench({
   const relatedTimeline = relatedDocs(docs, outline.data.related_timeline)
   const relatedCharacters = relatedDocs(docs, outline.data.related_characters)
   const relatedForeshadowing = relatedDocs(docs, [
-    ...(asStringList(outline.data.related_foreshadowing)),
-    ...(asStringList(outline.data.foreshadowing_planted)),
-    ...(asStringList(outline.data.foreshadowing_resolved))
+    ...asStringList(outline.data.related_foreshadowing),
+    ...asStringList(outline.data.foreshadowing_planted),
+    ...asStringList(outline.data.foreshadowing_resolved)
   ])
   const relatedWorld = relatedDocs(docs, outline.data.world_entries_used)
   const relatedPatterns = relatedDocs(docs, outline.data.related_patterns)
@@ -3182,7 +3470,9 @@ function outlineSectionDocs(docs: DocEntry[], section: OutlineHomeSection): DocE
 function volumeSectionDocs(docs: DocEntry[], volume: DocEntry, section: VolumeSection): DocEntry[] {
   if (section === 'arcs') {
     return docs
-      .filter((doc) => doc.data.type === 'outline' && doc.data.level === 'arc' && doc.data.parent === volume.data.id)
+      .filter(
+        (doc) => doc.data.type === 'outline' && doc.data.level === 'arc' && doc.data.parent === volume.data.id
+      )
       .sort((a, b) => outlineSortKey(a).localeCompare(outlineSortKey(b)))
   }
   return outlineSectionDocs(docs, section).filter((doc) => isDocUsedByVolume(docs, volume, doc))
@@ -3203,7 +3493,10 @@ function applyVolumeScope(data: Record<string, unknown>, volume: DocEntry): Reco
 }
 
 function isDocUsedByVolume(docs: DocEntry[], volume: DocEntry, doc: DocEntry): boolean {
-  if (doc.data.type === 'outline') return doc.data.id === volume.data.id || findAncestorOfDoc(docs, doc, 'volume')?.data.id === volume.data.id
+  if (doc.data.type === 'outline')
+    return (
+      doc.data.id === volume.data.id || findAncestorOfDoc(docs, doc, 'volume')?.data.id === volume.data.id
+    )
   if (doc.data.volume === volume.data.id || doc.data.scope === volume.data.id) return true
   if (asStringList(doc.data.tags).includes(`volume:${volume.data.id}`)) return true
   const volumeRelated = collectVolumeRelatedIds(docs, volume)
@@ -3214,9 +3507,13 @@ function collectVolumeRelatedIds(docs: DocEntry[], volume: DocEntry): Set<string
   const ids = new Set<string>()
   const outlines = docs.filter((item) => item.data.type === 'outline')
   const volumeTree = outlines.filter(
-    (item) => item.data.id === volume.data.id || findAncestor(outlines, item, 'volume')?.data.id === volume.data.id
+    (item) =>
+      item.data.id === volume.data.id || findAncestor(outlines, item, 'volume')?.data.id === volume.data.id
   )
-  const scenes = docs.filter((item) => item.data.type === 'scene' && volumeTree.some((outline) => outline.data.id === item.data.section))
+  const scenes = docs.filter(
+    (item) =>
+      item.data.type === 'scene' && volumeTree.some((outline) => outline.data.id === item.data.section)
+  )
   for (const item of [...volumeTree, ...scenes]) {
     for (const key of [
       'related_timeline',
@@ -3240,7 +3537,11 @@ function collectVolumeRelatedIds(docs: DocEntry[], volume: DocEntry): Set<string
 }
 
 function findAncestorOfDoc(docs: DocEntry[], child: DocEntry, level: WorkLevel | null): DocEntry | null {
-  return findAncestor(docs.filter((item) => item.data.type === 'outline'), child, level)
+  return findAncestor(
+    docs.filter((item) => item.data.type === 'outline'),
+    child,
+    level
+  )
 }
 
 function VolumeTimeline({
@@ -3263,7 +3564,9 @@ function VolumeTimeline({
     <div className="volume-timeline">
       <article className="timeline-lane volume-lane">
         <h3>{volume.data.title}</h3>
-        <p>{formatFieldValue(volume.data.volume_goal) || volume.content.slice(0, 120) || '本卷目标尚未填写。'}</p>
+        <p>
+          {formatFieldValue(volume.data.volume_goal) || volume.content.slice(0, 120) || '本卷目标尚未填写。'}
+        </p>
       </article>
       {arcs.map((arc) => {
         const events = items.filter((item) => timelineBelongsToArc(docs, arc, item))
@@ -3317,8 +3620,13 @@ function VolumeTimeline({
 
 function timelineBelongsToArc(docs: DocEntry[], arc: DocEntry, timeline: DocEntry): boolean {
   if (asStringList(arc.data.related_timeline).includes(timeline.data.id)) return true
-  const chapters = docs.filter((item) => item.data.type === 'outline' && item.data.level === 'chapter' && item.data.parent === arc.data.id)
-  const scenes = docs.filter((item) => item.data.type === 'scene' && chapters.some((chapter) => chapter.data.id === item.data.section))
+  const chapters = docs.filter(
+    (item) =>
+      item.data.type === 'outline' && item.data.level === 'chapter' && item.data.parent === arc.data.id
+  )
+  const scenes = docs.filter(
+    (item) => item.data.type === 'scene' && chapters.some((chapter) => chapter.data.id === item.data.section)
+  )
   return [...chapters, ...scenes].some((item) => {
     if (item.data.timeline_node === timeline.data.id) return true
     return asStringList(item.data.related_timeline).includes(timeline.data.id)
@@ -3351,7 +3659,8 @@ function createInputForOutlineSection(
       }
     }
   }
-  if (section === 'canon') return { kind: 'canon', data: { title, content, status: 'confirmed', strength: 'hard' } }
+  if (section === 'canon')
+    return { kind: 'canon', data: { title, content, status: 'confirmed', strength: 'hard' } }
   if (section === 'world') return { kind: 'world_entry', data: { title, content, entry_status: 'candidate' } }
   if (section === 'characters') return { kind: 'character', data: { title, content } }
   if (section === 'timeline') return { kind: 'timeline_event', data: { title, content } }
@@ -3473,7 +3782,11 @@ function MetadataEditor({
   const update = (key: string, value: string) => {
     const current = data[key]
     let next: unknown = value
-    if (Array.isArray(current)) next = value.split(',').map((item) => item.trim()).filter(Boolean)
+    if (Array.isArray(current))
+      next = value
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean)
     else if (typeof current === 'number') next = Number(value)
     else if (typeof current === 'boolean') next = value === 'true'
     onChange({ ...data, [key]: next })
@@ -3524,9 +3837,10 @@ function outlineItemsForLevel(
     .filter((item) => item.data.type === 'outline')
     .sort((a, b) => outlineSortKey(a).localeCompare(outlineSortKey(b)))
   if (level === 'book') return outlines.filter((item) => item.data.level === 'book')
-  const selected = selectedTarget?.type === 'outline'
-    ? outlines.find((item) => item.data.id === selectedTarget.id)
-    : selectedOutline
+  const selected =
+    selectedTarget?.type === 'outline'
+      ? outlines.find((item) => item.data.id === selectedTarget.id)
+      : selectedOutline
   const parentLevel = previousWorkLevel(level)
   const parent =
     selected && selected.data.level === parentLevel
@@ -3538,8 +3852,17 @@ function outlineItemsForLevel(
   return outlines.filter((item) => item.data.level === level && item.data.parent === parent.data.id)
 }
 
-function firstSelectableForLevel(docs: DocEntry[], level: WorkLevel, current: DocEntry | null): DocEntry | null {
-  const items = outlineItemsForLevel(docs, level, current, current ? { type: 'outline', id: current.data.id } : null)
+function firstSelectableForLevel(
+  docs: DocEntry[],
+  level: WorkLevel,
+  current: DocEntry | null
+): DocEntry | null {
+  const items = outlineItemsForLevel(
+    docs,
+    level,
+    current,
+    current ? { type: 'outline', id: current.data.id } : null
+  )
   return items[0] ?? docs.find((item) => item.data.type === 'outline' && item.data.level === level) ?? null
 }
 
@@ -3561,7 +3884,8 @@ function filterDocs(items: DocEntry[], query: string): DocEntry[] {
   const needle = query.trim().toLowerCase()
   if (!needle) return items
   return items.filter((item) => {
-    const haystack = `${item.data.title}\n${item.content}\n${Object.values(item.data).join('\n')}`.toLowerCase()
+    const haystack =
+      `${item.data.title}\n${item.content}\n${Object.values(item.data).join('\n')}`.toLowerCase()
     return haystack.includes(needle)
   })
 }
@@ -3659,9 +3983,7 @@ function renderMiniMarkdown(content: string): string {
 }
 
 function inlineMarkdown(value: string): string {
-  return value
-    .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
+  return value.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/`([^`]+)`/g, '<code>$1</code>')
 }
 
 function escapeHtml(value: string): string {
@@ -3806,8 +4128,8 @@ function Inspector({
         </p>
         {contextPacket && (
           <p>
-            {outlineLevelLabel(contextPacket.target.level)} · {contextPacket.included_ids.length} docs · excluded{' '}
-            {contextPacket.excluded_ids.length}
+            {outlineLevelLabel(contextPacket.target.level)} · {contextPacket.included_ids.length} docs ·
+            excluded {contextPacket.excluded_ids.length}
           </p>
         )}
       </InspectorCard>
@@ -3817,7 +4139,11 @@ function Inspector({
         ))}
       </InspectorCard>
       {outline && (
-        <InspectorCard title={`${outlineLevelLabel(String(outline.data.level))}: ${outline.data.title}`} ok language={language}>
+        <InspectorCard
+          title={`${outlineLevelLabel(String(outline.data.level))}: ${outline.data.title}`}
+          ok
+          language={language}
+        >
           <p>时间线：{contextPacket?.timeline.length ?? 0}</p>
           <p>人物：{contextPacket?.characters.length ?? 0}</p>
           <p>世界书：{contextPacket?.world_entries.length ?? 0}</p>
@@ -3856,7 +4182,9 @@ function Inspector({
             ok
             language={language}
           >
-            <p>{t(language, 'identity')}: {String(pov?.data.role ?? '')}</p>
+            <p>
+              {t(language, 'identity')}: {String(pov?.data.role ?? '')}
+            </p>
             <p>
               {t(language, 'emotion')}:
               {String(
@@ -3869,8 +4197,12 @@ function Inspector({
             ok
             language={language}
           >
-            <p>{t(language, 'time')}: {String(timeline?.data.date ?? '')}</p>
-            <p>{t(language, 'event')}: {timeline?.content.slice(0, 80)}</p>
+            <p>
+              {t(language, 'time')}: {String(timeline?.data.date ?? '')}
+            </p>
+            <p>
+              {t(language, 'event')}: {timeline?.content.slice(0, 80)}
+            </p>
           </InspectorCard>
           <InspectorCard
             title={`${t(language, 'location')}: ${location?.data.title ?? t(language, 'notSelected')}`}
@@ -3931,7 +4263,8 @@ function RunPanel({
   const [selectedRun, setSelectedRun] = useState<string | null>(null)
   const [activeFile, setActiveFile] = useState('metadata.yaml')
   const [preview, setPreview] = useState('')
-  const currentRun = selectedRun ?? filtered[0]?.id ?? null
+  const currentRun = filtered.some((run) => run.id === selectedRun) ? selectedRun : (filtered[0]?.id ?? null)
+  const currentRunSummary = filtered.find((run) => run.id === currentRun) ?? null
 
   useEffect(() => {
     async function loadPreview() {
@@ -3977,7 +4310,7 @@ function RunPanel({
           )
         )}
         <span className="spacer" />
-        <button onClick={accept} disabled={!currentRun}>
+        <button onClick={accept} disabled={!currentRun || currentRunSummary?.status !== 'generated'}>
           {t(language, 'acceptRaw')}
         </button>
         <button onClick={() => setActiveFile('diff')} disabled={!currentRun}>
@@ -4177,7 +4510,8 @@ const I18N = {
     consistencyResults: '一致性检查结果',
     ok: '符合',
     warn: '注意',
-    privacyHint: 'GitHub Token、默认 Owner 是全局配置；Git remote 属于当前小说项目。建议每部小说使用一个独立私有仓库。',
+    privacyHint:
+      'GitHub Token、默认 Owner 是全局配置；Git remote 属于当前小说项目。建议每部小说使用一个独立私有仓库。',
     aiSettings: 'AI 配置',
     prose: '正文',
     background: '背景',

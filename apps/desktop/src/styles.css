@@ -147,6 +147,35 @@ button:disabled {
   font-weight: 700;
   padding-left: 0;
 }
+.top-chrome:has(.workspace-mode-nav) .project-label {
+  min-width: 0;
+  max-width: 360px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.workspace-mode-nav {
+  flex: 0 0 auto;
+  display: inline-flex;
+  padding: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.18);
+}
+.workspace-mode-nav button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  border-radius: 6px;
+  padding: 5px 10px;
+  background: transparent;
+  color: #d9d0c4;
+}
+.workspace-mode-nav button.active {
+  background: rgba(255, 255, 255, 0.14);
+  color: #fff8ec;
+  font-weight: 700;
+}
 .theme-select {
   width: auto;
   min-width: 120px;
@@ -224,7 +253,11 @@ button:disabled {
   inset: 8px 2px 2px 16px;
   border: 2px solid color-mix(in srgb, var(--accent) 58%, var(--border));
   border-radius: 5px 12px 12px 5px;
-  background: linear-gradient(90deg, var(--bg-editor), color-mix(in srgb, var(--accent) 12%, var(--bg-editor)));
+  background: linear-gradient(
+    90deg,
+    var(--bg-editor),
+    color-mix(in srgb, var(--accent) 12%, var(--bg-editor))
+  );
   box-shadow: inset 12px 0 0 color-mix(in srgb, var(--accent) 16%, transparent);
 }
 .logo-book {
@@ -1073,6 +1106,27 @@ select {
   max-height: 220px;
   overflow: auto;
 }
+.writing-route-sidebar {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.writing-route-sidebar > .tree {
+  flex: 1 1 auto;
+  min-height: 120px;
+  overflow: auto;
+}
+.writing-route-sidebar > .module-nav {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  max-height: min(42vh, 330px);
+  overflow: auto;
+}
+.writing-route-sidebar > .module-nav button {
+  min-width: 0;
+  padding: 9px;
+}
 .markdown-preview h2,
 .markdown-preview h3,
 .markdown-preview h4 {
@@ -1286,9 +1340,34 @@ select {
   min-width: 0;
   min-height: 0;
   border-left: 1px solid var(--border);
+  display: grid;
+  grid-template-rows: 40px minmax(0, 1fr);
+  overflow: hidden;
+}
+.chapter-panel-tabs {
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-panel);
+}
+.chapter-panel-tabs button {
+  border: 0;
+  border-right: 1px solid var(--border);
+  background: transparent;
+  padding: 0 16px;
+}
+.chapter-panel-tabs button.active {
+  color: var(--accent-strong);
+  background: var(--bg-muted);
+  font-weight: 700;
+}
+.chapter-flow-runs > .inspector-content {
+  min-height: 0;
+  overflow: auto;
 }
 .chapter-flow-runs .run-panel {
-  height: 100%;
+  height: auto;
+  min-height: 0;
   margin: 0;
   border: 0;
   border-radius: 0;

@@ -109,7 +109,9 @@ describe('core project flow', () => {
     try {
       const project = await createProject({ vault: tmp, title: 'Packet Novel', genre: 'test' })
       await createCanon(project.root, 'Hard Rule', 'Accepted prose is the strongest anchor.')
-      await createStrategy(project.root, 'Web Serial Rhythm', { principles: ['End chapters with forward pressure.'] })
+      await createStrategy(project.root, 'Web Serial Rhythm', {
+        principles: ['End chapters with forward pressure.']
+      })
       const charFile = await createCharacter(project.root, 'Lin')
       const charId = path.basename(charFile).split('-Lin')[0]
       const eventFile = await appendTimelineEvent(project.root, 'First Turn', { characters: [charId] })
@@ -337,7 +339,11 @@ describe('core project flow', () => {
       expect(buildImportPrompt(session)).toContain('玉河桥')
       const answered = await loadImportSession(project.root, session.id)
       answered.issues = answered.issues.map((issue) => ({ ...issue, state: 'resolved', answer: '全书有效' }))
-      await writeFile(path.join(project.root, 'imports', `${session.id}.json`), `${JSON.stringify(answered, null, 2)}\n`, 'utf8')
+      await writeFile(
+        path.join(project.root, 'imports', `${session.id}.json`),
+        `${JSON.stringify(answered, null, 2)}\n`,
+        'utf8'
+      )
       const landed = await landImportSession(project.root, session.id)
       expect(landed.landed[0].type).toBe('location')
       const locations = await listDocs(project.root, 'location')
@@ -356,34 +362,47 @@ describe('core project flow', () => {
       const charId = path.basename(charFile).split('-')[0]
       const locFile = await createLocation(project.root, '书房')
       const locId = path.basename(locFile).split('-')[0]
-      const eventFile = await appendTimelineEvent(project.root, '夜谈', { location: locId, characters: [charId] })
+      const eventFile = await appendTimelineEvent(project.root, '夜谈', {
+        location: locId,
+        characters: [charId]
+      })
       const eventId = path.basename(eventFile).split('-')[0]
       const chapterFile = await createOutline(project.root, 'chapter', '第一章 夜谈', {
         id: 'chapter-001',
         chapter_goal: '让沈青接下任务。'
       })
       const chapterId = 'chapter-001'
-      await createScene(project.root, '开场', {
-        id: 'scene-opening',
-        status: 'final',
-        section: chapterId,
-        timeline_node: eventId,
-        location: locId,
-        pov: charId,
-        characters: [charId],
-        scene_goal: '进入书房',
-        tags: ['volume-01', 'chapter-001']
-      }, '他推开书房的门，烛火安静地伏在案上。')
-      await createScene(project.root, '交锋', {
-        id: 'scene-clash',
-        section: chapterId,
-        timeline_node: eventId,
-        location: locId,
-        pov: charId,
-        characters: [charId],
-        scene_goal: '接下任务',
-        tags: ['volume-01', 'chapter-001']
-      }, '## 节纲\n\n沈青被迫表态。')
+      await createScene(
+        project.root,
+        '开场',
+        {
+          id: 'scene-opening',
+          status: 'final',
+          section: chapterId,
+          timeline_node: eventId,
+          location: locId,
+          pov: charId,
+          characters: [charId],
+          scene_goal: '进入书房',
+          tags: ['volume-01', 'chapter-001']
+        },
+        '他推开书房的门，烛火安静地伏在案上。'
+      )
+      await createScene(
+        project.root,
+        '交锋',
+        {
+          id: 'scene-clash',
+          section: chapterId,
+          timeline_node: eventId,
+          location: locId,
+          pov: charId,
+          characters: [charId],
+          scene_goal: '接下任务',
+          tags: ['volume-01', 'chapter-001']
+        },
+        '## 节纲\n\n沈青被迫表态。'
+      )
 
       const review = await createFinalizeReviewSession(project.root, {
         chapterId,

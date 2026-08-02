@@ -1,11 +1,14 @@
 node_modules/
 dist/
+coverage/
 .env
 .env.*
 .DS_Store
 Thumbs.db
 *.log
+logs/
 *.tsbuildinfo
+_tmp_*
 
 # Local vaults and generated runs can become large.
 local-vaults/

@@ -22,7 +22,8 @@ const api = {
   openDocExternal: (filePath) => ipcRenderer.invoke('doc:openExternal', filePath),
   createDoc: (root, kind, input) => ipcRenderer.invoke('doc:create', root, kind, input),
   chooseMarkdownImport: (root) => ipcRenderer.invoke('import:chooseMarkdown', root),
-  importMarkdownText: (root, markdown, title) => ipcRenderer.invoke('import:markdownText', root, markdown, title),
+  importMarkdownText: (root, markdown, title) =>
+    ipcRenderer.invoke('import:markdownText', root, markdown, title),
   syncMarkdownImports: (root) => ipcRenderer.invoke('import:syncMarkdown', root),
   initPrompts: (root) => ipcRenderer.invoke('prompt:init', root),
   readPrompt: (root, name) => ipcRenderer.invoke('prompt:read', root, name),

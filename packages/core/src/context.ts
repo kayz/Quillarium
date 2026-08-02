@@ -119,7 +119,12 @@ export async function assembleContextPacket(
     for (const id of scene.data.related_patterns ?? []) explicitPatterns.add(id)
   }
 
-  const focusText = [project.title, ...outlineChain.map((item) => item.data.title), scene?.data.title, scene?.content]
+  const focusText = [
+    project.title,
+    ...outlineChain.map((item) => item.data.title),
+    scene?.data.title,
+    scene?.content
+  ]
     .filter(Boolean)
     .join('\n')
   const focusTokens = tokensFrom(focusText)
@@ -136,22 +141,35 @@ export async function assembleContextPacket(
     pins,
     broad,
     mid ? 18 : 10,
-    (doc) => matchesFocus(doc, focusTokens, chainIds) || timeline.some((event) => event.data.characters.includes(doc.data.id))
+    (doc) =>
+      matchesFocus(doc, focusTokens, chainIds) ||
+      timeline.some((event) => event.data.characters.includes(doc.data.id))
   )
   const characterIds = new Set(characters.map((doc) => doc.data.id))
   const characterStates = chooseDocs(
     all.character_state,
-    new Set([...chainIds, ...Array.from(explicitTimeline)].flatMap((id) => stateIdsForScope(all.character_state, id))),
+    new Set(
+      [...chainIds, ...Array.from(explicitTimeline)].flatMap((id) =>
+        stateIdsForScope(all.character_state, id)
+      )
+    ),
     exclusions,
     pins,
     broad,
     16,
     (doc) =>
       characterIds.has(doc.data.character) &&
-      (chainIds.includes(doc.data.scope_id) || timeline.some((event) => event.data.id === doc.data.timeline_node))
+      (chainIds.includes(doc.data.scope_id) ||
+        timeline.some((event) => event.data.id === doc.data.timeline_node))
   )
-  const worldEntries = chooseDocs(all.world_entry, explicitWorld, exclusions, pins, broad, mid ? 30 : 14, (doc) =>
-    matchesWorldEntry(doc, focusTokens, timeline, characters)
+  const worldEntries = chooseDocs(
+    all.world_entry,
+    explicitWorld,
+    exclusions,
+    pins,
+    broad,
+    mid ? 30 : 14,
+    (doc) => matchesWorldEntry(doc, focusTokens, timeline, characters)
   )
   const patterns = chooseDocs(all.pattern, explicitPatterns, exclusions, pins, broad, mid ? 16 : 8, (doc) =>
     matchesFocus(doc, focusTokens, chainIds)
@@ -184,7 +202,9 @@ export async function assembleContextPacket(
     pins,
     broad,
     10,
-    (doc) => doc.data.related_docs.some((id) => chainIds.includes(id) || pins.has(id)) || matchesFocus(doc, focusTokens, chainIds)
+    (doc) =>
+      doc.data.related_docs.some((id) => chainIds.includes(id) || pins.has(id)) ||
+      matchesFocus(doc, focusTokens, chainIds)
   )
   const references = chooseDocs(all.reference, new Set(), exclusions, pins, broad, 8, (doc) =>
     matchesFocus(doc, focusTokens, chainIds)
@@ -229,7 +249,9 @@ export async function assembleContextPacket(
     outline_chain: outlineChain,
     scene: scene ? { data: scene.data, content: scene.content } : null,
     canon: all.canon.filter((item) => item.data.status !== 'deprecated' && !exclusions.has(item.data.id)),
-    strategies: all.strategy.filter((item) => item.data.status !== 'deprecated' && !exclusions.has(item.data.id)),
+    strategies: all.strategy.filter(
+      (item) => item.data.status !== 'deprecated' && !exclusions.has(item.data.id)
+    ),
     patterns,
     timeline,
     characters,
@@ -262,7 +284,10 @@ export function renderContextPacket(packet: ContextPacket): string {
       'Project',
       `title: ${packet.project.title}\ngenre: ${packet.project.genre}\ntarget_words: ${packet.project.target_words}\nchapter_words: ${packet.project.chapter_words}`
     ),
-    section('Canon', renderDocs(packet.canon, (doc) => `strength: ${doc.data.strength}\nsource: ${doc.data.source}`)),
+    section(
+      'Canon',
+      renderDocs(packet.canon, (doc) => `strength: ${doc.data.strength}\nsource: ${doc.data.source}`)
+    ),
     section(
       'Strategy',
       renderDocs(packet.strategies, (doc) => `category: ${doc.data.category}\nscope: ${doc.data.scope}`)
@@ -278,7 +303,10 @@ export function renderContextPacket(packet: ContextPacket): string {
     section('Outline Chain', [outlineText, sceneText].filter(Boolean).join('\n\n')),
     section(
       'Timeline',
-      renderDocs(packet.timeline, (doc) => `date: ${doc.data.date}\nduration: ${doc.data.duration}\nlocation: ${doc.data.location}`)
+      renderDocs(
+        packet.timeline,
+        (doc) => `date: ${doc.data.date}\nduration: ${doc.data.duration}\nlocation: ${doc.data.location}`
+      )
     ),
     section(
       'Characters',
@@ -298,7 +326,10 @@ export function renderContextPacket(packet: ContextPacket): string {
     ),
     section(
       'Locations',
-      renderDocs(packet.locations, (doc) => `parent: ${doc.data.parent_location}\ndescription: ${doc.data.description}`)
+      renderDocs(
+        packet.locations,
+        (doc) => `parent: ${doc.data.parent_location}\ndescription: ${doc.data.description}`
+      )
     ),
     section(
       'World Entries',
@@ -318,7 +349,11 @@ export function renderContextPacket(packet: ContextPacket): string {
     ),
     section(
       'Open Issues',
-      renderDocs(packet.issues, (doc) => `priority: ${doc.data.priority}\ndue: ${doc.data.due}\ndecision_needed: ${doc.data.decision_needed}`)
+      renderDocs(
+        packet.issues,
+        (doc) =>
+          `priority: ${doc.data.priority}\ndue: ${doc.data.due}\ndecision_needed: ${doc.data.decision_needed}`
+      )
     ),
     section('Warnings', packet.warnings.map((warning) => `- ${warning}`).join('\n')),
     section(
@@ -420,7 +455,10 @@ function matchesFocus<T extends BaseDoc>(
   const haystack = [doc.data.id, doc.data.title, ...(doc.data.tags ?? []), doc.content]
     .join('\n')
     .toLocaleLowerCase()
-  return chainIds.some((id) => haystack.includes(id.toLocaleLowerCase())) || tokens.some((token) => haystack.includes(token))
+  return (
+    chainIds.some((id) => haystack.includes(id.toLocaleLowerCase())) ||
+    tokens.some((token) => haystack.includes(token))
+  )
 }
 
 function matchesWorldEntry(
@@ -441,10 +479,7 @@ function matchesWorldEntry(
   )
 }
 
-function stateIdsForScope(
-  states: Array<DocWithContent<CharacterStateDoc>>,
-  scopeId: string
-): string[] {
+function stateIdsForScope(states: Array<DocWithContent<CharacterStateDoc>>, scopeId: string): string[] {
   return states.filter((state) => state.data.scope_id === scopeId).map((state) => state.data.id)
 }
 
@@ -464,8 +499,10 @@ function buildPacketWarnings(input: {
   const warnings: string[] = []
   const chainIds = input.outlineChain.map((item) => item.data.id)
   const target = input.outlineChain.at(-1)
-  if (!input.locations.length) warnings.push('缺地点：当前项目没有 location 文档，生成前需要从世界书或时间线补齐地点。')
-  if (!input.outlines.some((doc) => doc.data.level === 'chapter')) warnings.push('缺章纲：当前项目还没有 chapter outline。')
+  if (!input.locations.length)
+    warnings.push('缺地点：当前项目没有 location 文档，生成前需要从世界书或时间线补齐地点。')
+  if (!input.outlines.some((doc) => doc.data.level === 'chapter'))
+    warnings.push('缺章纲：当前项目还没有 chapter outline。')
   if (!input.scenes.length) warnings.push('缺场景/正文段落：当前项目还没有 scene 文档。')
   if (!input.characterStates.length) warnings.push('人物状态不足：还没有 character_state 快照。')
   if (!input.strategy.length) warnings.push('缺叙事策略：建议将文风、节奏、爽点等从 Canon 中拆为 strategy。')
@@ -479,14 +516,17 @@ function buildPacketWarnings(input: {
     const hasTimeline =
       input.timeline.some((doc) => chainIds.includes(String(doc.data.id))) ||
       (target.data.related_timeline ?? []).length > 0
-    if (!hasTimeline && target.data.level !== 'arc') warnings.push(`${outlineLevelLabel(target.data.level)}缺少时间线绑定。`)
+    if (!hasTimeline && target.data.level !== 'arc')
+      warnings.push(`${outlineLevelLabel(target.data.level)}缺少时间线绑定。`)
     if (!(target.data.related_characters ?? []).length) {
       warnings.push(`${outlineLevelLabel(target.data.level)}缺少相关人物绑定。`)
     }
   }
   for (const item of input.foreshadowing) {
-    if (!item.data.planned_plant && !item.data.planted_at) warnings.push(`伏笔 ${item.data.title} 缺少埋设位置。`)
-    if (!item.data.planned_resolve && item.data.state !== 'resolved') warnings.push(`伏笔 ${item.data.title} 缺少回收计划。`)
+    if (!item.data.planned_plant && !item.data.planted_at)
+      warnings.push(`伏笔 ${item.data.title} 缺少埋设位置。`)
+    if (!item.data.planned_resolve && item.data.state !== 'resolved')
+      warnings.push(`伏笔 ${item.data.title} 缺少回收计划。`)
   }
   if (input.scene) {
     if (!input.scene.data.location) warnings.push('当前场景缺地点。')

@@ -483,7 +483,10 @@ projectOption(promptCmd.command('init').description('Create default prompt files
 projectOption(
   promptCmd
     .command('show')
-    .argument('<name>', 'background-import | background-issue-followup | check-finalize-review | prose-scene-draft')
+    .argument(
+      '<name>',
+      'background-import | background-issue-followup | check-finalize-review | prose-scene-draft'
+    )
     .description('Show a system prompt')
 ).action(async (name, opts) => {
   console.log(await readPrompt(path.resolve(opts.project), name))

@@ -76,7 +76,11 @@ export async function checkOutline(projectRoot: string, outlineId: string): Prom
 
   if (outline.data.level === 'book') {
     if (!outline.data.reader_promise) {
-      issues.push({ severity: 'info', code: 'book-missing-reader-promise', message: 'Book outline has no reader promise.' })
+      issues.push({
+        severity: 'info',
+        code: 'book-missing-reader-promise',
+        message: 'Book outline has no reader promise.'
+      })
     }
     if (!outlines.some((doc) => doc.data.level === 'volume')) {
       issues.push({ severity: 'info', code: 'missing-volume-outline', message: 'No volume outlines found.' })
@@ -84,10 +88,18 @@ export async function checkOutline(projectRoot: string, outlineId: string): Prom
   }
   if (outline.data.level === 'volume') {
     if (!outline.data.volume_goal) {
-      issues.push({ severity: 'warning', code: 'volume-missing-goal', message: 'Volume outline has no volume_goal.' })
+      issues.push({
+        severity: 'warning',
+        code: 'volume-missing-goal',
+        message: 'Volume outline has no volume_goal.'
+      })
     }
     if (!(outline.data.event_chain ?? []).length) {
-      issues.push({ severity: 'warning', code: 'volume-missing-event-chain', message: 'Volume outline has no event_chain.' })
+      issues.push({
+        severity: 'warning',
+        code: 'volume-missing-event-chain',
+        message: 'Volume outline has no event_chain.'
+      })
     }
     if ((outline.data.writer_cycles ?? []).length < 3) {
       issues.push({
@@ -97,51 +109,113 @@ export async function checkOutline(projectRoot: string, outlineId: string): Prom
       })
     }
     if (!(outline.data.related_timeline ?? []).length) {
-      issues.push({ severity: 'warning', code: 'volume-missing-timeline', message: 'Volume outline has no related timeline events.' })
+      issues.push({
+        severity: 'warning',
+        code: 'volume-missing-timeline',
+        message: 'Volume outline has no related timeline events.'
+      })
     }
     if (!(outline.data.related_characters ?? []).length) {
-      issues.push({ severity: 'warning', code: 'volume-missing-characters', message: 'Volume outline has no focused character list.' })
+      issues.push({
+        severity: 'warning',
+        code: 'volume-missing-characters',
+        message: 'Volume outline has no focused character list.'
+      })
     }
   }
   if (outline.data.level === 'arc') {
     if (!(outline.data.conflict_ladder ?? []).length) {
-      issues.push({ severity: 'warning', code: 'arc-missing-conflict-ladder', message: 'Arc outline has no conflict_ladder.' })
+      issues.push({
+        severity: 'warning',
+        code: 'arc-missing-conflict-ladder',
+        message: 'Arc outline has no conflict_ladder.'
+      })
     }
     if (!(outline.data.cast_lock ?? []).length && !(outline.data.related_characters ?? []).length) {
-      issues.push({ severity: 'warning', code: 'arc-missing-cast-lock', message: 'Arc outline has no fixed cast.' })
+      issues.push({
+        severity: 'warning',
+        code: 'arc-missing-cast-lock',
+        message: 'Arc outline has no fixed cast.'
+      })
     }
     if (!(outline.data.related_events ?? []).length && !(outline.data.related_timeline ?? []).length) {
-      issues.push({ severity: 'warning', code: 'arc-missing-events', message: 'Arc outline has no event sequence.' })
+      issues.push({
+        severity: 'warning',
+        code: 'arc-missing-events',
+        message: 'Arc outline has no event sequence.'
+      })
     }
     if (!(outline.data.related_characters ?? []).length) {
-      issues.push({ severity: 'warning', code: 'arc-missing-cast', message: 'Arc outline should lock its main cast.' })
+      issues.push({
+        severity: 'warning',
+        code: 'arc-missing-cast',
+        message: 'Arc outline should lock its main cast.'
+      })
     }
-    if (!(outline.data.related_foreshadowing ?? []).length && !(outline.data.foreshadowing_planted ?? []).length) {
-      issues.push({ severity: 'info', code: 'arc-missing-foreshadowing', message: 'Arc outline has no foreshadowing plan.' })
+    if (
+      !(outline.data.related_foreshadowing ?? []).length &&
+      !(outline.data.foreshadowing_planted ?? []).length
+    ) {
+      issues.push({
+        severity: 'info',
+        code: 'arc-missing-foreshadowing',
+        message: 'Arc outline has no foreshadowing plan.'
+      })
     }
   }
   if (outline.data.level === 'chapter') {
     if (!outline.data.chapter_goal) {
-      issues.push({ severity: 'warning', code: 'chapter-missing-goal', message: 'Chapter outline has no chapter_goal.' })
+      issues.push({
+        severity: 'warning',
+        code: 'chapter-missing-goal',
+        message: 'Chapter outline has no chapter_goal.'
+      })
     }
     if (!outline.data.chapter_conflict) {
-      issues.push({ severity: 'warning', code: 'chapter-missing-conflict', message: 'Chapter outline has no chapter_conflict.' })
+      issues.push({
+        severity: 'warning',
+        code: 'chapter-missing-conflict',
+        message: 'Chapter outline has no chapter_conflict.'
+      })
     }
     if (!outline.data.chapter_change) {
-      issues.push({ severity: 'info', code: 'chapter-missing-change', message: 'Chapter outline has no chapter_change.' })
+      issues.push({
+        severity: 'info',
+        code: 'chapter-missing-change',
+        message: 'Chapter outline has no chapter_change.'
+      })
     }
     if (!outline.data.ending_hook && !outline.data.chapter_hook) {
-      issues.push({ severity: 'info', code: 'chapter-missing-hook', message: 'Chapter outline has no ending_hook or chapter_hook.' })
+      issues.push({
+        severity: 'info',
+        code: 'chapter-missing-hook',
+        message: 'Chapter outline has no ending_hook or chapter_hook.'
+      })
     }
     const chapterScenes = scenes.filter((scene) => scene.data.section === outline.data.id)
     if (!chapterScenes.length) {
-      issues.push({ severity: 'warning', code: 'chapter-missing-scene', message: 'Chapter outline has no bound scene draft.' })
+      issues.push({
+        severity: 'warning',
+        code: 'chapter-missing-scene',
+        message: 'Chapter outline has no bound scene draft.'
+      })
     }
     if (!outline.content.trim()) {
-      issues.push({ severity: 'warning', code: 'chapter-outline-empty', message: 'Chapter outline body is empty.' })
+      issues.push({
+        severity: 'warning',
+        code: 'chapter-outline-empty',
+        message: 'Chapter outline body is empty.'
+      })
     }
-    if (!(outline.data.related_timeline ?? []).length && !chapterScenes.some((scene) => scene.data.timeline_node)) {
-      issues.push({ severity: 'warning', code: 'chapter-missing-timeline', message: 'Chapter has no timeline binding.' })
+    if (
+      !(outline.data.related_timeline ?? []).length &&
+      !chapterScenes.some((scene) => scene.data.timeline_node)
+    ) {
+      issues.push({
+        severity: 'warning',
+        code: 'chapter-missing-timeline',
+        message: 'Chapter has no timeline binding.'
+      })
     }
   }
 
@@ -149,7 +223,10 @@ export async function checkOutline(projectRoot: string, outlineId: string): Prom
   const hasState = states.some(
     (state) => state.data.scope_id === outline.data.id || relatedCharacters.has(state.data.character)
   )
-  if ((outline.data.level === 'volume' || outline.data.level === 'arc' || outline.data.level === 'chapter') && !hasState) {
+  if (
+    (outline.data.level === 'volume' || outline.data.level === 'arc' || outline.data.level === 'chapter') &&
+    !hasState
+  ) {
     issues.push({
       severity: 'info',
       code: 'missing-character-state',
@@ -162,7 +239,11 @@ export async function checkOutline(projectRoot: string, outlineId: string): Prom
     ...(outline.data.foreshadowing_resolved ?? [])
   ]) {
     if (!foreshadowing.some((doc) => doc.data.id === id)) {
-      issues.push({ severity: 'warning', code: 'missing-foreshadowing', message: `Foreshadowing entry not found: ${id}` })
+      issues.push({
+        severity: 'warning',
+        code: 'missing-foreshadowing',
+        message: `Foreshadowing entry not found: ${id}`
+      })
     }
   }
 
@@ -434,12 +515,14 @@ export function formatCheckReport(report: CheckReport): string {
   return lines.join('\n')
 }
 
-function firstYear(value: string): number | null {
+function firstYear(value: string | null | undefined): number | null {
+  if (typeof value !== 'string') return null
   const match = value.match(/\d{3,4}/)
   return match ? Number(match[0]) : null
 }
 
-function chapterNumber(value: string): number | null {
+function chapterNumber(value: string | null | undefined): number | null {
+  if (typeof value !== 'string') return null
   const arabic = value.match(/\d+/)
   if (arabic) return Number(arabic[0])
   return null

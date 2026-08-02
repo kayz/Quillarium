@@ -333,8 +333,10 @@ ipcMain.handle('import:aiPlan', async (_event, root: string, input) => {
 ipcMain.handle('import:session', async (_event, root: string, sessionId: string) =>
   loadImportSession(root, sessionId)
 )
-ipcMain.handle('import:answerIssue', async (_event, root: string, sessionId: string, issueId: string, answer: string) =>
-  answerImportIssue(root, sessionId, issueId, answer)
+ipcMain.handle(
+  'import:answerIssue',
+  async (_event, root: string, sessionId: string, issueId: string, answer: string) =>
+    answerImportIssue(root, sessionId, issueId, answer)
 )
 ipcMain.handle('import:landSession', async (_event, root: string, sessionId: string) =>
   landImportSession(root, sessionId)
@@ -390,12 +392,14 @@ function limitText(value: string, maxChars: number): { text: string; truncated: 
 }
 
 function slugImportName(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[\\/:*?"<>|]+/g, '-')
-    .replace(/\s+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 48) || 'markdown'
+  return (
+    value
+      .toLowerCase()
+      .replace(/[\\/:*?"<>|]+/g, '-')
+      .replace(/\s+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 48) || 'markdown'
+  )
 }
 
 function isUnmanagedMarkdown(root: string, file: string): boolean {
@@ -429,14 +433,20 @@ function isUnmanagedMarkdown(root: string, file: string): boolean {
 ipcMain.handle('scene:context', async (_event, root: string, sceneId: string) =>
   assembleContext(root, sceneId)
 )
-ipcMain.handle('target:context', async (_event, root: string, target: { type: 'outline' | 'scene'; id: string }) => {
-  const packet = await assembleContextPacket(root, target)
-  return { packet, markdown: renderContextPacket(packet) }
-})
-ipcMain.handle('target:check', async (_event, root: string, target: { type: 'outline' | 'scene'; id: string }) => {
-  const report = await checkTarget(root, target)
-  return { report, markdown: formatCheckReport(report) }
-})
+ipcMain.handle(
+  'target:context',
+  async (_event, root: string, target: { type: 'outline' | 'scene'; id: string }) => {
+    const packet = await assembleContextPacket(root, target)
+    return { packet, markdown: renderContextPacket(packet) }
+  }
+)
+ipcMain.handle(
+  'target:check',
+  async (_event, root: string, target: { type: 'outline' | 'scene'; id: string }) => {
+    const report = await checkTarget(root, target)
+    return { report, markdown: formatCheckReport(report) }
+  }
+)
 ipcMain.handle('scene:check', async (_event, root: string, sceneId: string) => {
   const report = await checkScene(root, sceneId)
   return { report, markdown: formatCheckReport(report) }
@@ -490,8 +500,10 @@ ipcMain.handle('finalize:reviewPlan', async (_event, root: string, input) => {
 ipcMain.handle('finalize:session', async (_event, root: string, sessionId: string) =>
   loadFinalizeReviewSession(root, sessionId)
 )
-ipcMain.handle('finalize:confirmImpact', async (_event, root: string, sessionId: string, impactId: string, answer: string, state) =>
-  confirmFinalizeImpact(root, sessionId, impactId, answer, state === 'rejected' ? 'rejected' : 'confirmed')
+ipcMain.handle(
+  'finalize:confirmImpact',
+  async (_event, root: string, sessionId: string, impactId: string, answer: string, state) =>
+    confirmFinalizeImpact(root, sessionId, impactId, answer, state === 'rejected' ? 'rejected' : 'confirmed')
 )
 ipcMain.handle('run:readFile', async (_event, root: string, runId: string, file: string) =>
   readRunFile(root, runId, file)
@@ -660,13 +672,16 @@ async function ensureSceneForOutline(root: string, outlineId: string) {
     (await listDocs<TimelineEventDoc>(root, 'timeline_event')).find(Boolean)?.data.id
   const location =
     (await listDocs<LocationDoc>(root, 'location')).find(Boolean)?.data.id ??
-    (await listDocs<TimelineEventDoc>(root, 'timeline_event')).find((event) => event.data.location)?.data.location
+    (await listDocs<TimelineEventDoc>(root, 'timeline_event')).find((event) => event.data.location)?.data
+      .location
   const pov =
     outline.data.related_characters?.[0] ??
     outline.data.povs?.[0] ??
     (await listDocs<CharacterDoc>(root, 'character')).find(Boolean)?.data.id
   if (!timeline || !location || !pov) {
-    throw new Error('Cannot create a chapter scene before timeline, location, and POV character are available.')
+    throw new Error(
+      'Cannot create a chapter scene before timeline, location, and POV character are available.'
+    )
   }
   const file = await createScene(
     root,

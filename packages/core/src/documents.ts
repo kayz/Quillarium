@@ -2,6 +2,7 @@ import path from 'node:path'
 import { ensureDir, listMarkdownFiles, pathExists, readMarkdown, readText, writeMarkdown } from './fs.js'
 import { makeId, slugify } from './ids.js'
 import {
+  baseDocSchema,
   canonSchema,
   characterStateSchema,
   characterSchema,
@@ -58,6 +59,26 @@ const TYPE_DIR: Record<DocType, string> = {
   outline: 'outlines',
   scene: 'scenes',
   prompt: 'prompts'
+}
+
+const DOC_SCHEMAS = {
+  canon: canonSchema.passthrough(),
+  character: characterSchema.passthrough(),
+  timeline_event: timelineEventSchema.passthrough(),
+  location: locationSchema.passthrough(),
+  route: routeSchema.passthrough(),
+  foreshadowing: foreshadowingSchema.passthrough(),
+  world_entry: worldEntrySchema.passthrough(),
+  reference: referenceSchema.passthrough(),
+  issue: issueSchema.passthrough(),
+  strategy: strategySchema.passthrough(),
+  pattern: patternSchema.passthrough(),
+  character_state: characterStateSchema.passthrough(),
+  resource: baseDocSchema.passthrough(),
+  causality: baseDocSchema.passthrough(),
+  outline: outlineSchema.passthrough(),
+  scene: sceneSchema.passthrough(),
+  prompt: baseDocSchema.passthrough()
 }
 
 export function dirForType(projectRoot: string, type: DocType): string {
@@ -545,10 +566,25 @@ export async function listDocs<T extends BaseDoc>(
   const docs = []
   for (const file of files) {
     const parsed = await readMarkdown<Record<string, unknown>>(file)
-    if (!type || parsed.data.type === type)
-      docs.push({ path: file, data: parsed.data, content: parsed.content })
+    if (type && parsed.data.type !== type) continue
+    const data = parseKnownDocument(parsed.data, file)
+    docs.push({ path: file, data, content: parsed.content })
   }
   return docs as Array<{ path: string; data: T; content: string }>
+}
+
+function parseKnownDocument(data: Record<string, unknown>, file: string): Record<string, unknown> {
+  const type = data.type
+  if (typeof type !== 'string' || !Object.hasOwn(DOC_SCHEMAS, type)) return data
+
+  const schema = DOC_SCHEMAS[type as keyof typeof DOC_SCHEMAS]
+  const result = schema.safeParse(data)
+  if (result.success) return result.data
+
+  const details = result.error.issues
+    .map((issue) => `${issue.path.length ? issue.path.join('.') : 'frontmatter'}: ${issue.message}`)
+    .join('; ')
+  throw new Error(`Invalid ${type} document at ${file}: ${details}`)
 }
 
 export async function findDoc<T extends BaseDoc>(

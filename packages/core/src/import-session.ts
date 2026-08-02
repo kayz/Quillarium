@@ -158,7 +158,7 @@ export async function createImportSessionPlan(
       .map((item) => ({
         id: makeId('issue', `${item.title} 导入确认`),
         title: `${item.title} 导入确认`,
-        priority: item.confidence < 0.5 ? 'high' as const : 'medium' as const,
+        priority: item.confidence < 0.5 ? ('high' as const) : ('medium' as const),
         decision_needed: item.questions.join('；') || `确认是否作为 ${item.type} 落地。`,
         related_items: [item.title],
         state: 'open' as const
@@ -199,9 +199,7 @@ export async function answerImportIssue(
   state: ImportSessionIssue['state'] = 'resolved'
 ): Promise<ImportSession> {
   const session = await loadImportSession(projectRoot, sessionId)
-  session.issues = session.issues.map((issue) =>
-    issue.id === issueId ? { ...issue, answer, state } : issue
-  )
+  session.issues = session.issues.map((issue) => (issue.id === issueId ? { ...issue, answer, state } : issue))
   session.status = session.issues.some((issue) => issue.state === 'open') ? 'needs-confirmation' : 'planned'
   await saveImportSession(projectRoot, session)
   return session
@@ -303,14 +301,25 @@ async function createCandidateDoc(projectRoot: string, candidate: ImportCandidat
     case 'location':
       return createLocation(projectRoot, candidate.title, input, candidate.content)
     case 'outline':
-      return createOutline(projectRoot, (input.level as never) ?? 'book', candidate.title, input, candidate.content)
+      return createOutline(
+        projectRoot,
+        (input.level as never) ?? 'book',
+        candidate.title,
+        input,
+        candidate.content
+      )
     case 'scene':
       return createScene(projectRoot, candidate.title, input, candidate.content)
     default:
-      return createIssue(projectRoot, `${candidate.title} 未支持导入类型`, {
-        decision_needed: `暂不支持自动落地 ${candidate.type}，请人工处理。`,
-        related_docs: []
-      }, candidate.content)
+      return createIssue(
+        projectRoot,
+        `${candidate.title} 未支持导入类型`,
+        {
+          decision_needed: `暂不支持自动落地 ${candidate.type}，请人工处理。`,
+          related_docs: []
+        },
+        candidate.content
+      )
   }
 }
 
@@ -327,5 +336,8 @@ function sha256(value: string): string {
 }
 
 function stripCodeFence(value: string): string {
-  return value.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '')
+  return value
+    .trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```$/i, '')
 }

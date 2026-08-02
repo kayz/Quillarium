@@ -554,7 +554,8 @@ function inferKind(
   if (/世界书|world|lore/i.test(normalizedPath)) return 'world_entry'
   if (/参考资料|references?/i.test(normalizedPath)) return 'reference'
   if (/待解决问题|issues?/i.test(normalizedPath)) return 'issue'
-  if (/叙事策略|策略|strategy/i.test(normalizedPath) || /叙事策略|文风|节奏|爽点/.test(text)) return 'strategy'
+  if (/叙事策略|策略|strategy/i.test(normalizedPath) || /叙事策略|文风|节奏|爽点/.test(text))
+    return 'strategy'
   if (/模式|patterns?/i.test(normalizedPath) || /模式类型|作用层级/.test(text)) return 'pattern'
   if (/人物状态|character[-_ ]?states?/i.test(normalizedPath)) return 'character_state'
   if (/时间线|timeline/i.test(normalizedPath)) return 'timeline_event'
@@ -784,9 +785,7 @@ function normalizeWriterCycles(
   }
   return asStringArray(value)
     .map((item) => translated[item] ?? item)
-    .filter((item): item is 'desire' | 'pressure' | 'growth' | 'reveal' | 'relationship' =>
-      allowed.has(item)
-    )
+    .filter((item): item is 'desire' | 'pressure' | 'growth' | 'reveal' | 'relationship' => allowed.has(item))
 }
 
 function normalizeStateScope(value?: string): 'timeline_event' | 'outline' | 'scene' {
