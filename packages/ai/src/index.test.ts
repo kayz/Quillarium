@@ -1,9 +1,14 @@
 import {
+  createProjectAt,
   loadConfig,
   migrateAIProfileApiKeys,
+  readRunFile,
   withStoredAIProfileApiKey,
   withUpdatedAIProfileApiKey
 } from '@quillarium/core'
+import { mkdtemp, rm } from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   AIRequestError,
@@ -11,6 +16,7 @@ import {
   generateText,
   loadAIConfig,
   loadAIProfile,
+  createGenerationRun,
   type AIConfig
 } from './index.js'
 
@@ -70,6 +76,38 @@ describe('loadAIConfig', () => {
       temperature: 0.2,
       maxTokens: 4096
     })
+  })
+})
+
+describe('generation run snapshots', () => {
+  it('stores the exact shared guidance bytes and metadata used by the run', async () => {
+    const tmp = await mkdtemp(path.join(os.tmpdir(), 'quillarium-ai-run-'))
+    try {
+      const project = await createProjectAt(path.join(tmp, 'project'), {
+        id: 'sample-project',
+        title: 'Sample Project'
+      })
+      const guidance = [
+        {
+          id: 'chapter-method',
+          path: 'methodology/chapter.md',
+          scope: 'scene' as const,
+          content: 'Keep the scene focused.',
+          sha256: '0123456789abcdef',
+          read_at: '2026-08-12T00:00:00.000Z'
+        }
+      ]
+      const run = await createGenerationRun(project.root, 'scene-one', 'context', config, {}, guidance)
+
+      await expect(readRunFile(project.root, run.id, 'shared-guidance.md')).resolves.toContain(
+        'Keep the scene focused.'
+      )
+      await expect(readRunFile(project.root, run.id, 'shared-guidance.json')).resolves.toContain(
+        'chapter-method'
+      )
+    } finally {
+      await rm(tmp, { recursive: true, force: true })
+    }
   })
 })
 

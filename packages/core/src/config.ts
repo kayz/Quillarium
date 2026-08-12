@@ -8,6 +8,9 @@ import { ensureDir, pathExists, readText, writeText } from './fs.js'
 const execFileAsync = promisify(execFile)
 
 export interface QuillariumConfig {
+  workspaceDir?: string
+  recentProjectId?: string
+  /** Legacy single-vault location retained for compatible reads and migration. */
   obsidianDir?: string
   theme?: 'paper' | 'ink' | 'mist' | 'bamboo'
   density?: 'compact' | 'comfortable'
@@ -190,6 +193,20 @@ export async function setObsidianDir(dir: string): Promise<QuillariumConfig> {
   const config = { ...(await loadConfig()), obsidianDir: resolved }
   await saveConfig(config)
   return config
+}
+
+export async function setWorkspaceDir(dir: string, recentProjectId?: string): Promise<QuillariumConfig> {
+  const resolved = path.resolve(dir)
+  const current = await loadConfig()
+  const config: QuillariumConfig = { ...current, workspaceDir: resolved }
+  if (recentProjectId !== undefined) config.recentProjectId = recentProjectId
+  await saveConfig(config)
+  return config
+}
+
+export async function getWorkspaceDir(): Promise<string | null> {
+  const config = await loadConfig()
+  return config.workspaceDir ? path.resolve(config.workspaceDir) : null
 }
 
 export async function getObsidianDir(): Promise<string | null> {

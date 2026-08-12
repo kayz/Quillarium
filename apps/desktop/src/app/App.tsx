@@ -17,6 +17,7 @@ export function App() {
     ready: false
   })
   const [vault, setVault] = useState<string | null>(null)
+  const [writingWorkspace, setWritingWorkspace] = useState<string | null>(null)
   const [projects, setProjects] = useState<ProjectListItem[]>([])
   const [workspaceRoot, setWorkspaceRoot] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -41,6 +42,7 @@ export function App() {
       if (config.language) setLanguage(config.language as LanguageName)
       const v = await bridge.getVault()
       setVault(v)
+      setWritingWorkspace(await bridge.getWorkspace())
       setProjects(await bridge.listProjects())
       setAiStatus(await bridge.aiStatus())
       setError(null)
@@ -53,10 +55,11 @@ export function App() {
     void refresh()
   }, [])
 
-  if (!vault || !workspaceRoot) {
+  if (!workspaceRoot) {
     return (
       <Welcome
         vault={vault}
+        writingWorkspace={writingWorkspace}
         projects={projects}
         theme={theme}
         density={density}
@@ -106,6 +109,7 @@ class ErrorBoundary extends Component<{ children: React.ReactNode }, { error: st
 
 function Welcome({
   vault,
+  writingWorkspace,
   projects,
   theme,
   density,
@@ -120,6 +124,7 @@ function Welcome({
   onOpen
 }: {
   vault: string | null
+  writingWorkspace: string | null
   projects: ProjectListItem[]
   theme: ThemeName
   density: DensityName
@@ -147,9 +152,15 @@ function Welcome({
     await onRefresh()
   }
 
-  const migrateVault = async () => {
-    await bridge.migrateVault()
+  const chooseWritingWorkspace = async () => {
+    await bridge.chooseWorkspace()
     await onRefresh()
+  }
+
+  const migrateVault = async () => {
+    const migrated = await bridge.migrateVault()
+    await onRefresh()
+    if (migrated) onOpen(migrated)
   }
 
   const chooseProject = async () => {
@@ -160,10 +171,6 @@ function Welcome({
   const create = async () => {
     if (!form.title.trim()) return
     const project = await bridge.createProject({ ...form, defaultTheme: theme })
-    const config = await bridge.getConfig()
-    if (config.github?.token && window.confirm('是否为这部小说创建私有 GitHub 仓库？')) {
-      await bridge.githubCreateRepoForProject(project.root)
-    }
     await onRefresh()
     onOpen(project.root)
   }
@@ -192,15 +199,31 @@ function Welcome({
           <p>{t(language, 'welcomeSubtitle')}</p>
           <div className="vault-card">
             <div>
-              <strong>Obsidian 目录</strong>
+              <strong>写作工作区</strong>
+              <code>{writingWorkspace ?? '未设置'}</code>
+            </div>
+            <div className="vault-actions">
+              <button className="primary" onClick={chooseWritingWorkspace}>
+                <FolderOpen size={16} /> {writingWorkspace ? '更换工作区' : '注册工作区'}
+              </button>
+            </div>
+          </div>
+          <div className="vault-card">
+            <div>
+              <strong>旧 Obsidian 目录（兼容/迁移）</strong>
               <code>{vault ?? '未设置'}</code>
             </div>
             <div className="vault-actions">
               <button className="secondary" onClick={chooseVault}>
                 <FolderOpen size={16} /> {vault ? t(language, 'changeVault') : t(language, 'chooseVault')}
               </button>
-              <button className="secondary" onClick={migrateVault} disabled={!vault}>
-                <FolderOpen size={16} /> 迁移到新目录
+              <button
+                className="secondary"
+                onClick={migrateVault}
+                disabled={!vault || !writingWorkspace}
+                title={!writingWorkspace ? '请先注册写作工作区' : undefined}
+              >
+                <FolderOpen size={16} /> 无损迁移旧项目
               </button>
             </div>
           </div>
@@ -268,7 +291,7 @@ function Welcome({
                 />
               </label>
             </div>
-            <button className="primary" onClick={create} disabled={!vault || !form.title.trim()}>
+            <button className="primary" onClick={create} disabled={!writingWorkspace || !form.title.trim()}>
               创建小说
             </button>
             <button className="secondary" onClick={chooseProject}>

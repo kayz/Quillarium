@@ -5,7 +5,7 @@ import { deflateSync } from 'node:zlib'
 import {
   createCanon,
   createCharacter,
-  createProject,
+  createProjectAt,
   createWorldEntry,
   requireDoc,
   type CharacterDoc
@@ -36,7 +36,8 @@ afterEach(async () => {
 async function project(): Promise<{ vault: string; root: string }> {
   const vault = await mkdtemp(path.join(os.tmpdir(), 'quillarium-sillytavern-'))
   temporaryVaults.push(vault)
-  const created = await createProject({ vault, title: `Card Project ${++projectSequence}` })
+  const id = `card-project-${++projectSequence}`
+  const created = await createProjectAt(path.join(vault, 'projects', id), { id, title: 'Card Project' })
   return { vault, root: created.root }
 }
 

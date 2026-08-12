@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { normalizeLegacyOutlineCycleFields } from './compatibility.js'
 
 export const baseDocSchema = z.object({
   id: z.string().min(1),
@@ -9,7 +10,11 @@ export const baseDocSchema = z.object({
   tags: z.array(z.string()).default([])
 })
 
-export const projectConfigSchema = z.object({
+export const projectIdSchema = z
+  .string()
+  .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Project id must be a lowercase path-safe slug')
+
+export const projectConfigV1Schema = z.object({
   title: z.string().min(1),
   genre: z.string().default('general'),
   target_words: z.number().int().nonnegative().default(0),
@@ -18,8 +23,49 @@ export const projectConfigSchema = z.object({
   current_volume: z.number().int().positive().default(1),
   current_timeline_node: z.string().nullable().default(null),
   default_theme: z.enum(['paper', 'ink', 'mist', 'bamboo']).default('paper'),
-  schema_version: z.number().int().positive().default(1)
+  schema_version: z.literal(1).default(1)
 })
+
+export const projectConfigSchema = z.object({
+  id: projectIdSchema,
+  aliases: z.array(z.string().min(1)).default([]),
+  title: z.string().min(1),
+  genre: z.string().default('general'),
+  target_words: z.number().int().nonnegative().default(0),
+  chapter_words: z.number().int().positive().default(3200),
+  section_words: z.number().int().positive().default(1000),
+  current_volume: z.number().int().positive().default(1),
+  current_timeline_node: z.string().nullable().default(null),
+  default_theme: z.enum(['paper', 'ink', 'mist', 'bamboo']).default('paper'),
+  schema_version: z.literal(2).default(2)
+})
+
+export const workspaceProjectRefSchema = z
+  .object({
+    id: projectIdSchema,
+    path: z.string().min(1)
+  })
+  .strict()
+
+export const sharedGuidanceScopeSchema = z.enum(['book', 'volume', 'arc', 'chapter', 'scene', 'finalization'])
+
+export const sharedGuidanceRefSchema = z
+  .object({
+    id: projectIdSchema,
+    path: z.string().min(1),
+    scopes: z.array(sharedGuidanceScopeSchema).min(1)
+  })
+  .strict()
+
+export const workspaceManifestV1Schema = z
+  .object({
+    schema_version: z.literal(1),
+    id: projectIdSchema,
+    projects_dir: z.string().min(1),
+    projects: z.array(workspaceProjectRefSchema).default([]),
+    shared_guidance: z.array(sharedGuidanceRefSchema).default([])
+  })
+  .strict()
 
 export const canonSchema = baseDocSchema.extend({
   type: z.literal('canon'),
@@ -187,47 +233,51 @@ export const routeSchema = baseDocSchema.extend({
   restriction: z.string().default('')
 })
 
-export const outlineSchema = baseDocSchema.extend({
-  type: z.literal('outline'),
-  level: z.enum(['book', 'volume', 'act', 'arc', 'chapter', 'section']),
-  parent: z.string().nullable().default(null),
-  order: z.number().int().nonnegative().default(0),
-  target_words: z.number().int().positive().optional(),
-  chapter_hook: z.boolean().optional(),
-  reader_promise: z.string().default(''),
-  reader_payoff: z.string().default(''),
-  reader_benefit: z.string().default(''),
-  core_appeal: z.array(z.string()).default([]),
-  core_suspense: z.array(z.string()).default([]),
-  genre_boundary: z.array(z.string()).default([]),
-  volume_goal: z.string().default(''),
-  event_chain: z.array(z.string()).default([]),
-  character_growth: z.array(z.string()).default([]),
-  writer_cycles: z.array(z.enum(['desire', 'pressure', 'growth', 'reveal', 'relationship'])).default([]),
-  conflict_ladder: z.array(z.string()).default([]),
-  cast_lock: z.array(z.string()).default([]),
-  fixed_reveals: z.array(z.string()).default([]),
-  chapter_goal: z.string().default(''),
-  chapter_conflict: z.string().default(''),
-  chapter_change: z.string().default(''),
-  ending_hook: z.string().default(''),
-  invariants: z.array(z.string()).default([]),
-  narrative_function: z.string().default(''),
-  emotional_curve: z.string().default(''),
-  povs: z.array(z.string()).default([]),
-  start_state: z.string().default(''),
-  end_state: z.string().default(''),
-  context_pins: z.array(z.string()).default([]),
-  context_exclusions: z.array(z.string()).default([]),
-  related_timeline: z.array(z.string()).default([]),
-  related_characters: z.array(z.string()).default([]),
-  related_events: z.array(z.string()).default([]),
-  related_foreshadowing: z.array(z.string()).default([]),
-  world_entries_used: z.array(z.string()).default([]),
-  foreshadowing_planted: z.array(z.string()).default([]),
-  foreshadowing_resolved: z.array(z.string()).default([]),
-  related_patterns: z.array(z.string()).default([])
-})
+const currentOutlineSchema = baseDocSchema
+  .extend({
+    type: z.literal('outline'),
+    level: z.enum(['book', 'volume', 'act', 'arc', 'chapter', 'section']),
+    parent: z.string().nullable().default(null),
+    order: z.number().int().nonnegative().default(0),
+    target_words: z.number().int().positive().optional(),
+    chapter_hook: z.boolean().optional(),
+    reader_promise: z.string().default(''),
+    reader_payoff: z.string().default(''),
+    reader_benefit: z.string().default(''),
+    core_appeal: z.array(z.string()).default([]),
+    core_suspense: z.array(z.string()).default([]),
+    genre_boundary: z.array(z.string()).default([]),
+    volume_goal: z.string().default(''),
+    event_chain: z.array(z.string()).default([]),
+    character_growth: z.array(z.string()).default([]),
+    story_cycles: z.array(z.enum(['desire', 'pressure', 'growth', 'reveal', 'relationship'])).default([]),
+    conflict_ladder: z.array(z.string()).default([]),
+    cast_lock: z.array(z.string()).default([]),
+    fixed_reveals: z.array(z.string()).default([]),
+    chapter_goal: z.string().default(''),
+    chapter_conflict: z.string().default(''),
+    chapter_change: z.string().default(''),
+    ending_hook: z.string().default(''),
+    invariants: z.array(z.string()).default([]),
+    narrative_function: z.string().default(''),
+    emotional_curve: z.string().default(''),
+    povs: z.array(z.string()).default([]),
+    start_state: z.string().default(''),
+    end_state: z.string().default(''),
+    context_pins: z.array(z.string()).default([]),
+    context_exclusions: z.array(z.string()).default([]),
+    related_timeline: z.array(z.string()).default([]),
+    related_characters: z.array(z.string()).default([]),
+    related_events: z.array(z.string()).default([]),
+    related_foreshadowing: z.array(z.string()).default([]),
+    world_entries_used: z.array(z.string()).default([]),
+    foreshadowing_planted: z.array(z.string()).default([]),
+    foreshadowing_resolved: z.array(z.string()).default([]),
+    related_patterns: z.array(z.string()).default([])
+  })
+  .passthrough()
+
+export const outlineSchema = z.preprocess(normalizeLegacyOutlineCycleFields, currentOutlineSchema)
 
 export const sceneSchema = baseDocSchema.extend({
   type: z.literal('scene'),

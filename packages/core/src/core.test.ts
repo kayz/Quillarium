@@ -19,7 +19,7 @@ import {
   createLocation,
   createOutline,
   createPattern,
-  createProject,
+  createProjectAt,
   createRoute,
   createScene,
   createStrategy,
@@ -29,16 +29,22 @@ import {
   listDocs,
   loadImportSession,
   pathExists,
+  stableProjectId,
   type ForeshadowingDoc,
   type OutlineDoc,
   type PatternDoc
 } from './index.js'
 
+async function createTestProject(base: string, title: string, genre: string) {
+  const id = stableProjectId(title)
+  return createProjectAt(path.join(base, 'projects', id), { id, title, genre })
+}
+
 describe('core project flow', () => {
   it('creates a project and assembles context', async () => {
     const tmp = await mkdtemp(path.join(os.tmpdir(), 'quillarium-'))
     try {
-      const project = await createProject({ vault: tmp, title: 'Test Novel', genre: 'test' })
+      const project = await createTestProject(tmp, 'Test Novel', 'test')
       expect(await pathExists(path.join(project.root, 'project.yaml'))).toBe(true)
       expect(await pathExists(path.join(project.root, 'foreshadowing'))).toBe(true)
       expect(await pathExists(path.join(project.root, 'world'))).toBe(true)
@@ -81,14 +87,14 @@ describe('core project flow', () => {
     }
   })
 
-  it('imports Writer-style Markdown frontmatter', async () => {
+  it('imports structured Chinese Markdown frontmatter', async () => {
     const tmp = await mkdtemp(path.join(os.tmpdir(), 'quillarium-import-'))
     try {
-      const project = await createProject({ vault: tmp, title: 'Import Novel', genre: 'historical' })
+      const project = await createTestProject(tmp, 'Import Novel', 'historical')
       const source = path.join(tmp, 'FB-L4-001.md')
       await writeFile(
         source,
-        `---\n类型: 伏笔\nID: FB-L4-001\n级别: L4\n一句话: 旧船队还在\n计划埋设章节: 第十章\n安全失效期: 第二十章\n状态: 待埋设\n关联人物:\n  - 朱祁镇\n---\n\n## 说明\n\n正统八年海船伏笔。\n`,
+        `---\n类型: 伏笔\nID: FB-L4-001\n级别: L4\n一句话: 失踪的星图仍在\n计划埋设章节: 第十章\n安全失效期: 第二十章\n状态: 待埋设\n关联人物:\n  - 林遥\n---\n\n## 说明\n\n流星雨当夜的星图伏笔。\n`,
         'utf8'
       )
 
@@ -107,7 +113,7 @@ describe('core project flow', () => {
   it('assembles outline context packets with inherited filters', async () => {
     const tmp = await mkdtemp(path.join(os.tmpdir(), 'quillarium-packet-'))
     try {
-      const project = await createProject({ vault: tmp, title: 'Packet Novel', genre: 'test' })
+      const project = await createTestProject(tmp, 'Packet Novel', 'test')
       await createCanon(project.root, 'Hard Rule', 'Accepted prose is the strongest anchor.')
       await createStrategy(project.root, 'Web Serial Rhythm', {
         principles: ['End chapters with forward pressure.']
@@ -116,11 +122,11 @@ describe('core project flow', () => {
       const charId = path.basename(charFile).split('-Lin')[0]
       const eventFile = await appendTimelineEvent(project.root, 'First Turn', { characters: [charId] })
       const eventId = path.basename(eventFile).split('-First')[0]
-      const worldFile = await createWorldEntry(project.root, 'Cloisonne Guild', {
+      const worldFile = await createWorldEntry(project.root, 'Glassmakers Guild', {
         triggers: ['guild'],
         role: 'constraint'
       })
-      const worldId = path.basename(worldFile).split('-Cloisonne')[0]
+      const worldId = path.basename(worldFile).split('-Glassmakers')[0]
       const fbFile = await createForeshadowing(project.root, 'Blue Fire', {
         level: 'L3',
         related_characters: [charId],
@@ -161,7 +167,7 @@ describe('core project flow', () => {
   it('imports strategy Markdown separately from canon', async () => {
     const tmp = await mkdtemp(path.join(os.tmpdir(), 'quillarium-strategy-'))
     try {
-      const project = await createProject({ vault: tmp, title: 'Strategy Novel', genre: 'test' })
+      const project = await createTestProject(tmp, 'Strategy Novel', 'test')
       const source = path.join(tmp, '叙事策略.md')
       await writeFile(
         source,
@@ -179,10 +185,10 @@ describe('core project flow', () => {
     }
   })
 
-  it('imports Writer-native pattern and outline fields', async () => {
+  it('imports structured serialized-fiction pattern and outline fields', async () => {
     const tmp = await mkdtemp(path.join(os.tmpdir(), 'quillarium-writer-import-'))
     try {
-      const project = await createProject({ vault: tmp, title: '景泰蓝', genre: 'historical-political' })
+      const project = await createTestProject(tmp, 'The Amber Archive', 'speculative')
       const patternSource = path.join(tmp, '卷节奏模式.md')
       await writeFile(
         patternSource,
@@ -192,7 +198,7 @@ describe('core project flow', () => {
       const outlineSource = path.join(tmp, '第一卷.md')
       await writeFile(
         outlineSource,
-        `---\n类型: 卷纲\n标题: 第一卷 北京危局\n读者收益: 主角完成第一次承担\n本卷目标: 守住北京\n事件链:\n  - 监国入局\n  - 北京保卫\n人物成长:\n  - 朱祁钰: 惶恐 -> 承担\n五循环:\n  - desire\n  - pressure\n  - growth\n---\n\n## 第一卷\n\n守城、立威、开改革入口。\n`,
+        `---\n类型: 卷纲\n标题: 第一卷 浮空港危机\n读者收益: 主角完成第一次承担\n本卷目标: 守住浮空港\n事件链:\n  - 议会入局\n  - 风暴防御\n人物成长:\n  - 林遥: 惶恐 -> 承担\n五循环:\n  - desire\n  - pressure\n  - growth\n---\n\n## 第一卷\n\n守港、立信、打开航路改革入口。\n`,
         'utf8'
       )
 
@@ -206,30 +212,30 @@ describe('core project flow', () => {
       const outlines = await listDocs<OutlineDoc>(project.root, 'outline')
       const volume = outlines.find((item) => item.data.level === 'volume')
       expect(volume?.data.reader_benefit).toBe('主角完成第一次承担')
-      expect(volume?.data.volume_goal).toBe('守住北京')
-      expect(volume?.data.event_chain).toEqual(['监国入局', '北京保卫'])
-      expect(volume?.data.writer_cycles).toEqual(['desire', 'pressure', 'growth'])
+      expect(volume?.data.volume_goal).toBe('守住浮空港')
+      expect(volume?.data.event_chain).toEqual(['议会入局', '风暴防御'])
+      expect(volume?.data.story_cycles).toEqual(['desire', 'pressure', 'growth'])
     } finally {
       await rm(tmp, { recursive: true, force: true })
     }
   })
 
-  it('stores Writer-native four-level outlines and patterns', async () => {
+  it('stores structured serialized-fiction four-level outlines and patterns', async () => {
     const tmp = await mkdtemp(path.join(os.tmpdir(), 'quillarium-agent-'))
     try {
-      const project = await createProject({ vault: tmp, title: '景泰蓝', genre: 'historical-political' })
-      const storyPatternFile = await createPattern(project.root, '卷末身份跃迁', {
+      const project = await createTestProject(tmp, 'The Amber Archive', 'speculative')
+      const storyPatternFile = await createPattern(project.root, '卷末职责跃迁', {
         id: 'pattern-volume-status-rise',
         kind: 'story',
         scope: 'volume',
-        applies_to: ['historical', 'political'],
+        applies_to: ['speculative', 'political'],
         source: 'user'
       })
-      const writingPatternFile = await createPattern(project.root, '权谋对话压迫感', {
+      const writingPatternFile = await createPattern(project.root, '议会对话压迫感', {
         id: 'pattern-political-dialogue-pressure',
         kind: 'writing',
         scope: 'chapter',
-        applies_to: ['historical-political'],
+        applies_to: ['speculative-political'],
         source: 'accepted_prose'
       })
       expect(storyPatternFile).toContain('pattern-volume-status-rise')
@@ -239,36 +245,36 @@ describe('core project flow', () => {
 
       const bookFile = await createOutline(project.root, 'book', '全书总纲', {
         id: 'book-master-outline',
-        reader_promise: '现代基层治理经验进入皇权躯壳。',
+        reader_promise: '基层治理经验进入浮空城议会。',
         core_appeal: ['制度设计', '危局翻盘'],
-        core_suspense: ['朱祁钰如何重塑大明'],
+        core_suspense: ['林遥如何重塑群岛航路'],
         genre_boundary: ['不写技术百科全书式碾压'],
         related_patterns: [storyPatternId]
       })
       expect(bookFile).toContain('book-master-outline')
       const bookId = 'book-master-outline'
 
-      const volumeFile = await createOutline(project.root, 'volume', '第一卷 北京危局', {
+      const volumeFile = await createOutline(project.root, 'volume', '第一卷 浮空港危局', {
         id: 'volume-01',
         parent: bookId,
-        volume_goal: '守住北京，确认新皇合法性。',
+        volume_goal: '守住浮空港，确认新议长合法性。',
         reader_payoff: '主角从求生转为承担。',
-        event_chain: ['监国入局', '北京保卫', '战后整顿'],
-        character_growth: ['朱祁钰: 惶恐 -> 承担'],
-        writer_cycles: ['desire', 'pressure', 'growth', 'relationship'],
+        event_chain: ['临时议长入局', '浮空港防御', '风暴后整顿'],
+        character_growth: ['林遥: 惶恐 -> 承担'],
+        story_cycles: ['desire', 'pressure', 'growth', 'relationship'],
         related_patterns: [storyPatternId]
       })
       expect(volumeFile).toContain('volume-01')
       const volumeId = 'volume-01'
 
-      const arcFile = await createOutline(project.root, 'arc', '城防与朝局段', {
+      const arcFile = await createOutline(project.root, 'arc', '港防与议会段', {
         id: 'arc-city-defense',
         parent: volumeId,
         conflict_ladder: ['廷议施压', '军务失衡', '民心动摇'],
-        cast_lock: ['char-jingtai', 'char-yuqian'],
-        fixed_reveals: ['京师粮储不足'],
-        foreshadowing_planted: ['fb-old-fleet'],
-        foreshadowing_resolved: ['fb-court-loyalty']
+        cast_lock: ['char-linyao', 'char-shenyu'],
+        fixed_reveals: ['浮空港能源不足'],
+        foreshadowing_planted: ['fb-lost-chart'],
+        foreshadowing_resolved: ['fb-council-loyalty']
       })
       expect(arcFile).toContain('arc-city-defense')
       const arcId = 'arc-city-defense'
@@ -280,7 +286,7 @@ describe('core project flow', () => {
         chapter_conflict: '群臣要他表态，军报不断逼近。',
         chapter_change: '主角从旁观转为下令。',
         reader_benefit: '看到现代治理能力第一次起效。',
-        ending_hook: '于谦带来更坏的军报。',
+        ending_hook: '沈屿带来更坏的风暴报告。',
         related_patterns: [writingPatternId]
       })
 
@@ -288,14 +294,14 @@ describe('core project flow', () => {
       expect(packet.patterns.map((item) => item.data.id)).toContain(storyPatternId)
       expect(packet.outline_chain.map((item) => item.data.title)).toEqual([
         '全书总纲',
-        '第一卷 北京危局',
-        '城防与朝局段'
+        '第一卷 浮空港危局',
+        '港防与议会段'
       ])
       const outlines = await listDocs<OutlineDoc>(project.root, 'outline')
       const volume = outlines.find((item) => item.data.id === volumeId)
-      expect(volume?.data.volume_goal).toBe('守住北京，确认新皇合法性。')
-      expect(volume?.data.writer_cycles).toContain('growth')
-      expect(outlines.find((item) => item.data.id === bookId)?.data.reader_promise).toContain('皇权躯壳')
+      expect(volume?.data.volume_goal).toBe('守住浮空港，确认新议长合法性。')
+      expect(volume?.data.story_cycles).toContain('growth')
+      expect(outlines.find((item) => item.data.id === bookId)?.data.reader_promise).toContain('浮空城议会')
     } finally {
       await rm(tmp, { recursive: true, force: true })
     }
@@ -304,7 +310,7 @@ describe('core project flow', () => {
   it('plans AI import sessions with source index and confirmation issues', async () => {
     const tmp = await mkdtemp(path.join(os.tmpdir(), 'quillarium-ai-import-'))
     try {
-      const project = await createProject({ vault: tmp, title: 'AI Import Novel', genre: 'test' })
+      const project = await createTestProject(tmp, 'AI Import Novel', 'test')
       const source = path.join(tmp, 'new-note.md')
       await writeFile(source, '# 新地点\n\n玉河桥是进城必经之处。', 'utf8')
       const aiResponse = JSON.stringify({
@@ -356,7 +362,7 @@ describe('core project flow', () => {
   it('creates finalize review sessions and chapter scene prompt plans', async () => {
     const tmp = await mkdtemp(path.join(os.tmpdir(), 'quillarium-finalize-'))
     try {
-      const project = await createProject({ vault: tmp, title: 'Finalize Novel', genre: 'test' })
+      const project = await createTestProject(tmp, 'Finalize Novel', 'test')
       await createCanon(project.root, 'Core Rule', '不能改变主角出身。')
       const charFile = await createCharacter(project.root, '沈青')
       const charId = path.basename(charFile).split('-')[0]

@@ -1,10 +1,12 @@
 import { findDoc, listDocs, requireDoc } from './documents.js'
 import { loadProject } from './project.js'
+import { loadSharedGuidance } from './workspace.js'
 import type {
   BaseDoc,
   CanonDoc,
   CharacterDoc,
   CharacterStateDoc,
+  ContextTraceEntry,
   ForeshadowingDoc,
   IssueDoc,
   LocationDoc,
@@ -13,6 +15,8 @@ import type {
   ProjectConfig,
   ReferenceDoc,
   SceneDoc,
+  SharedGuidanceContent,
+  SharedGuidanceScope,
   StrategyDoc,
   TimelineEventDoc,
   WorldEntryDoc
@@ -44,6 +48,8 @@ export interface ContextPacket {
   foreshadowing: Array<{ data: ForeshadowingDoc; content: string }>
   issues: Array<{ data: IssueDoc; content: string }>
   references: Array<{ data: ReferenceDoc; content: string }>
+  shared_guidance: SharedGuidanceContent[]
+  context_trace: ContextTraceEntry[]
   warnings: string[]
   included_ids: string[]
   excluded_ids: string[]
@@ -90,6 +96,10 @@ export async function assembleContextPacket(
 
   const outlineChain = targetOutline ? collectOutlineChain(all.outline, targetOutline.data.id) : []
   const level = targetOutline?.data.level ?? 'scene'
+  const sharedGuidance = await loadSharedGuidance(
+    projectRoot,
+    target.type === 'scene' ? 'scene' : guidanceScopeForLevel(level)
+  )
   const chainIds = outlineChain.map((item) => item.data.id)
   const pins = new Set<string>(outlineChain.flatMap((item) => item.data.context_pins ?? []))
   const exclusions = new Set<string>(outlineChain.flatMap((item) => item.data.context_exclusions ?? []))
@@ -223,6 +233,9 @@ export async function assembleContextPacket(
     outlineChain,
     scene
   })
+  warnings.push(
+    ...detectSharedGuidanceConflicts(sharedGuidance, all.canon, all.strategy, outlineChain, scene)
+  )
 
   const included = [
     ...all.canon.filter((item) => item.data.status !== 'deprecated').map((item) => item.data.id),
@@ -237,6 +250,17 @@ export async function assembleContextPacket(
     ...openIssues.map((item) => item.data.id),
     ...references.map((item) => item.data.id)
   ].filter((id) => !exclusions.has(id))
+
+  const contextTrace = buildContextTrace({
+    scene,
+    canon: all.canon.filter((item) => item.data.status !== 'deprecated' && !exclusions.has(item.data.id)),
+    strategies: all.strategy.filter(
+      (item) => item.data.status !== 'deprecated' && !exclusions.has(item.data.id)
+    ),
+    outlineChain,
+    sharedGuidance,
+    exclusions
+  })
 
   return {
     project,
@@ -261,7 +285,9 @@ export async function assembleContextPacket(
     foreshadowing,
     issues: openIssues,
     references,
-    warnings,
+    shared_guidance: sharedGuidance,
+    context_trace: contextTrace,
+    warnings: [...new Set(warnings)],
     included_ids: [...new Set(included)],
     excluded_ids: [...exclusions]
   }
@@ -283,6 +309,15 @@ export function renderContextPacket(packet: ContextPacket): string {
     section(
       'Project',
       `title: ${packet.project.title}\ngenre: ${packet.project.genre}\ntarget_words: ${packet.project.target_words}\nchapter_words: ${packet.project.chapter_words}`
+    ),
+    section(
+      'Shared Guidance (advisory; accepted prose, Canon, and project guidance take priority)',
+      packet.shared_guidance
+        .map(
+          (item) =>
+            `### ${item.id}\n\npath: ${item.path}\nscope: ${item.scope}\nsha256: ${item.sha256}\n\n${item.content.trim()}`
+        )
+        .join('\n\n')
     ),
     section(
       'Canon',
@@ -534,4 +569,134 @@ function buildPacketWarnings(input: {
     if (!input.scene.data.pov) warnings.push('当前场景缺 POV。')
   }
   return [...new Set(warnings)]
+}
+
+function guidanceScopeForLevel(level: OutlineDoc['level'] | 'scene'): SharedGuidanceScope {
+  if (level === 'act') return 'arc'
+  if (level === 'section') return 'scene'
+  return level
+}
+
+function buildContextTrace(input: {
+  scene: { data: SceneDoc; content: string } | null
+  canon: Array<DocWithContent<CanonDoc>>
+  strategies: Array<DocWithContent<StrategyDoc>>
+  outlineChain: Array<{ data: OutlineDoc; content: string }>
+  sharedGuidance: SharedGuidanceContent[]
+  exclusions: Set<string>
+}): ContextTraceEntry[] {
+  return [
+    ...(input.scene?.data.status === 'final'
+      ? [
+          {
+            source_type: 'accepted_prose' as const,
+            source_id: input.scene.data.id,
+            priority: 400,
+            selected: true,
+            reason: 'accepted prose is authoritative'
+          }
+        ]
+      : []),
+    ...input.canon.map((item) => ({
+      source_type: 'canon' as const,
+      source_id: item.data.id,
+      priority: item.data.strength === 'hard' ? 400 : 300,
+      selected: true,
+      reason: item.data.strength === 'hard' ? 'hard canon is authoritative' : 'active soft canon'
+    })),
+    ...input.strategies.map((item) => ({
+      source_type: 'project_guidance' as const,
+      source_id: item.data.id,
+      priority: 300,
+      selected: true,
+      reason: 'active project strategy'
+    })),
+    ...input.outlineChain.map((item) => ({
+      source_type: 'project_guidance' as const,
+      source_id: item.data.id,
+      priority: 300,
+      selected: true,
+      reason: 'target outline chain'
+    })),
+    ...input.sharedGuidance.map((item) => ({
+      source_type: 'shared_guidance' as const,
+      source_id: item.id,
+      priority: 100,
+      selected: true,
+      reason: `workspace guidance selected for ${item.scope} scope`
+    })),
+    ...[...input.exclusions].map((id) => ({
+      source_type: 'project_guidance' as const,
+      source_id: id,
+      priority: 300,
+      selected: false,
+      reason: 'explicit project context exclusion'
+    }))
+  ]
+}
+
+function detectSharedGuidanceConflicts(
+  guidance: SharedGuidanceContent[],
+  canon: Array<DocWithContent<CanonDoc>>,
+  strategies: Array<DocWithContent<StrategyDoc>>,
+  outlineChain: Array<{ data: OutlineDoc; content: string }>,
+  scene: { data: SceneDoc; content: string } | null
+): string[] {
+  const projectLines = [
+    ...canon
+      .filter((item) => item.data.status !== 'deprecated')
+      .flatMap((item) => [item.data.title, item.content]),
+    ...strategies
+      .filter((item) => item.data.status !== 'deprecated')
+      .flatMap((item) => [item.data.title, ...item.data.principles, ...item.data.avoid, item.content]),
+    ...outlineChain.flatMap((item) => [item.data.title, item.content]),
+    ...(scene?.data.status === 'final' ? [scene.content] : [])
+  ].flatMap(toMeaningfulLines)
+
+  const warnings: string[] = []
+  for (const item of guidance) {
+    const guidanceLines = toMeaningfulLines(item.content)
+    if (hasPolarityConflict(projectLines, guidanceLines)) {
+      warnings.push(`共享指导 ${item.id} 与项目事实或策略存在冲突；已保留项目内容，未自动覆盖。`)
+    }
+  }
+  return warnings
+}
+
+function toMeaningfulLines(value: string): string[] {
+  return value
+    .split(/\r?\n/)
+    .map((line) => line.replace(/^\s*(?:[-*#>]|\d+[.)])\s*/, '').trim())
+    .filter((line) => line.length >= 4)
+}
+
+function hasPolarityConflict(projectLines: string[], guidanceLines: string[]): boolean {
+  for (const projectLine of projectLines) {
+    const project = normalizeDirective(projectLine)
+    if (!project.core) continue
+    for (const guidanceLine of guidanceLines) {
+      const guidance = normalizeDirective(guidanceLine)
+      if (!guidance.core || project.negative === guidance.negative) continue
+      if (
+        project.core === guidance.core ||
+        (Math.min(project.core.length, guidance.core.length) >= 6 &&
+          (project.core.includes(guidance.core) || guidance.core.includes(project.core)))
+      ) {
+        return true
+      }
+    }
+  }
+  return false
+}
+
+function normalizeDirective(value: string): { core: string; negative: boolean } {
+  const negativePattern =
+    /\b(?:not|never|avoid|forbid|mustn't|must not|do not|don't)\b|禁止|不得|不要|不可|避免/u
+  const negative = negativePattern.test(value.toLocaleLowerCase())
+  const core = value
+    .toLocaleLowerCase()
+    .replace(negativePattern, '')
+    .replace(/\b(?:must|should|always|please)\b|必须|应当|应该|始终|务必/gu, '')
+    .replace(/[^\p{L}\p{N}]+/gu, '')
+  return { core, negative }
 }

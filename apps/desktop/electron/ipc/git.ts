@@ -1,4 +1,6 @@
 import { execFile } from 'node:child_process'
+import { realpath, stat } from 'node:fs/promises'
+import path from 'node:path'
 import { promisify } from 'node:util'
 import { loadProject } from '@quillarium/core'
 import { loadDesktopGitHubCredentials } from './credentials.js'
@@ -6,45 +8,50 @@ import { typedHandle } from './contract.js'
 
 const execFileAsync = promisify(execFile)
 
+export interface ProjectGitContext {
+  projectRoot: string
+  repositoryRoot: string
+  projectPathspec: string
+  initialized: boolean
+  repositoryScope: 'standalone' | 'workspace'
+  canInitializeRepository: boolean
+}
+
+export interface ProjectGitStatus {
+  initialized: boolean
+  dirty: boolean
+  branch: string | null
+  remote: string | null
+  summary: string
+  repositoryScope: 'standalone' | 'workspace'
+  repositoryRoot: string
+  projectPathspec: string
+  canInitializeRepository: boolean
+}
+
 export function registerGitHandlers(): void {
-  typedHandle('git:status', async (_event, root) => gitStatus(root))
-  typedHandle('git:init', async (_event, root) => {
-    await git(root, ['init'])
-    return gitStatus(root)
-  })
-  typedHandle('git:commit', async (_event, root, message) => {
-    await git(root, ['add', '.'])
-    await git(root, ['commit', '-m', message || 'Update novel project'])
-    return gitStatus(root)
-  })
-  typedHandle('git:sync', async (_event, root, message) => {
-    const status = await gitStatus(root)
-    if (!status.initialized) await git(root, ['init'])
-    const nextStatus = await gitStatus(root)
-    if (!nextStatus.remote) throw new Error('当前小说还没有 GitHub remote。请先创建或绑定仓库。')
-    await git(root, ['add', '.'])
-    const dirty = (await git(root, ['status', '--short'])).stdout.trim().length > 0
-    if (dirty) {
-      await git(root, ['commit', '-m', message || 'Update novel project']).catch(async (error) => {
-        const text = String(error)
-        if (!text.includes('nothing to commit')) throw error
-      })
-    }
-    await git(root, ['push', '-u', 'origin', nextStatus.branch || 'main'])
-    return gitStatus(root)
-  })
-  typedHandle('git:setRemote', async (_event, root, url) => {
-    const existing = await git(root, ['remote', 'get-url', 'origin']).catch(() => null)
-    if (existing) await git(root, ['remote', 'set-url', 'origin', url])
-    else await git(root, ['remote', 'add', 'origin', url])
-    return gitStatus(root)
-  })
+  typedHandle('git:status', async (_event, root) => getProjectGitStatus(root))
+  typedHandle('git:init', async (_event, root) => initializeProjectRepository(root))
+  typedHandle('git:commit', async (_event, root, message) =>
+    commitProjectChanges(root, message || 'Update novel project')
+  )
+  typedHandle('git:sync', async (_event, root, message) =>
+    syncProjectChanges(root, message || 'Update novel project')
+  )
+  typedHandle('git:setRemote', async (_event, root, url) => setProjectRemote(root, url))
   typedHandle('github:createRepoForProject', async (_event, root) => {
+    const initialContext = await resolveProjectGitContext(root)
+    if (initialContext.initialized && initialContext.repositoryScope === 'workspace') {
+      throw new Error(
+        '当前作品属于写作工作区 Git 仓库，不能为子项目创建嵌套仓库。请在工作区级别配置 remote。'
+      )
+    }
+
     const github = await loadDesktopGitHubCredentials()
     const token = github.token
     const owner = github.defaultOwner
     if (!token) throw new Error('请先在设置中保存 GitHub Token。')
-    const project = await loadProject(root)
+    const project = await loadProject(initialContext.projectRoot)
     const repoName = slugRepoName(project.title)
     const response = await fetch('https://api.github.com/user/repos', {
       method: 'POST',
@@ -67,29 +74,241 @@ export function registerGitHandlers(): void {
     const json = (await response.json()) as { ssh_url?: string; clone_url?: string }
     const remote = json.clone_url ?? json.ssh_url
     if (!remote) throw new Error('GitHub 返回中没有可用 remote 地址。')
-    await git(root, ['init']).catch(() => undefined)
-    await git(root, ['branch', '-M', 'main']).catch(() => undefined)
-    const existing = await git(root, ['remote', 'get-url', 'origin']).catch(() => null)
-    if (existing) await git(root, ['remote', 'set-url', 'origin', remote])
-    else await git(root, ['remote', 'add', 'origin', remote])
-    await git(root, ['add', '.'])
-    const dirty = (await git(root, ['status', '--short'])).stdout.trim().length > 0
-    if (dirty) {
-      await git(root, ['commit', '-m', `Initialize ${project.title}`]).catch((error) => {
-        const text = String(error)
-        if (!text.includes('nothing to commit')) throw error
-      })
+
+    if (!initialContext.initialized) {
+      await initializeProjectRepository(initialContext.projectRoot)
     }
-    await git(root, ['push', '-u', 'origin', 'main'])
+    const context = await requireInitializedProjectRepository(initialContext.projectRoot)
+    if (context.repositoryScope !== 'standalone') {
+      throw new Error('安全检查失败：拒绝在写作工作区的子项目中初始化嵌套仓库。')
+    }
+    await git(context.repositoryRoot, ['branch', '-M', 'main'])
+    await setProjectRemote(context.projectRoot, remote)
+    await commitProjectChanges(context.projectRoot, `Initialize ${project.title}`)
+    await git(context.repositoryRoot, ['push', '-u', 'origin', 'main'])
     if (owner && !remote.includes(owner)) {
       // The default owner is retained for future organization support; current GitHub API call uses the token owner.
     }
-    return gitStatus(root)
+    return getProjectGitStatus(context.projectRoot)
   })
 }
 
-async function git(root: string, args: string[]) {
-  return execFileAsync('git', args, { cwd: root, windowsHide: true })
+export async function resolveProjectGitContext(projectRoot: string): Promise<ProjectGitContext> {
+  if (!projectRoot.trim()) throw new Error('项目根目录不能为空。')
+
+  const requestedRoot = path.resolve(projectRoot)
+  const projectRootStat = await stat(requestedRoot).catch(() => null)
+  if (!projectRootStat?.isDirectory()) throw new Error(`项目目录不存在：${requestedRoot}`)
+  const canonicalProjectRoot = await realpath(requestedRoot)
+  const projectConfigStat = await stat(path.join(canonicalProjectRoot, 'project.yaml')).catch(() => null)
+  if (!projectConfigStat?.isFile()) {
+    throw new Error(`不是有效的 Quillarium 项目：缺少 ${path.join(canonicalProjectRoot, 'project.yaml')}`)
+  }
+
+  const repositoryResult = await git(canonicalProjectRoot, ['rev-parse', '--show-toplevel']).catch(
+    async (error) => {
+      if (await hasGitMetadataAncestor(canonicalProjectRoot)) {
+        throw new Error(
+          `检测到现有 Git 元数据，但无法解析仓库根目录；已拒绝初始化嵌套仓库。${gitErrorDetail(error)}`
+        )
+      }
+      return null
+    }
+  )
+  if (!repositoryResult) {
+    return {
+      projectRoot: canonicalProjectRoot,
+      repositoryRoot: canonicalProjectRoot,
+      projectPathspec: '.',
+      initialized: false,
+      repositoryScope: 'standalone',
+      canInitializeRepository: true
+    }
+  }
+
+  const reportedRepositoryRoot = repositoryResult.stdout.trim()
+  if (!reportedRepositoryRoot) throw new Error('Git 未返回仓库根目录。')
+  const canonicalRepositoryRoot = await realpath(path.resolve(canonicalProjectRoot, reportedRepositoryRoot))
+  const relativeProjectPath = path.relative(canonicalRepositoryRoot, canonicalProjectRoot)
+  if (
+    relativeProjectPath === '..' ||
+    relativeProjectPath.startsWith(`..${path.sep}`) ||
+    path.isAbsolute(relativeProjectPath)
+  ) {
+    throw new Error('项目目录不在 Git 仓库内，已拒绝执行。')
+  }
+
+  const sameRoot = relativeProjectPath === ''
+  const projectPathspec = sameRoot ? '.' : relativeProjectPath.split(path.sep).join('/')
+  if (!sameRoot && projectPathspec.split('/').includes('.git')) {
+    throw new Error('项目目录不能位于 Git 元数据目录中。')
+  }
+
+  return {
+    projectRoot: canonicalProjectRoot,
+    repositoryRoot: canonicalRepositoryRoot,
+    projectPathspec,
+    initialized: true,
+    repositoryScope: sameRoot ? 'standalone' : 'workspace',
+    canInitializeRepository: false
+  }
+}
+
+export async function getProjectGitStatus(projectRoot: string): Promise<ProjectGitStatus> {
+  const context = await resolveProjectGitContext(projectRoot)
+  if (!context.initialized) {
+    return {
+      initialized: false,
+      dirty: false,
+      branch: null,
+      remote: null,
+      summary: '未初始化 · 可创建独立项目仓库',
+      repositoryScope: context.repositoryScope,
+      repositoryRoot: context.repositoryRoot,
+      projectPathspec: context.projectPathspec,
+      canInitializeRepository: context.canInitializeRepository
+    }
+  }
+
+  const [{ stdout: branchRaw }, { stdout: statusRaw }, remoteResult] = await Promise.all([
+    git(context.repositoryRoot, ['branch', '--show-current']),
+    git(context.repositoryRoot, scopedArgs(context, ['status', '--short', '--untracked-files=all'])),
+    git(context.repositoryRoot, ['remote', 'get-url', 'origin']).catch(() => ({
+      stdout: '',
+      stderr: ''
+    }))
+  ])
+  const dirty = statusRaw.trim().length > 0
+  const branch = branchRaw.trim() || 'detached'
+  const remote = remoteResult.stdout.trim() || null
+  const scopeLabel = context.repositoryScope === 'workspace' ? '工作区仓库' : '独立项目仓库'
+  return {
+    initialized: true,
+    dirty,
+    branch,
+    remote,
+    summary: `${branch} · ${dirty ? '当前项目有未提交修改' : '当前项目干净'} · ${scopeLabel} · ${remote ? 'remote configured' : '仅本地'}`,
+    repositoryScope: context.repositoryScope,
+    repositoryRoot: context.repositoryRoot,
+    projectPathspec: context.projectPathspec,
+    canInitializeRepository: false
+  }
+}
+
+export async function initializeProjectRepository(projectRoot: string): Promise<ProjectGitStatus> {
+  const context = await resolveProjectGitContext(projectRoot)
+  if (context.initialized) {
+    if (context.repositoryScope === 'workspace') {
+      throw new Error(
+        '当前作品已经属于写作工作区 Git 仓库，不能创建项目级嵌套仓库。请使用工作区级 Git 操作。'
+      )
+    }
+    return getProjectGitStatus(context.projectRoot)
+  }
+
+  await git(context.projectRoot, ['init'])
+  return getProjectGitStatus(context.projectRoot)
+}
+
+export async function commitProjectChanges(projectRoot: string, message: string): Promise<ProjectGitStatus> {
+  const context = await requireInitializedProjectRepository(projectRoot)
+  await git(context.repositoryRoot, scopedArgs(context, ['add', '--all']))
+
+  if (await hasScopedStagedChanges(context)) {
+    await git(
+      context.repositoryRoot,
+      scopedArgs(context, ['commit', '--only', '-m', message || 'Update novel project'])
+    )
+  }
+  return getProjectGitStatus(context.projectRoot)
+}
+
+export async function setProjectRemote(projectRoot: string, url: string): Promise<ProjectGitStatus> {
+  const context = await requireInitializedProjectRepository(projectRoot)
+  const existing = await git(context.repositoryRoot, ['remote', 'get-url', 'origin']).catch(() => null)
+  if (existing) await git(context.repositoryRoot, ['remote', 'set-url', 'origin', url])
+  else await git(context.repositoryRoot, ['remote', 'add', 'origin', url])
+  return getProjectGitStatus(context.projectRoot)
+}
+
+export async function syncProjectChanges(projectRoot: string, message: string): Promise<ProjectGitStatus> {
+  const context = await requireInitializedProjectRepository(projectRoot)
+  const remote = await git(context.repositoryRoot, ['remote', 'get-url', 'origin']).catch(() => null)
+  if (!remote?.stdout.trim()) {
+    throw new Error(
+      context.repositoryScope === 'workspace'
+        ? '写作工作区还没有 GitHub remote。请先在工作区级别创建或绑定仓库。'
+        : '当前小说还没有 GitHub remote。请先创建或绑定仓库。'
+    )
+  }
+
+  await commitProjectChanges(context.projectRoot, message || 'Update novel project')
+  const { stdout: branchRaw } = await git(context.repositoryRoot, ['branch', '--show-current'])
+  const branch = branchRaw.trim()
+  if (!branch) throw new Error('当前仓库处于 detached HEAD，无法安全同步。')
+  await git(context.repositoryRoot, ['push', '-u', 'origin', branch])
+  return getProjectGitStatus(context.projectRoot)
+}
+
+async function requireInitializedProjectRepository(projectRoot: string): Promise<ProjectGitContext> {
+  const context = await resolveProjectGitContext(projectRoot)
+  if (!context.initialized) throw new Error('当前项目尚未初始化 Git 仓库。')
+  return context
+}
+
+async function hasScopedStagedChanges(context: ProjectGitContext): Promise<boolean> {
+  try {
+    await git(context.repositoryRoot, scopedArgs(context, ['diff', '--cached', '--quiet']))
+    return false
+  } catch (error) {
+    if (gitExitCode(error) === 1) return true
+    throw error
+  }
+}
+
+async function hasGitMetadataAncestor(root: string): Promise<boolean> {
+  let current = root
+  while (true) {
+    const metadata = await stat(path.join(current, '.git')).catch((error: unknown) => {
+      if (nativeErrorCode(error) === 'ENOENT') return null
+      throw error
+    })
+    if (metadata) return true
+    const parent = path.dirname(current)
+    if (parent === current) return false
+    current = parent
+  }
+}
+
+function scopedArgs(context: ProjectGitContext, command: string[]): string[] {
+  return ['--literal-pathspecs', ...command, '--', context.projectPathspec]
+}
+
+async function git(root: string, args: string[]): Promise<{ stdout: string; stderr: string }> {
+  const result = await execFileAsync('git', args, {
+    cwd: root,
+    windowsHide: true,
+    encoding: 'utf8'
+  })
+  return { stdout: String(result.stdout), stderr: String(result.stderr) }
+}
+
+function gitExitCode(error: unknown): number | null {
+  if (!error || typeof error !== 'object' || !('code' in error)) return null
+  const code = (error as { code?: unknown }).code
+  return typeof code === 'number' ? code : null
+}
+
+function nativeErrorCode(error: unknown): string | null {
+  if (!error || typeof error !== 'object' || !('code' in error)) return null
+  const code = (error as { code?: unknown }).code
+  return typeof code === 'string' ? code : null
+}
+
+function gitErrorDetail(error: unknown): string {
+  if (!error || typeof error !== 'object' || !('stderr' in error)) return ''
+  const stderr = String((error as { stderr?: unknown }).stderr ?? '').trim()
+  return stderr ? ` Git 返回：${stderr}` : ''
 }
 
 function slugRepoName(title: string): string {
@@ -123,27 +342,4 @@ function formatGitHubCreateRepoError(status: number, detail: string): string {
     ].join('\n')
   }
   return `GitHub 仓库创建失败 ${status}: ${detail}`
-}
-
-async function gitStatus(root: string) {
-  try {
-    await git(root, ['rev-parse', '--is-inside-work-tree'])
-  } catch {
-    return { initialized: false, dirty: false, branch: null, remote: null, summary: '未初始化' }
-  }
-  const [{ stdout: branchRaw }, { stdout: statusRaw }, remoteResult] = await Promise.all([
-    git(root, ['branch', '--show-current']),
-    git(root, ['status', '--short']),
-    git(root, ['remote', 'get-url', 'origin']).catch(() => ({ stdout: '' }))
-  ])
-  const dirty = statusRaw.trim().length > 0
-  const branch = branchRaw.trim() || 'detached'
-  const remote = remoteResult.stdout.trim() || null
-  return {
-    initialized: true,
-    dirty,
-    branch,
-    remote,
-    summary: `${branch} · ${dirty ? '有未提交修改' : '干净'} · ${remote ? 'remote configured' : '仅本地'}`
-  }
 }

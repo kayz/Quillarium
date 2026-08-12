@@ -43,6 +43,8 @@ export interface BaseDoc {
 }
 
 export interface ProjectConfig {
+  id: string
+  aliases: string[]
   title: string
   genre: string
   target_words: number
@@ -51,7 +53,57 @@ export interface ProjectConfig {
   current_volume: number
   current_timeline_node: string | null
   default_theme: 'paper' | 'ink' | 'mist' | 'bamboo'
-  schema_version: number
+  schema_version: 2
+}
+
+export type SharedGuidanceScope = 'book' | 'volume' | 'arc' | 'chapter' | 'scene' | 'finalization'
+
+export interface WorkspaceProjectRef {
+  id: string
+  path: string
+}
+
+export interface SharedGuidanceRef {
+  id: string
+  path: string
+  scopes: SharedGuidanceScope[]
+}
+
+export interface WorkspaceManifestV1 {
+  schema_version: 1
+  id: string
+  projects_dir: string
+  projects: WorkspaceProjectRef[]
+  shared_guidance: SharedGuidanceRef[]
+}
+
+export interface WorkspaceProject {
+  ref: WorkspaceProjectRef
+  root: string
+  config: ProjectConfig
+}
+
+export interface LoadedWorkspace {
+  root: string
+  manifest_path: string
+  manifest: WorkspaceManifestV1
+}
+
+export interface SharedGuidanceContent {
+  id: string
+  path: string
+  scope: SharedGuidanceScope
+  content: string
+  sha256: string
+  read_at: string
+}
+
+export interface ContextTraceEntry {
+  source_type: 'accepted_prose' | 'canon' | 'project_guidance' | 'shared_guidance'
+  source_id: string
+  priority: number
+  selected: boolean
+  reason: string
 }
 
 export interface ProjectPaths {
@@ -216,7 +268,7 @@ export interface OutlineDoc extends BaseDoc {
   volume_goal: string
   event_chain: string[]
   character_growth: string[]
-  writer_cycles: Array<'desire' | 'pressure' | 'growth' | 'reveal' | 'relationship'>
+  story_cycles: Array<'desire' | 'pressure' | 'growth' | 'reveal' | 'relationship'>
   conflict_ladder: string[]
   cast_lock: string[]
   fixed_reveals: string[]

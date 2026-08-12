@@ -1,5 +1,6 @@
 import path from 'node:path'
 import { stat } from 'node:fs/promises'
+import { readStoryCycleInput } from './compatibility.js'
 import {
   createCanon,
   createCharacter,
@@ -34,7 +35,7 @@ import {
   normalizeStateScope,
   normalizeStrategyCategory,
   normalizeWorldRole,
-  normalizeWriterCycles,
+  normalizeStoryCycles,
   numberOrUndefined
 } from './importer-values.js'
 import type { DocType, OutlineDoc } from './types.js'
@@ -461,7 +462,7 @@ async function createTypedImport(
         volume_goal: firstString(data, ['volume_goal', '本卷目标', '卷目标']) ?? '',
         event_chain: asStringArray(data['event_chain'] ?? data['事件链']),
         character_growth: asStringArray(data['character_growth'] ?? data['人物成长']),
-        writer_cycles: normalizeWriterCycles(data['writer_cycles'] ?? data['五循环']),
+        story_cycles: normalizeStoryCycles(readStoryCycleInput(data)),
         conflict_ladder: asStringArray(data['conflict_ladder'] ?? data['冲突递进']),
         cast_lock: asStringArray(data['cast_lock'] ?? data['出场人物'] ?? data['固定人物']),
         fixed_reveals: asStringArray(data['fixed_reveals'] ?? data['固定揭示']),

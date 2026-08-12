@@ -76,7 +76,7 @@ const DOC_SCHEMAS = {
   character_state: characterStateSchema.passthrough(),
   resource: baseDocSchema.passthrough(),
   causality: baseDocSchema.passthrough(),
-  outline: outlineSchema.passthrough(),
+  outline: outlineSchema,
   scene: sceneSchema.passthrough(),
   prompt: baseDocSchema.passthrough()
 }
@@ -497,7 +497,7 @@ export async function createOutline(
     volume_goal: partial.volume_goal ?? '',
     event_chain: partial.event_chain ?? [],
     character_growth: partial.character_growth ?? [],
-    writer_cycles: partial.writer_cycles ?? [],
+    story_cycles: partial.story_cycles ?? [],
     conflict_ladder: partial.conflict_ladder ?? [],
     cast_lock: partial.cast_lock ?? [],
     fixed_reveals: partial.fixed_reveals ?? [],

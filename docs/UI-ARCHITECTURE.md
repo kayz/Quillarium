@@ -6,32 +6,44 @@ The renderer stays focused on interaction and presentation. File system access, 
 
 ## First Launch
 
-The app requires an Obsidian vault before opening a project. Novel projects are created under:
+The primary selector registers a writing workspace containing `quillarium-workspace.yaml`. New
+projects are created under the manifest's `projects_dir`; each project directory is directly both an
+Obsidian vault and a Quillarium project root:
 
 ```text
-<Obsidian Vault>/novels/<Novel Title>
+<Writing Workspace>/projects/<project-id>/.obsidian/
+<Writing Workspace>/projects/<project-id>/project.yaml
 ```
 
-The selected vault and user theme are stored in the global Quillarium config at `~/.quillarium/config.json`.
+The app can also register a legacy Obsidian root for compatibility listing and explicit migration.
+Migration selects one legacy project, runs dry-run → backup → apply → verify → report, never follows
+symlinks or copies nested `.git`, and does not move, delete, or silently rewrite the source.
+
+The workspace's local absolute path, recent project, legacy vault path, theme, and credentials stay in
+the global Quillarium config at `~/.quillarium/config.json`; they are never written to the workspace.
 
 ## Data Model
 
 The desktop app reads and writes the same Markdown + YAML frontmatter files as the CLI:
 
-- `project.yaml` stores project defaults, including `default_theme`.
+- `project.yaml` v2 stores the stable path-safe `id`, display `title`, legacy `aliases`, and project
+  defaults including `default_theme`.
 - `canon/`, `characters/`, `timeline/`, `locations/`, `outlines/`, and `scenes/` remain Obsidian-readable.
-- `runs/` stores every AI context, prompt, raw output, accepted output, and check report.
+- `runs/` stores AI context, prompt, raw/accepted output, checks, and immutable shared-guidance
+  snapshots with source path, scope, SHA-256, and read time.
 
 The editor saves only the Markdown body for a scene and preserves frontmatter through `@quillarium/core`.
 
 ## Privacy and Git
 
-Novel projects are private by default:
+Writing projects are private by default:
 
 - No remote is configured during project creation.
-- The desktop app can initialize a local Git repository.
-- Commit support is local-first.
-- GitHub remote setup is intentionally left as a later explicit flow, and must not default to public publishing.
+- Projects inside a workspace repository use its root remote and cannot create nested repositories.
+- Project status, staging, and commits use a main-process-computed literal pathspec; one project's
+  commit cannot include another project, shared root files, or unrelated pre-staged changes.
+- A standalone project may still initialize and use its own local repository.
+- Remote creation or binding is explicit and never defaults to public publishing.
 
 ## Theme System
 
@@ -48,8 +60,8 @@ User preference is stored globally, while each project can declare `default_them
 
 The implemented desktop MVP supports:
 
-1. choose an Obsidian vault
-2. create or open a novel project
+1. register a writing workspace and optionally a legacy vault
+2. create/open a direct project-vault or migrate one legacy project
 3. select a scene
 4. edit and save scene prose
 5. assemble context
@@ -57,4 +69,4 @@ The implemented desktop MVP supports:
 7. create dry-run or AI generation records
 8. preview run files
 9. accept raw output into the scene
-10. initialize and commit to local Git
+10. commit with workspace-aware or standalone Git scope

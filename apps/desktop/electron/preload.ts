@@ -11,6 +11,9 @@ function invoke<Channel extends IpcChannel>(
 const api: QuillariumAPI = {
   getConfig: () => invoke('config:get'),
   getVault: () => invoke('config:getVault'),
+  getWorkspace: () => invoke('config:getWorkspace'),
+  chooseWorkspace: () => invoke('config:chooseWorkspace'),
+  setWorkspace: (dir) => invoke('config:setWorkspace', dir),
   chooseVault: () => invoke('config:chooseVault'),
   setVault: (dir) => invoke('config:setVault', dir),
   migrateVault: () => invoke('config:migrateVault'),

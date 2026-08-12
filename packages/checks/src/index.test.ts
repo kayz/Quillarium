@@ -44,7 +44,7 @@ const ALL_ISSUE_CODES = [
   'volume-missing-event-chain',
   'volume-missing-goal',
   'volume-missing-timeline',
-  'volume-thin-writer-cycles',
+  'volume-thin-story-cycles',
   'world-entry-after-valid-until',
   'world-entry-before-valid-from'
 ] as const
@@ -209,7 +209,7 @@ describe('outline checks', () => {
       report,
       'volume-missing-goal',
       'volume-missing-event-chain',
-      'volume-thin-writer-cycles',
+      'volume-thin-story-cycles',
       'volume-missing-timeline',
       'volume-missing-characters',
       'missing-character-state'
@@ -223,7 +223,7 @@ describe('outline checks', () => {
       outline(root, 'volume-main', 'volume', {
         volume_goal: 'Reach the capital.',
         event_chain: ['arrival'],
-        writer_cycles: ['desire', 'pressure', 'growth'],
+        story_cycles: ['desire', 'pressure', 'growth'],
         related_timeline: ['event-main'],
         related_characters: ['character-main']
       }),
@@ -240,7 +240,7 @@ describe('outline checks', () => {
       report,
       'volume-missing-goal',
       'volume-missing-event-chain',
-      'volume-thin-writer-cycles',
+      'volume-thin-story-cycles',
       'volume-missing-timeline',
       'volume-missing-characters',
       'missing-character-state'

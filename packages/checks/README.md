@@ -45,5 +45,5 @@ pnpm exec vitest run packages/checks/src
 ```
 
 Semantic output is advisory model judgment, not a replacement for deterministic validation or
-writer review. The timeout bounds how long this package waits; it cannot cancel arbitrary work
+author review. The timeout bounds how long this package waits; it cannot cancel arbitrary work
 inside a caller-supplied callback.

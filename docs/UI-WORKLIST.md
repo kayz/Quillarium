@@ -27,7 +27,7 @@ These need product/design confirmation before or during implementation:
 - [x] Theme defaults: Paper by default, with Ink / Mist / Bamboo available.
 - [x] Git workflow defaults: local Git only by default, optional remote later.
 - [x] AI calls from desktop main process.
-- [x] Obsidian vault selection is mandatory on first launch.
+- [x] Writing-workspace registration is the primary first-launch gate; a legacy vault is optional.
 
 ## Milestone UI-1: App Shell
 
@@ -64,15 +64,14 @@ These need product/design confirmation before or during implementation:
   - [x] editor font
   - [x] mono font
 
-## Milestone UI-3: Welcome and Vault Setup
+## Milestone UI-3: Welcome, Workspace, and Legacy Compatibility
 
 - [x] Show Quillarium logo/name.
-- [x] Explain that novel data lives in the user's Obsidian vault.
-- [x] Detect configured Obsidian directory.
-- [x] Let user choose Obsidian directory.
-- [x] Save Obsidian directory to global config.
-- [x] Show current configured directory.
-- [x] Add project list from `<Obsidian Vault>/novels`.
+- [x] Explain that each project directory is its own Obsidian vault.
+- [x] Validate and register `quillarium-workspace.yaml`.
+- [x] Save the machine-local workspace path only in global config.
+- [x] Show projects registered in the workspace manifest.
+- [x] Retain optional legacy-vault listing and explicit lossless migration.
 - [x] Add create novel button.
 
 ## Milestone UI-4: Project Creation Flow
@@ -84,7 +83,7 @@ These need product/design confirmation before or during implementation:
   - [x] chapter words
   - [x] section words
   - [x] default theme
-- [x] Create project under `<Obsidian Vault>/novels/<title>`.
+- [x] Create and register `projects/<project-id>/` as a direct project-vault.
 - [x] Open newly created project workspace.
 - [x] Validate duplicate names.
 - [x] Allow opening an existing project folder.
@@ -238,8 +237,8 @@ These need product/design confirmation before or during implementation:
 
 The first useful UI slice should be:
 
-1. choose Obsidian vault
-2. create/open novel project
+1. register writing workspace (optionally register/migrate a legacy vault)
+2. create/open a direct project-vault
 3. select a scene
 4. edit prose
 5. assemble context

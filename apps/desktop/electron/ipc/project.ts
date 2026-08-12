@@ -11,17 +11,22 @@ import {
   createLocation,
   createOutline,
   createPattern,
-  createProject,
+  createProjectAt,
   createReference,
   createRoute,
   createScene,
   createStrategy,
   createWorldEntry,
   getObsidianDir,
+  getWorkspaceDir,
   listDocs,
   listRuns,
+  listWorkspaceProjects,
   loadProject,
+  loadWorkspace,
   readMarkdown,
+  registerWorkspaceProject,
+  stableProjectId,
   writeMarkdown,
   type BaseDoc,
   type CanonDoc,
@@ -43,6 +48,13 @@ import { typedHandle, type DesktopDocEntry } from './contract.js'
 
 export function registerProjectHandlers(): void {
   typedHandle('project:list', async () => {
+    const workspaceRoot = await getWorkspaceDir()
+    if (workspaceRoot) {
+      return (await listWorkspaceProjects(workspaceRoot)).map(({ root, config }) => ({
+        root,
+        ...config
+      }))
+    }
     const vault = await getObsidianDir()
     if (!vault) return []
     const { readdir } = await import('node:fs/promises')
@@ -67,9 +79,22 @@ export function registerProjectHandlers(): void {
   })
 
   typedHandle('project:create', async (_event, input) => {
-    const vault = await getObsidianDir()
-    if (!vault) throw new Error('Obsidian vault is not configured')
-    const paths = await createProject({ vault, ...input })
+    const workspaceRoot = await getWorkspaceDir()
+    if (!workspaceRoot) throw new Error('请先注册写作工作区；旧 vault 仅用于兼容打开和无损迁移。')
+    const workspace = await loadWorkspace(workspaceRoot)
+    const id = input.id ?? stableProjectId(input.title)
+    const relativePath = path.posix.join(workspace.manifest.projects_dir.replace(/\\/g, '/'), id)
+    const root = path.join(workspace.root, ...relativePath.split('/'))
+    const paths = await createProjectAt(root, {
+      id,
+      title: input.title,
+      genre: input.genre,
+      target_words: input.targetWords,
+      chapter_words: input.chapterWords,
+      section_words: input.sectionWords,
+      default_theme: input.defaultTheme
+    })
+    await registerWorkspaceProject(workspace.root, { id, path: relativePath })
     return { root: paths.root, ...(await loadProject(paths.root)) }
   })
   typedHandle('project:choose', async () => {

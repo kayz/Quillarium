@@ -22,7 +22,7 @@ export function registerCanonHandlers(): void {
       'Discussion transcript:',
       transcript.text,
       transcript.truncated
-        ? '\n[Earlier discussion was omitted. Continue from the visible recent context and the writer message.]'
+        ? '\n[Earlier discussion was omitted. Continue from the visible recent context and the author message.]'
         : '',
       '',
       mode === 'summarize'
@@ -38,7 +38,7 @@ export function registerCanonHandlers(): void {
             'source: user | ai | imported | historical'
           ].join('\n')
         : [
-            'Writer message:',
+            'Author message:',
             input.message ?? '',
             '',
             'Reply as a careful canon discussion partner. Ask focused questions if the canon is still ambiguous; otherwise propose concrete rules.'

@@ -30,7 +30,7 @@ export function levelTasks(level: string): {
         ['读者收益', 'reader_payoff'],
         ['事件链', 'event_chain'],
         ['人物成长', 'character_growth'],
-        ['五循环', 'writer_cycles']
+        ['五循环', 'story_cycles']
       ]
     }
   }

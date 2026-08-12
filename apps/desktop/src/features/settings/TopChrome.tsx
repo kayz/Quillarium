@@ -112,7 +112,13 @@ export function TopChrome({
       {git ? (
         <button
           className="status-pill"
-          onClick={git.remote ? onGitSync : onGitCreateRemote}
+          onClick={
+            git.remote
+              ? onGitSync
+              : git.repositoryScope === 'workspace'
+                ? () => setShowSettings(true)
+                : onGitCreateRemote
+          }
           title={gitAction.title}
           disabled={gitBusy}
         >
@@ -198,8 +204,11 @@ function gitActionFor(language: LanguageName, git?: GitState | null): { label: s
     }
   if (!git.remote)
     return {
-      label: t(language, 'githubNotLinked'),
-      title: t(language, 'linkGithubRepoHint')
+      label: git.repositoryScope === 'workspace' ? 'Workspace Git' : t(language, 'githubNotLinked'),
+      title:
+        git.repositoryScope === 'workspace'
+          ? 'Configure the remote at the writing workspace repository root.'
+          : t(language, 'linkGithubRepoHint')
     }
   if (git.dirty)
     return {
@@ -551,7 +560,11 @@ function SettingsModal({
         {root && (
           <div className="settings-group">
             <h3>{t(language, 'currentNovelGit')}</h3>
-            <p className="muted">{t(language, 'currentNovelGitHint')}</p>
+            <p className="muted">
+              {git?.repositoryScope === 'workspace'
+                ? '当前作品属于写作工作区仓库；remote 与同步在工作区根生效，作品提交仍只包含当前项目。'
+                : t(language, 'currentNovelGitHint')}
+            </p>
             <div className="settings-grid two">
               <label>
                 {t(language, 'currentRemote')}

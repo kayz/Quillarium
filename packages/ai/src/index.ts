@@ -1,4 +1,12 @@
-import { createRun, loadConfig, writeRunFile, writeRunMetadata, type RunMetadata } from '@quillarium/core'
+import {
+  createRun,
+  loadConfig,
+  snapshotSharedGuidance,
+  writeRunFile,
+  writeRunMetadata,
+  type RunMetadata,
+  type SharedGuidanceContent
+} from '@quillarium/core'
 
 export interface AIConfig {
   provider: 'openai-compatible' | 'openai' | 'claude' | 'gemini' | 'deepseek' | 'ollama'
@@ -412,7 +420,8 @@ export async function createGenerationRun(
   sceneId: string,
   context: string,
   config: AIConfig,
-  metadata: Partial<RunMetadata> = {}
+  metadata: Partial<RunMetadata> = {},
+  sharedGuidance: SharedGuidanceContent[] = []
 ): Promise<RunMetadata> {
   const run = await createRun(projectRoot, sceneId, {
     ...metadata,
@@ -423,6 +432,7 @@ export async function createGenerationRun(
   const prompt = buildSectionPrompt(context)
   await writeRunFile(projectRoot, run, 'context.md', context)
   await writeRunFile(projectRoot, run, 'prompt.md', prompt)
+  await snapshotSharedGuidance(projectRoot, run, sharedGuidance)
   return run
 }
 

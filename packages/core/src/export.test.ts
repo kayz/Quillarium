@@ -4,7 +4,7 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   createOutline,
-  createProject,
+  createProjectAt,
   createRun,
   createScene,
   exportManuscript,
@@ -14,6 +14,10 @@ import {
   type RunMetadata,
   type SceneDoc
 } from './index.js'
+
+async function createTestProject(base: string, id: string, title: string) {
+  return createProjectAt(path.join(base, 'projects', id), { id, title, genre: 'test' })
+}
 
 interface TestSceneOptions {
   id: string
@@ -28,7 +32,7 @@ describe('manuscript export', () => {
   it('walks the real outline tree in stable order and exports accepted prose only', async () => {
     const tmp = await mkdtemp(path.join(os.tmpdir(), 'quillarium-export-'))
     try {
-      const project = await createProject({ vault: tmp, title: 'Export Story', genre: 'test' })
+      const project = await createTestProject(tmp, 'export-story', 'Export Story')
       await createOutline(project.root, 'book', 'The Book', { id: 'book-main', order: 0 })
       await createOutline(project.root, 'volume', 'Volume One', {
         id: 'volume-main',
@@ -254,7 +258,7 @@ describe('manuscript export', () => {
   it('filters one volume and keeps export filenames inside the exports directory', async () => {
     const tmp = await mkdtemp(path.join(os.tmpdir(), 'quillarium-volume-export-'))
     try {
-      const project = await createProject({ vault: tmp, title: 'Filter Story', genre: 'test' })
+      const project = await createTestProject(tmp, 'filter-story', 'Filter Story')
       await createOutline(project.root, 'book', 'Filter Book', { id: 'book-filter' })
       await createOutline(project.root, 'volume', 'Volume One', {
         id: 'volume-one',
@@ -339,7 +343,7 @@ describe('manuscript export', () => {
   it('uses the project title when a project has no book outline', async () => {
     const tmp = await mkdtemp(path.join(os.tmpdir(), 'quillarium-project-heading-export-'))
     try {
-      const project = await createProject({ vault: tmp, title: 'Outline-light Story', genre: 'test' })
+      const project = await createTestProject(tmp, 'outline-light-story', 'Outline-light Story')
       await createOutline(project.root, 'chapter', 'Standalone Chapter', {
         id: 'standalone-chapter'
       })

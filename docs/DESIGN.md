@@ -1,170 +1,203 @@
 # Quillarium Design
 
-Quillarium is a long-form fiction operating system. Its data model is built around
-constraints, state, relationships, causality, generation, and review.
+Quillarium is the sole product and runtime for a local-first, chapter-centered long-form fiction
+workflow. It owns the domain model, context compilation, AI orchestration, checks, acceptance,
+finalization, and Obsidian-backed files. Methodology documents and external applications may inform
+its design, but they are neither runtime dependencies nor parallel sources of project truth.
 
-## Product Shape
+## Implementation Status
 
-The primary interface is a desktop or local web app. Obsidian remains the durable
-storage and manual editing surface.
+As of 2026-08-12, the work-neutral workspace foundation described below is implemented: contained
+workspace manifests, direct project-vault roots, ProjectConfig v2 identity and aliases, explicit
+legacy migration, shared-guidance snapshots, and server-scoped workspace Git operations. The active
+next phase is the explainable chapter-production work in the root [ROADMAP](../ROADMAP.md), including
+real token budgeting, typed prompt blocks, multiple candidates, branches, and versioned presets.
 
-Daily writing flow:
+## Product and Storage Shape
 
-1. choose a novel project
-2. open the current volume, arc, chapter, and section
-3. review canon, timeline, location, and character state
-4. generate or rewrite a section
-5. run consistency checks
-6. accept, revise, or roll back
+A writing workspace groups projects and optional shared guidance. The workspace itself is not an
+Obsidian vault. Each project directory is both an independent Obsidian vault and a Quillarium project
+root:
+
+```text
+writing-workspace/
+  quillarium-workspace.yaml
+  methodology/
+  templates/
+  projects/
+    sample-project/
+      .obsidian/
+      project.yaml
+      canon/
+      outlines/
+      scenes/
+      runs/
+      ...
+```
+
+The workspace manifest contains only relative, contained paths and non-secret metadata. Absolute
+paths, path traversal, and links that resolve outside the workspace are rejected. Machine-local
+workspace locations, recent-project state, and credentials remain in the user configuration outside
+the workspace.
+
+The legacy `<vault>/novels/<title>` layout remains readable and writable for compatibility. New
+projects use a direct project-vault root, and migration is explicit, backed up, verified, and
+reported; loading a legacy project never silently rewrites it.
+
+## Authority Model
+
+Project files are the durable truth. Context assembly and checks use a fixed authority order:
+
+1. accepted prose and confirmed hard Canon;
+2. project strategies, outlines, continuity ledgers, and explicit pins;
+3. workspace shared guidance;
+4. archived imports and optional research references.
+
+Lower layers may add constraints or advice but cannot mutate a higher layer. Contradictions produce
+warnings with source paths. Imports retained for provenance are excluded from daily context unless a
+project document explicitly links or pins them.
+
+## Chapter-Centered Workflow
+
+The planning hierarchy is:
+
+```text
+book
+  volume
+    arc / segment
+      chapter
+        scene
+          prose candidates
+```
+
+The chapter is the minimum delivery unit; the scene is the minimum generation unit. The lifecycle is:
+
+```text
+prepare -> generate candidates -> accept scenes -> check chapter
+        -> finalize -> apply continuity -> feedback and retrospective
+```
+
+Selecting a candidate does not accept prose. Accepting a scene does not finalize a chapter.
+Finalization first produces a reviewable change set; applying it is atomic and records the affected
+files, source chapter, before/after hashes, and recovery information.
 
 ## Core Modules
 
-### Project
+### Workspace and Project
 
-Project metadata, writing defaults, current cursor, and global genre profile.
+`quillarium-workspace.yaml` registers stable project IDs and shared-guidance references. Each
+`project.yaml` records a path-safe stable ID, display title, aliases, writing defaults, and project
+schema version. A title change does not change identity.
 
 ### Canon
 
-Confirmed facts and constraints. Each canon item should include:
+Canon contains confirmed or deprecated facts and constraints. Each item records strength, status,
+source, tags, and provenance. Accepted prose is stronger than plans; conflicts are reported for the
+author to resolve.
 
-- id
-- title
-- body
-- status: draft, confirmed, deprecated
-- strength: hard, soft
-- source: user, ai, imported, historical
-- tags
+### Characters and State
 
-Accepted/final prose is treated as the strongest canon. Planning, worldbuilding, and
-character notes may change to fit accepted prose; checkers should report conflicts and
-leave decisions to the author.
+Character profiles record identity, voice, relationships, arcs, motivation anchors, disclosure
+guards, and OOC constraints. Time-scoped state records knowledge, injury, clothing, inventory,
+relationships, and other continuity facts without overwriting the base profile.
 
-### Characters
+### Timeline, Locations, Resources, and Causality
 
-Character files hold identity, voice, relationships, arcs, and state guards.
+The timeline is a forward event chain. Locations form a graph whose edges record distance, route,
+travel time, access, cost, and risk. Resource records model genre-specific budgets such as money,
+supplies, influence, energy, or time. Causality records connect prerequisites, actions, and
+consequences so checks can explain infeasible transitions.
 
-Important characters should have:
+### Outlines and Scenes
 
-- base profile
-- speech style
-- values, fears, desires
-- volume arc
-- story arc state
-- scene state
-- OOC guardrails
-- motivation anchors
-- active flags
-- disclosure guards
+Book, volume, arc, chapter, and scene outlines store level-appropriate constraints. Chapter plans
+hold promise, conflict, payoff, hook, foreshadowing, and continuity obligations. Scenes bind POV,
+time, location, participants, intended state changes, and the chapter obligation they serve.
 
-### Timeline
+### Foreshadowing, World, References, and Issues
 
-The main timeline is a forward-only event chain. Flashbacks can reference older
-events but do not mutate the main chain.
+Foreshadowing is a ledger of planned plants, actual plants, reinforcement, resolution, expiry, and
+state. World entries are atomic lore records with triggers, validity windows, links, and provenance.
+References preserve research without becoming Canon. Issues keep unresolved decisions out of
+ephemeral AI exchanges.
 
-### Locations
+### Runs and Candidates
 
-Locations form a graph. Edges record distance, route type, travel time, access
-constraints, cost, and risk.
+Every generation creates an immutable run record. Runs may belong to a candidate group and record
+parent run, branch, selection time, and a versioned writing-preset snapshot. Candidate comparison can
+include deterministic findings and optional semantic scores, but only an explicit author action
+selects or accepts a draft.
 
-### Resources
-
-Resources express constraints: money, supplies, ships, soldiers, magic, energy,
-influence, time, or any other genre-specific budget.
-
-### Outlines
-
-Outline hierarchy:
+Typical run artifacts include:
 
 ```text
-book outline
-  volume outline
-    act / story arc
-      chapter outline
-        section outline
-          prose
+metadata.yaml
+context.md
+context-trace.json
+prompt.md
+preset-snapshot.yaml
+shared-guidance.md
+shared-guidance.json
+output-raw.md
+output-accepted.md
+check-report.md
 ```
 
-The Writer-inspired layer treats a volume as a destination, not a rigid event script.
-Volume and act outlines can store invariants, emotional curves, POV plans, start/end
-states, narrative function, and foreshadowing planned/resolved ids.
+### Prompts and Writing Presets
 
-### Foreshadowing
+Prompts are ordered, typed blocks rather than one opaque string. A versioned `WritingPreset` binds
+model settings, prompt stack, context policy, and check policy. Each run stores the exact snapshot or
+content hash needed to reproduce its inputs.
 
-Foreshadowing entries are ledger items with:
+## Explainable Context Compiler
 
-- id/code
-- level: L1-L5
-- planned plant, actual plant, reinforcement, planned resolve, expiry
-- state: planned, planted, reinforced, resolved, abandoned
-- related characters and arcs
+Context assembly follows a deterministic compiler pipeline:
 
-L4/L5 entries are deliberately short-range and should be checked often; they are the
-ones most likely to be forgotten during serialization.
+```text
+writing scope
+  -> candidate documents
+  -> trigger and relationship expansion
+  -> authority and priority ordering
+  -> model-aware token budgeting
+  -> deterministic truncation
+  -> ContextTrace
+```
 
-### World Entries
+`ContextPolicy` defines scope, explicit pins, eligible relationships, recursion limits, token budget,
+and truncation rules. `PromptBlock` records a block's type, role, source, authority, priority, token
+count, truncation strategy, and inclusion reason. `ContextTrace` explains every candidate's outcome
+and the final budget calculation. Recursive expansion is cycle-safe and bounded.
 
-World entries are atomic lore/worldbook records derived from canon or references.
-Each entry stores triggers, category tags, whether it is a constraint or texture,
-world-internal valid_from/valid_until dates, historical reference, story setting,
-usage records, links, and source.
+Probability, sticky state, and cooldown do not decide which authoritative facts enter context. Given
+the same project snapshot, policy, model tokenizer, and writing scope, compilation produces the same
+ordered blocks and trace. See
+[ADR-context-activation.md](adr/ADR-context-activation.md).
 
-### References
+## Events, Notes, and Summaries
 
-References preserve research notes and source material. They can be imported as
-Markdown and later mined into world entries.
+Committed core operations publish strongly typed lifecycle events such as `context.assembled`,
+`candidate.selected`, `scene.accepted`, and `finalization.applied`. Events describe completed domain
+changes; they do not authorize arbitrary file writes.
 
-### Issues
-
-Open writing issues are decisions that should not stay trapped in chat history:
-priority, state, due chapter/scene, related docs, and the decision needed.
-
-### Scenes
-
-Scenes or sections are the prose unit generated by AI, usually around 1,000 words.
-Each scene binds to timeline nodes, locations, POV, characters, and state changes.
-Scenes may also record chapter number, volume/act, world time, narrative function,
-chapter-break hook, foreshadowing planted/reinforced/resolved, world entries used,
-and story impact.
-
-### Runs
-
-Every AI generation creates a run directory containing:
-
-- metadata.yaml
-- context.md
-- prompt.md
-- output-raw.md
-- output-accepted.md
-- check-report.md
-
-### Prompts
-
-Prompts are versioned and editable. Prompt management should support reusable
-templates, model presets, workflow steps, and genre packs.
+Scoped writing notes may influence a book, volume, arc, chapter, or scene and may have explicit
+expiry. Rolling summaries are rebuildable derived artifacts with source-chapter references. Neither
+notes nor summaries replace accepted prose.
 
 ## Consistency Checks
 
-Initial checkers:
+Deterministic checks cover Canon conflict, timeline continuity, location reachability, character
+state and OOC guards, foreshadowing, world-entry validity, open issues, resources, causality, genre
+constraints, and chapter obligations. Semantic checks are additive and clearly labeled; their
+failure never erases deterministic findings.
 
-- canon conflict
-- timeline continuity
-- location reachability
-- character OOC
-- foreshadowing existence and simple plant/resolve state
-- world entry validity window
-- due open issues
-- outfit, wound, item, and knowledge state
-- resource feasibility
-- style and genre guardrails
-- chapter-end hook
+## Integration Boundary
 
-## Compatibility Scope
+Obsidian is the durable manual-editing surface. Git provides versioning at either workspace or
+standalone-project scope. Project-scoped Git actions compute their pathspec on the trusted side and
+cannot include another project or unrelated pre-staged files.
 
-Obsidian is Quillarium's sole active compatibility target. It is the durable storage and manual
-editing surface for the core writing workflow.
-
-The existing SillyTavern Character Card and World Info package and CLI commands are an optional
-retained implementation. They are not a supported compatibility surface, design goal, or roadmap
-commitment, and no preset or broader SillyTavern parity work is planned. They may remain while they do
-not interfere with the core Obsidian-backed workflow. Retaining them does not authorize copying
-SillyTavern code or accepting new license obligations.
+SillyTavern is neither a dependency nor a compatibility roadmap. Existing Character Card and World
+Info conversion may remain as optional format adapters while isolated from the core model. Design
+research may borrow abstract interaction or orchestration patterns through independent
+implementation; it does not copy code, prompts, comments, UI resources, or chat-centric semantics.
+The pinned research record and AGPL boundary are in [REFERENCES.md](REFERENCES.md).

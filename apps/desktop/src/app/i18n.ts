@@ -6,7 +6,7 @@ export const I18N = {
     changeVault: '更换 Obsidian 目录',
     chooseVault: '选择 Obsidian 目录',
     novelProjects: '小说项目',
-    noProjects: '还没有项目。创建后会出现在 Obsidian 目录的 novels 文件夹下。',
+    noProjects: '还没有项目。新项目会出现在写作工作区的 projects/ 目录下。',
     novelTitle: '小说名',
     openExistingProject: '打开已有项目',
     bookOutline: '全书大纲',
@@ -214,7 +214,7 @@ export const I18N = {
     changeVault: 'Change Obsidian Vault',
     chooseVault: 'Choose Obsidian Vault',
     novelProjects: 'Novel Projects',
-    noProjects: 'No projects yet. New projects will appear under the novels folder in your Obsidian vault.',
+    noProjects: 'No projects yet. New projects will appear under projects/ in your writing workspace.',
     novelTitle: 'Novel title',
     openExistingProject: 'Open Existing Project',
     bookOutline: 'Book Outline',
@@ -422,7 +422,7 @@ export const I18N = {
     canonMessagePlaceholder: 'Ask a question, paste material, or request a revision...',
     discussWithAI: 'Discuss with AI',
     summarizeToCanon: 'Summarize to Canon',
-    writer: 'Writer',
+    writer: 'Author',
     canonCurator: 'Canon Curator'
   }
 } as const

@@ -65,14 +65,16 @@ export function registerSceneHandlers(): void {
     return { run, report, markdown }
   })
   typedHandle('scene:generateDryRun', async (_event, root, sceneId) => {
-    const context = await assembleContext(root, sceneId)
+    const packet = await assembleContextPacket(root, { type: 'scene', id: sceneId })
+    const context = renderContextPacket(packet)
     const config = await loadDesktopAIProfile('prose')
-    return createGenerationRun(root, sceneId, context, config)
+    return createGenerationRun(root, sceneId, context, config, {}, packet.shared_guidance)
   })
   typedHandle('scene:generate', async (_event, root, sceneId) => {
-    const context = await assembleContext(root, sceneId)
+    const packet = await assembleContextPacket(root, { type: 'scene', id: sceneId })
+    const context = renderContextPacket(packet)
     const config = await loadDesktopAIProfile('prose')
-    const run = await createGenerationRun(root, sceneId, context, config)
+    const run = await createGenerationRun(root, sceneId, context, config, {}, packet.shared_guidance)
     const output = await generateIntoRun(root, run, context, config)
     return { run, output }
   })
@@ -81,11 +83,18 @@ export function registerSceneHandlers(): void {
     const packet = await assembleContextPacket(root, { type: 'outline', id: outlineId })
     const context = renderContextPacket(packet)
     const config = await loadDesktopAIProfile('prose')
-    const run = await createGenerationRun(root, scene.data.id, context, config, {
-      target_type: 'outline',
-      target_id: outlineId,
-      source_outline: outlineId
-    })
+    const run = await createGenerationRun(
+      root,
+      scene.data.id,
+      context,
+      config,
+      {
+        target_type: 'outline',
+        target_id: outlineId,
+        source_outline: outlineId
+      },
+      packet.shared_guidance
+    )
     const output = await generateIntoRun(root, run, context, config)
     return { run, output, scene: scene as DesktopDocEntry<SceneDoc> }
   })

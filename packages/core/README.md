@@ -6,15 +6,18 @@ imports and runs, manages finalization review sessions, and exports accepted man
 
 ## Primary APIs
 
-- Project and configuration: `createProject`, `loadProject`, `projectPaths`, `PROJECT_DIRS`,
-  `loadConfig`, `saveConfig`, and the vault helpers.
+- Workspace, project, and configuration: `loadWorkspace`, `listWorkspaceProjects`,
+  `registerWorkspaceProject`, `createProjectAt`, `loadProject`, `projectPaths`, `PROJECT_DIRS`,
+  `loadConfig`, and `saveConfig`. `createProject` is the explicit legacy-layout adapter.
+- Compatibility and migration: v1 project reads, `planProjectMigration`, `migrateProjectLayout`,
+  `migrateOutlineCycleFields`, and fingerprinted verification reports.
 - Documents and index: `createCanon`, `createCharacter`, `createCharacterState`,
   `appendTimelineEvent`, `createLocation`, `createRoute`, `createOutline`, `createScene`, the other
   `create*` helpers, `listDocs`, `findDoc`, `requireDoc`, and `buildIndex`.
 - Context and planning: `assembleContext`, `assembleContextPacket`, `renderContextPacket`,
   `buildSceneWritingPrompt`, and `buildChapterWritingPlan`.
 - Import and review: `importMarkdownPath`, import-session APIs, and finalization-review APIs.
-- Runs and export: `createRun`, `readRunFile`, `writeRunFile`, `listRuns`,
+- Runs and export: `createRun`, shared-guidance snapshots, `readRunFile`, `writeRunFile`, `listRuns`,
   `requireNonEmptyRunOutput`, and `exportManuscript`.
 - Public schemas, document types, Markdown/YAML helpers, IDs, and filesystem helpers are re-exported
   from the package entry point.
@@ -22,10 +25,10 @@ imports and runs, manages finalization review sessions, and exports accepted man
 ## Minimal Example
 
 ```ts
-import { buildIndex, createCanon, createProject } from '@quillarium/core'
+import { buildIndex, createCanon, createProjectAt } from '@quillarium/core'
 
-const project = await createProject({
-  vault: './local-vaults',
+const project = await createProjectAt('./writing-workspace/projects/my-novel', {
+  id: 'my-novel',
   title: 'My Novel',
   genre: 'fantasy'
 })
@@ -42,8 +45,8 @@ accepted run output, accepted-output signals, or final scenes and reports skippe
 
 Core is file-backed and contains no AI-provider or other network client. Calls can create or modify
 project files, and the global configuration helpers modify the user's Quillarium config, so tests
-should set `QUILL_CONFIG_DIR` to a temporary directory and use temporary vaults. Run its tests without
-network access with:
+should set `QUILL_CONFIG_DIR` to a temporary directory and use temporary workspace/project roots. Run
+its tests without network access with:
 
 ```bash
 pnpm exec vitest run packages/core/src

@@ -69,6 +69,7 @@ export interface AIStatus {
 }
 
 export interface ProjectCreateInput {
+  id?: string
   title: string
   genre?: string
   targetWords?: number
@@ -152,11 +153,18 @@ export interface GitStatus {
   branch: string | null
   remote: string | null
   summary: string
+  repositoryScope: 'standalone' | 'workspace'
+  repositoryRoot: string
+  projectPathspec: string
+  canInitializeRepository: boolean
 }
 
 export interface IpcContract {
   'config:get': { request: []; response: DesktopConfig }
   'config:getVault': { request: []; response: string | null }
+  'config:getWorkspace': { request: []; response: string | null }
+  'config:chooseWorkspace': { request: []; response: string | null }
+  'config:setWorkspace': { request: [dir: string]; response: string | undefined }
   'config:chooseVault': { request: []; response: string | null }
   'config:setVault': { request: [dir: string]; response: string | undefined }
   'config:migrateVault': { request: []; response: string | null }
@@ -285,6 +293,9 @@ export type IpcResponse<Channel extends IpcChannel> = IpcContract[Channel]['resp
 export const QUILLARIUM_API_CHANNELS = {
   getConfig: 'config:get',
   getVault: 'config:getVault',
+  getWorkspace: 'config:getWorkspace',
+  chooseWorkspace: 'config:chooseWorkspace',
+  setWorkspace: 'config:setWorkspace',
   chooseVault: 'config:chooseVault',
   setVault: 'config:setVault',
   migrateVault: 'config:migrateVault',

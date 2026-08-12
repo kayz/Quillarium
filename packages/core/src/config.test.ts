@@ -17,12 +17,19 @@ describe('configuration isolation', () => {
     roots.push(root)
     vi.stubEnv('QUILL_CONFIG_DIR', root)
 
-    await saveConfig({ language: 'en', obsidianDir: path.join(root, 'vault') })
+    await saveConfig({
+      language: 'en',
+      workspaceDir: path.join(root, 'workspace'),
+      recentProjectId: 'sample-project',
+      obsidianDir: path.join(root, 'vault')
+    })
 
     expect(configDir()).toBe(path.resolve(root))
     expect(configPath()).toBe(path.join(path.resolve(root), 'config.json'))
     await expect(loadConfig()).resolves.toEqual({
       language: 'en',
+      workspaceDir: path.join(root, 'workspace'),
+      recentProjectId: 'sample-project',
       obsidianDir: path.join(root, 'vault')
     })
   })

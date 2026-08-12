@@ -2,10 +2,7 @@ import path from 'node:path'
 import { ensureDir, pathExists, readText, writeText } from './fs.js'
 
 export type PromptName =
-  | 'background-import'
-  | 'background-issue-followup'
-  | 'check-finalize-review'
-  | 'prose-scene-draft'
+  'background-import' | 'background-issue-followup' | 'check-finalize-review' | 'prose-scene-draft'
 
 export interface PromptAsset {
   name: PromptName

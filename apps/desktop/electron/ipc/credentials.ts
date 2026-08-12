@@ -44,7 +44,7 @@ export async function loadDesktopConfig(): Promise<DesktopConfig> {
     : undefined
   let github: DesktopGitHubConfig | undefined
   if (loaded.config.github) {
-    let hasToken = false
+    let hasToken: boolean
     if (loaded.config.github.tokenEncrypted !== undefined) {
       try {
         hasToken = Boolean(decryptCredential(loaded.config.github.tokenEncrypted))

@@ -1,8 +1,8 @@
 # Quillarium CLI
 
-The CLI manages a Quillarium novel as Markdown and YAML inside an Obsidian vault. The examples below
-run the TypeScript entry point from the repository root with `pnpm cli`; the built binary name is
-`quill`.
+The CLI manages Quillarium workspaces and direct project-vault roots as Markdown and YAML. The
+examples below run the TypeScript entry point from the repository root with `pnpm cli`; the built
+binary name is `quill`.
 
 ## Quick Start
 
@@ -14,36 +14,41 @@ pnpm build
 pnpm cli --help
 ```
 
-Configure an Obsidian vault and create a novel:
+Start with a workspace that contains `quillarium-workspace.yaml` and a `projects/` directory, then
+register it and create a novel:
 
 ```bash
-pnpm cli config set-vault ./local-vaults
-pnpm cli init "My Novel" --genre historical-political
+pnpm cli config set-workspace ./writing-workspace
+pnpm cli init "My Novel" --id my-novel --genre historical-political
 ```
 
-If no vault is configured, `init` tries to open a system folder picker. If that is unavailable, use
-`config set-vault <path>` or pass `init --vault <path>`. The project root for this example is:
+The project root for this example is itself an Obsidian vault and contains both `.obsidian/` and
+`project.yaml`:
 
 ```text
-./local-vaults/novels/My Novel
+./writing-workspace/projects/my-novel
 ```
+
+The historical `<vault>/novels/<title>` layout remains readable. Explicit `init --vault <path>` is a
+legacy compatibility path only; new projects default to the configured workspace.
 
 All commands that operate on a novel require `-p, --project <path>`.
 
 For automation, portable sessions, or isolated tests, set `QUILL_CONFIG_DIR` before running CLI or
 desktop commands. Quillarium will read and write `config.json` there instead of the user-level
-`~/.quillarium` directory, so `init --vault` cannot alter the normal default vault.
+`~/.quillarium` directory, so test commands cannot alter the normal workspace or legacy-vault
+configuration.
 
 ## Main Writing Flow
 
 ### 1. Add structured material
 
 ```bash
-pnpm cli canon add "Succession Rule" --project "./local-vaults/novels/My Novel" --content "Only the elder line may inherit."
-pnpm cli character add "Lin Yue" --project "./local-vaults/novels/My Novel" --role protagonist --ooc "Never breaks an explicit oath"
-pnpm cli location add "Old Palace" --project "./local-vaults/novels/My Novel"
-pnpm cli timeline append "Opening Night" --project "./local-vaults/novels/My Novel" --location loc-old-palace --characters char-lin-yue
-pnpm cli outline add section "Opening Section" --project "./local-vaults/novels/My Novel" --chapter-hook
+pnpm cli canon add "Succession Rule" --project "./writing-workspace/projects/my-novel" --content "Only the elder line may inherit."
+pnpm cli character add "Lin Yue" --project "./writing-workspace/projects/my-novel" --role protagonist --ooc "Never breaks an explicit oath"
+pnpm cli location add "Old Palace" --project "./writing-workspace/projects/my-novel"
+pnpm cli timeline append "Opening Night" --project "./writing-workspace/projects/my-novel" --location loc-old-palace --characters char-lin-yue
+pnpm cli outline add section "Opening Section" --project "./writing-workspace/projects/my-novel" --chapter-hook
 ```
 
 Create commands print the created file path. Use the corresponding `list` command to confirm the
@@ -53,17 +58,17 @@ Other first-class records include world entries, foreshadowing, references, issu
 routes, and book/volume/arc/chapter outlines:
 
 ```bash
-pnpm cli world add "Granulated Powder" --project "./local-vaults/novels/My Novel" --trigger powder fire-lance --role constraint --valid-from 1449 --content "The powder ignites only when kept dry."
-pnpm cli foreshadowing add "FB-L4-001" --project "./local-vaults/novels/My Novel" --summary "The old fleet still exists" --expires-at chapter-020
-pnpm cli issue add "Decide first-act POV order" --project "./local-vaults/novels/My Novel" --priority high --due chapter-003
-pnpm cli strategy add "Courtroom Pressure" --project "./local-vaults/novels/My Novel" --category pacing --principle "Every exchange changes leverage" --avoid "Unopposed exposition"
+pnpm cli world add "Granulated Powder" --project "./writing-workspace/projects/my-novel" --trigger powder fire-lance --role constraint --valid-from 1449 --content "The powder ignites only when kept dry."
+pnpm cli foreshadowing add "FB-L4-001" --project "./writing-workspace/projects/my-novel" --summary "The old fleet still exists" --expires-at chapter-020
+pnpm cli issue add "Decide first-act POV order" --project "./writing-workspace/projects/my-novel" --priority high --due chapter-003
+pnpm cli strategy add "Courtroom Pressure" --project "./writing-workspace/projects/my-novel" --category pacing --principle "Every exchange changes leverage" --avoid "Unopposed exposition"
 ```
 
 ### 2. Create a scene
 
 ```bash
 pnpm cli scene create "Opening Scene" \
-  --project "./local-vaults/novels/My Novel" \
+  --project "./writing-workspace/projects/my-novel" \
   --section section-opening-section \
   --timeline evt-opening-night \
   --location loc-old-palace \
@@ -77,21 +82,21 @@ pnpm cli scene create "Opening Scene" \
 Print the assembled scene context:
 
 ```bash
-pnpm cli context scene-opening-scene --project "./local-vaults/novels/My Novel"
+pnpm cli context scene-opening-scene --project "./writing-workspace/projects/my-novel"
 ```
 
 Use `--run` to create a run directory and save `context.md`. A generation dry run creates the run,
 `context.md`, and `prompt.md` without calling a model:
 
 ```bash
-pnpm cli generate scene-opening-scene --project "./local-vaults/novels/My Novel" --dry-run
+pnpm cli generate scene-opening-scene --project "./writing-workspace/projects/my-novel" --dry-run
 ```
 
 After configuring AI credentials, omit `--dry-run` to call the provider and record
 `output-raw.md`:
 
 ```bash
-pnpm cli generate scene-opening-scene --project "./local-vaults/novels/My Novel"
+pnpm cli generate scene-opening-scene --project "./writing-workspace/projects/my-novel"
 ```
 
 ### 4. Check and accept
@@ -99,13 +104,13 @@ pnpm cli generate scene-opening-scene --project "./local-vaults/novels/My Novel"
 The default scene check is deterministic and does not call a model:
 
 ```bash
-pnpm cli check scene-opening-scene --project "./local-vaults/novels/My Novel"
+pnpm cli check scene-opening-scene --project "./writing-workspace/projects/my-novel"
 ```
 
 Outline targets use the same report format:
 
 ```bash
-pnpm cli check outline-volume-one --type outline --project "./local-vaults/novels/My Novel"
+pnpm cli check outline-volume-one --type outline --project "./writing-workspace/projects/my-novel"
 ```
 
 It checks document references, timeline and previous-scene links, locations and routes,
@@ -113,7 +118,7 @@ foreshadowing references, world-entry validity, due open issues, and scene const
 AI-assisted OOC, character-state drift, and Canon-conflict checks, add `--semantic`:
 
 ```bash
-pnpm cli check scene-opening-scene --semantic --project "./local-vaults/novels/My Novel"
+pnpm cli check scene-opening-scene --semantic --project "./writing-workspace/projects/my-novel"
 ```
 
 Semantic findings are additive: deterministic checks still run first. Missing AI configuration,
@@ -126,10 +131,10 @@ semantic degradation so deterministic results are still usable.
 Inspect and accept generated output:
 
 ```bash
-pnpm cli run list --project "./local-vaults/novels/My Novel"
-pnpm cli run show run-example --file output-raw.md --project "./local-vaults/novels/My Novel"
-pnpm cli run set-output run-example --file ./candidate-prose.md --project "./local-vaults/novels/My Novel"
-pnpm cli run accept run-example --project "./local-vaults/novels/My Novel"
+pnpm cli run list --project "./writing-workspace/projects/my-novel"
+pnpm cli run show run-example --file output-raw.md --project "./writing-workspace/projects/my-novel"
+pnpm cli run set-output run-example --file ./candidate-prose.md --project "./writing-workspace/projects/my-novel"
+pnpm cli run accept run-example --project "./writing-workspace/projects/my-novel"
 ```
 
 `run set-output` loads a non-empty UTF-8 file into `output-raw.md` and marks the run generated. This
@@ -143,8 +148,8 @@ prose. Pass `--scene <scene-id>` only when the scene recorded in run metadata mu
 ### 5. Export accepted prose
 
 ```bash
-pnpm cli export --format md --project "./local-vaults/novels/My Novel"
-pnpm cli export --format txt --volume outline-volume-one --project "./local-vaults/novels/My Novel"
+pnpm cli export --format md --project "./writing-workspace/projects/my-novel"
+pnpm cli export --format txt --volume outline-volume-one --project "./writing-workspace/projects/my-novel"
 ```
 
 `--format` accepts only `md` or `txt`; `--volume` accepts a volume-outline ID. The exporter writes a
@@ -202,10 +207,10 @@ the operating-system user context and are not portable CLI credentials.
 Import a Markdown file or directory:
 
 ```bash
-pnpm cli import markdown ./notes/blueprint.md --project "./local-vaults/novels/My Novel"
+pnpm cli import markdown ./notes/blueprint.md --project "./writing-workspace/projects/my-novel"
 ```
 
-The importer maps English frontmatter and Writer-style Chinese fields when possible, including:
+The importer maps English frontmatter and structured Chinese fields when possible, including:
 
 - `类型: 人物` to character
 - `类型: 伏笔` to foreshadowing
@@ -218,8 +223,8 @@ Markdown without frontmatter is classified from its path, first heading, and ear
 `--strategy auto|single|sections`, or force a default type for unstructured notes:
 
 ```bash
-pnpm cli import markdown ./blueprint.md --strategy sections --project "./local-vaults/novels/My Novel"
-pnpm cli import markdown ./research.md --type reference --project "./local-vaults/novels/My Novel"
+pnpm cli import markdown ./blueprint.md --strategy sections --project "./writing-workspace/projects/my-novel"
+pnpm cli import markdown ./research.md --type reference --project "./writing-workspace/projects/my-novel"
 ```
 
 The `import ai-plan`, `answer`, `land`, and `show` commands manage reviewable import sessions. The
@@ -231,7 +236,7 @@ silently call a provider.
 Import a CCv2/CCv3 JSON card or a PNG Character Card:
 
 ```bash
-pnpm cli st import-card ./cards/hero.png --project "./local-vaults/novels/My Novel"
+pnpm cli st import-card ./cards/hero.png --project "./writing-workspace/projects/my-novel"
 ```
 
 The import creates a Quillarium character and preserves the original card JSON under
@@ -241,7 +246,7 @@ are present.
 Export one character as CCv2 JSON:
 
 ```bash
-pnpm cli st export-card char-lin-yue --project "./local-vaults/novels/My Novel"
+pnpm cli st export-card char-lin-yue --project "./writing-workspace/projects/my-novel"
 ```
 
 The stable output path is `sillytavern/<character-id>-card-v2.json`.
@@ -249,7 +254,7 @@ The stable output path is `sillytavern/<character-id>-card-v2.json`.
 Export Canon and world entries as SillyTavern World Info JSON:
 
 ```bash
-pnpm cli st export-lorebook --project "./local-vaults/novels/My Novel"
+pnpm cli st export-lorebook --project "./writing-workspace/projects/my-novel"
 ```
 
 The output path is `sillytavern/quillarium-world-info.json`. Archived/deprecated Canon and inactive,
@@ -263,8 +268,9 @@ and options.
 
 | Command          | Subcommands or purpose                                                         |
 | ---------------- | ------------------------------------------------------------------------------ |
-| `config`         | `set-vault`, `get-vault`, `choose-vault`                                       |
-| `init`           | Create a project under `<vault>/novels/<title>`                                |
+| `workspace`      | `list`, `create-project`                                                       |
+| `config`         | Workspace configuration plus explicit legacy-vault compatibility               |
+| `init`           | Create/register `projects/<id>`; `--vault` is legacy-only                      |
 | `canon`          | `add`, `import`, `list`, `search`                                              |
 | `character`      | `add`, `list`                                                                  |
 | `foreshadowing`  | `add`, `list`                                                                  |

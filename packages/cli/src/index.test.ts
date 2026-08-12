@@ -88,6 +88,31 @@ async function initProject(): Promise<{ vault: string; root: string }> {
   return { vault, root: path.join(vault, 'novels', title) }
 }
 
+async function initWorkspaceProject(): Promise<{ workspace: string; root: string; id: string }> {
+  const { mkdtemp, mkdir } = await import('node:fs/promises')
+  const os = await import('node:os')
+  const workspace = await mkdtemp(path.join(os.tmpdir(), 'quillarium-cli-workspace-'))
+  const id = `workspace-novel-${++projectSequence}`
+  temporaryVaults.push(workspace)
+  vi.stubEnv('QUILL_CONFIG_DIR', path.join(workspace, '.test-config'))
+  await mkdir(path.join(workspace, 'projects'), { recursive: true })
+  await writeFile(
+    path.join(workspace, 'quillarium-workspace.yaml'),
+    [
+      'schema_version: 1',
+      'id: sample-workspace',
+      'projects_dir: projects',
+      'projects: []',
+      'shared_guidance: []',
+      ''
+    ].join('\n'),
+    'utf8'
+  )
+  await run('config', 'set-workspace', workspace)
+  await run('init', 'Workspace Novel', '--id', id, '--genre', 'mystery')
+  return { workspace, root: path.join(workspace, 'projects', id), id }
+}
+
 async function seedScene(root: string): Promise<{
   sceneId: string
   sectionId: string
@@ -294,7 +319,25 @@ describe('CLI smoke flow', () => {
     expect(help.match(/Required/g)).toHaveLength(4)
   })
 
-  it('initializes a real project in a temporary vault', async () => {
+  it('uses neutral author terminology in public import and finalize help', () => {
+    const program = buildProgram()
+    const importCommand = program.commands.find((command) => command.name() === 'import')
+    const markdown = importCommand?.commands.find((command) => command.name() === 'markdown')
+    const importAnswer = importCommand?.commands.find((command) => command.name() === 'answer')
+    const finalize = program.commands.find((command) => command.name() === 'finalize')
+    const finalizeConfirm = finalize?.commands.find((command) => command.name() === 'confirm')
+    const help = [
+      markdown?.helpInformation() ?? '',
+      importAnswer?.helpInformation() ?? '',
+      finalizeConfirm?.helpInformation() ?? ''
+    ].join('\n')
+
+    expect(help).toContain('structured Chinese fields')
+    expect(help.match(/Author answer/g)).toHaveLength(2)
+    expect(help).not.toMatch(/Writer/)
+  })
+
+  it('keeps explicit legacy-vault creation available without making it the default', async () => {
     const { root } = await initProject()
     const config = await readFile(path.join(root, 'project.yaml'), 'utf8')
 
@@ -303,6 +346,19 @@ describe('CLI smoke flow', () => {
     expect(config).toContain('genre: mystery')
     expect(config).toContain('target_words: 50000')
     expect(config).toContain('default_theme: ink')
+    expect(output.at(-1)).toBe(`Created legacy project: ${root}`)
+  })
+
+  it('initializes and registers a direct project-vault in the configured workspace by default', async () => {
+    const { workspace, root, id } = await initWorkspaceProject()
+    const config = await readFile(path.join(root, 'project.yaml'), 'utf8')
+    const manifest = await readFile(path.join(workspace, 'quillarium-workspace.yaml'), 'utf8')
+
+    expect(config).toContain('schema_version: 2')
+    expect(config).toContain(`id: ${id}`)
+    expect(await pathExists(path.join(root, '.obsidian'))).toBe(true)
+    expect(manifest).toContain(`id: ${id}`)
+    expect(manifest).toContain(`path: projects/${id}`)
     expect(output.at(-1)).toBe(`Created project: ${root}`)
   })
 

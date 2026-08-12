@@ -1,9 +1,10 @@
 import path from 'node:path'
-import { readdir } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
+import { readdir, rename, rm, writeFile } from 'node:fs/promises'
 import { ensureDir, pathExists, readText, writeText } from './fs.js'
 import { timestampId } from './ids.js'
 import { objectToYaml, parseMarkdown } from './yaml.js'
-import type { RunMetadata } from './types.js'
+import type { RunMetadata, SharedGuidanceContent } from './types.js'
 
 export function requireNonEmptyRunOutput(content: string, runId: string): string {
   if (!content.trim()) throw new Error(`Run output is empty; refusing to overwrite a scene: ${runId}`)
@@ -68,6 +69,53 @@ export async function readRunFile(projectRoot: string, runId: string, fileName: 
   return readText(resolveRunFile(runDir, fileName))
 }
 
+export async function snapshotSharedGuidance(
+  projectRoot: string,
+  metadata: RunMetadata,
+  guidance: SharedGuidanceContent[]
+): Promise<{ markdown_path: string; metadata_path: string }> {
+  const runDir = path.resolve(projectRoot, metadata.run_dir)
+  assertRunDirectory(projectRoot, runDir)
+  const markdownPath = path.join(runDir, 'shared-guidance.md')
+  const metadataPath = path.join(runDir, 'shared-guidance.json')
+  if ((await pathExists(markdownPath)) || (await pathExists(metadataPath))) {
+    throw new Error(`Shared guidance snapshot already exists and is immutable: ${metadata.id}`)
+  }
+
+  const markdown = renderSharedGuidanceSnapshot(guidance)
+  const snapshotMetadata = {
+    schema_version: 1,
+    items: guidance.map(({ id, path: sourcePath, scope, sha256, read_at }) => ({
+      id,
+      path: sourcePath,
+      scope,
+      sha256,
+      read_at
+    }))
+  }
+  const nonce = randomUUID()
+  const markdownTemporary = `${markdownPath}.${nonce}.tmp`
+  const metadataTemporary = `${metadataPath}.${nonce}.tmp`
+  await writeFile(markdownTemporary, markdown, { encoding: 'utf8', flag: 'wx' })
+  try {
+    await writeFile(metadataTemporary, `${JSON.stringify(snapshotMetadata, null, 2)}\n`, {
+      encoding: 'utf8',
+      flag: 'wx'
+    })
+    await rename(markdownTemporary, markdownPath)
+    try {
+      await rename(metadataTemporary, metadataPath)
+    } catch (error) {
+      await rm(markdownPath, { force: true })
+      throw error
+    }
+  } catch (error) {
+    await Promise.all([rm(markdownTemporary, { force: true }), rm(metadataTemporary, { force: true })])
+    throw error
+  }
+  return { markdown_path: markdownPath, metadata_path: metadataPath }
+}
+
 export async function listRuns(projectRoot: string): Promise<RunMetadata[]> {
   const runsRoot = path.join(projectRoot, 'runs')
   if (!(await pathExists(runsRoot))) return []
@@ -122,4 +170,12 @@ function resolveRunFile(runDir: string, fileName: string): string {
     throw new Error(`Unsafe run file path: ${candidate}`)
   }
   return candidate
+}
+
+function renderSharedGuidanceSnapshot(guidance: SharedGuidanceContent[]): string {
+  const sections = guidance.map(
+    (item) =>
+      `## ${item.id}\n\npath: ${item.path}\nscope: ${item.scope}\nsha256: ${item.sha256}\nread_at: ${item.read_at}\n\n${item.content.trimEnd()}`
+  )
+  return `# Shared Guidance Snapshot\n\n${sections.join('\n\n')}\n`
 }

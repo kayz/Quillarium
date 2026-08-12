@@ -5,7 +5,7 @@ import { Command } from 'commander'
 import dotenv from 'dotenv'
 import {
   appendTimelineEvent,
-  assembleContext,
+  assembleContextPacket,
   buildChapterWritingPlan,
   buildFinalizeReviewPrompt,
   buildIndex,
@@ -22,6 +22,7 @@ import {
   createOutline,
   createPattern,
   createProject,
+  createProjectAt,
   createReference,
   createRoute,
   createScene,
@@ -32,6 +33,8 @@ import {
   exportManuscript,
   answerImportIssue,
   getObsidianDir,
+  getWorkspaceDir,
+  listWorkspaceProjects,
   importCanonFile,
   importMarkdownPath,
   landImportSession,
@@ -40,8 +43,14 @@ import {
   listRuns,
   listDocs,
   readPrompt,
+  renderContextPacket,
+  snapshotSharedGuidance,
   searchCanon,
   setObsidianDir,
+  setWorkspaceDir,
+  loadWorkspace,
+  registerWorkspaceProject,
+  stableProjectId,
   writeRunFile,
   type BaseDoc,
   type DocType,
@@ -68,7 +77,36 @@ export function buildProgram(): Command {
   program
     .name('quill')
     .description('Quillarium CLI for Obsidian-backed long-form fiction projects')
-    .version('0.1.0')
+    .version('0.2.0-alpha.1')
+
+  const workspace = program.command('workspace').description('Manage writing workspaces')
+  workspace
+    .command('list')
+    .argument('<root>', 'Writing workspace root')
+    .description('List projects registered by a workspace manifest')
+    .action(async (root) => {
+      for (const project of await listWorkspaceProjects(path.resolve(root))) {
+        console.log(`${project.config.id}\t${project.config.title}\t${project.root}`)
+      }
+    })
+  workspace
+    .command('create-project')
+    .argument('<root>', 'Writing workspace root')
+    .argument('<id>', 'Stable project id')
+    .argument('<title>', 'Display title')
+    .option('--genre <genre>', 'Genre', 'general')
+    .description('Create and register a direct project-vault')
+    .action(async (root, id, title, opts) => {
+      const loaded = await loadWorkspace(path.resolve(root))
+      const normalizedId = stableProjectId(id)
+      if (normalizedId !== id) throw new Error(`Project id must be path-safe: ${normalizedId}`)
+      const relative = path.posix.join(loaded.manifest.projects_dir.replace(/\\/g, '/'), id)
+      const projectRoot = path.join(loaded.root, ...relative.split('/'))
+      await createProjectAt(projectRoot, { id, title, genre: opts.genre })
+      await registerWorkspaceProject(loaded.root, { id, path: relative })
+      await setWorkspaceDir(loaded.root, id)
+      console.log(projectRoot)
+    })
 
   function projectOption(cmd: Command): Command {
     return cmd.requiredOption('-p, --project <path>', 'Novel project root')
@@ -95,7 +133,39 @@ export function buildProgram(): Command {
     )
   }
 
+  async function resolveWritingWorkspace(optionWorkspace?: string): Promise<string> {
+    const configured = optionWorkspace ? path.resolve(optionWorkspace) : await getWorkspaceDir()
+    if (!configured) {
+      throw new Error(
+        `Writing workspace is not configured. Run: quill config set-workspace <path>\nConfig file: ${configPath()}`
+      )
+    }
+    const workspace = await loadWorkspace(configured)
+    if (optionWorkspace) await setWorkspaceDir(workspace.root)
+    return workspace.root
+  }
+
   const configCmd = program.command('config').description('Manage Quillarium global configuration')
+  configCmd
+    .command('set-workspace')
+    .argument('<path>', 'Writing workspace root')
+    .description('Validate and save the workspace used by quill init')
+    .action(async (dir) => {
+      const workspace = await loadWorkspace(path.resolve(dir))
+      const config = await setWorkspaceDir(workspace.root)
+      console.log(`Writing workspace: ${config.workspaceDir}`)
+    })
+  configCmd
+    .command('get-workspace')
+    .description('Show the configured writing workspace')
+    .action(async () => {
+      const dir = await getWorkspaceDir()
+      if (!dir) {
+        console.log(`No writing workspace configured. Config file: ${configPath()}`)
+        return
+      }
+      console.log(dir)
+    })
   configCmd
     .command('set-vault')
     .argument('<path>', 'Obsidian vault directory')
@@ -128,24 +198,48 @@ export function buildProgram(): Command {
   program
     .command('init')
     .argument('<title>', 'Novel title')
-    .option('--vault <path>', 'Obsidian vault directory; also saves global config')
+    .option('--id <id>', 'Stable path-safe project id; defaults to a slug derived from the title')
+    .option('--workspace <path>', 'Writing workspace root; also saves global config')
+    .option('--vault <path>', 'Legacy compatibility: create under <vault>/novels/<title>')
     .option('--genre <genre>', 'Genre profile', 'general')
     .option('--target-words <number>', 'Target word count', (v) => Number(v), 0)
     .option('--chapter-words <number>', 'Default chapter words', (v) => Number(v), 3200)
     .option('--section-words <number>', 'Default section words', (v) => Number(v), 1000)
     .option('--default-theme <theme>', 'Default UI theme: paper | ink | mist | bamboo', 'paper')
-    .description('Create a novel project folder under <vault>/novels/<title>')
+    .description('Create and register a direct project-vault in the configured writing workspace')
     .action(async (title, opts) => {
-      const vault = await resolveVault(opts.vault)
-      const paths = await createProject({
-        vault,
+      if (opts.vault) {
+        const vault = await resolveVault(opts.vault)
+        const paths = await createProject({
+          vault,
+          title,
+          genre: opts.genre,
+          targetWords: opts.targetWords,
+          chapterWords: opts.chapterWords,
+          sectionWords: opts.sectionWords,
+          defaultTheme: opts.defaultTheme
+        })
+        console.log(`Created legacy project: ${paths.root}`)
+        return
+      }
+
+      const workspaceRoot = await resolveWritingWorkspace(opts.workspace)
+      const workspace = await loadWorkspace(workspaceRoot)
+      const id = opts.id ?? stableProjectId(title)
+      if (stableProjectId(id) !== id) throw new Error(`Project id must be path-safe: ${stableProjectId(id)}`)
+      const relative = path.posix.join(workspace.manifest.projects_dir.replace(/\\/g, '/'), id)
+      const projectRoot = path.join(workspace.root, ...relative.split('/'))
+      const paths = await createProjectAt(projectRoot, {
+        id,
         title,
         genre: opts.genre,
-        targetWords: opts.targetWords,
-        chapterWords: opts.chapterWords,
-        sectionWords: opts.sectionWords,
-        defaultTheme: opts.defaultTheme
+        target_words: opts.targetWords,
+        chapter_words: opts.chapterWords,
+        section_words: opts.sectionWords,
+        default_theme: opts.defaultTheme
       })
+      await registerWorkspaceProject(workspace.root, { id, path: relative })
+      await setWorkspaceDir(workspace.root, id)
       console.log(`Created project: ${paths.root}`)
     })
 
@@ -540,7 +634,7 @@ export function buildProgram(): Command {
       .argument('<path>', 'Markdown file or directory')
       .option('--strategy <strategy>', 'auto | single | sections', 'auto')
       .option('--type <type>', 'Default document type when no frontmatter is present')
-      .description('Import Markdown and map Writer-style frontmatter where possible')
+      .description('Import Markdown and map structured Chinese fields where possible')
   ).action(async (inputPath, opts) => {
     const results = await importMarkdownPath(path.resolve(opts.project), path.resolve(inputPath), {
       strategy: opts.strategy,
@@ -580,7 +674,7 @@ export function buildProgram(): Command {
       .command('answer')
       .argument('<session-id>', 'Import session id')
       .argument('<issue-id>', 'Issue id')
-      .argument('<answer>', 'Writer answer')
+      .argument('<answer>', 'Author answer')
       .description('Answer an import session issue')
   ).action(async (sessionId, issueId, answer, opts) => {
     const session = await answerImportIssue(path.resolve(opts.project), sessionId, issueId, answer)
@@ -612,10 +706,12 @@ export function buildProgram(): Command {
       .description('Assemble context for a scene')
   ).action(async (sceneId, opts) => {
     const root = path.resolve(opts.project)
-    const context = await assembleContext(root, sceneId)
+    const packet = await assembleContextPacket(root, { type: 'scene', id: sceneId })
+    const context = renderContextPacket(packet)
     if (opts.run) {
       const run = await createRun(root, sceneId)
       await writeRunFile(root, run, 'context.md', context)
+      await snapshotSharedGuidance(root, run, packet.shared_guidance)
       console.log(run.id)
     } else {
       console.log(context)
@@ -630,9 +726,10 @@ export function buildProgram(): Command {
       .description('Generate a scene with configured OpenAI-compatible provider')
   ).action(async (sceneId, opts) => {
     const root = path.resolve(opts.project)
-    const context = await assembleContext(root, sceneId)
+    const packet = await assembleContextPacket(root, { type: 'scene', id: sceneId })
+    const context = renderContextPacket(packet)
     const config = loadAIConfig()
-    const run = await createGenerationRun(root, sceneId, context, config)
+    const run = await createGenerationRun(root, sceneId, context, config, {}, packet.shared_guidance)
     if (opts.dryRun) {
       console.log(`Created dry run: ${run.id}`)
       return
@@ -734,7 +831,7 @@ export function buildProgram(): Command {
       .command('confirm')
       .argument('<session-id>', 'Review session id')
       .argument('<impact-id>', 'Impact id')
-      .argument('<answer>', 'Writer answer')
+      .argument('<answer>', 'Author answer')
       .option('--reject', 'Reject the impact')
       .description('Confirm or reject a finalize impact')
   ).action(async (sessionId, impactId, answer, opts) => {

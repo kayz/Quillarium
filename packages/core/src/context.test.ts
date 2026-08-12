@@ -18,7 +18,7 @@ import {
   createStrategy,
   createWorldEntry
 } from './documents.js'
-import { createProject } from './project.js'
+import { createProjectAt } from './project.js'
 
 const temporaryVaults: string[] = []
 let projectSequence = 0
@@ -28,14 +28,11 @@ afterEach(async () => {
 })
 
 async function project(): Promise<string> {
-  const vault = await mkdtemp(path.join(os.tmpdir(), 'quillarium-context-'))
-  temporaryVaults.push(vault)
+  const base = await mkdtemp(path.join(os.tmpdir(), 'quillarium-context-'))
+  temporaryVaults.push(base)
+  const id = `context-fixture-${++projectSequence}`
   return (
-    await createProject({
-      vault,
-      title: `Context Fixture ${++projectSequence}`,
-      genre: 'test'
-    })
+    await createProjectAt(path.join(base, 'projects', id), { id, title: 'Context Fixture', genre: 'test' })
   ).root
 }
 

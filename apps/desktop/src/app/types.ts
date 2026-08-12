@@ -62,6 +62,8 @@ export interface GitHubSettings {
 
 export interface ProjectListItem {
   root: string
+  id: string
+  aliases: string[]
   title: string
   genre: string
   target_words: number
@@ -126,4 +128,8 @@ export interface GitState {
   branch: string | null
   remote: string | null
   summary: string
+  repositoryScope: 'standalone' | 'workspace'
+  repositoryRoot: string
+  projectPathspec: string
+  canInitializeRepository: boolean
 }

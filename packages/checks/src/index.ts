@@ -104,11 +104,11 @@ export async function checkOutline(projectRoot: string, outlineId: string): Prom
         message: 'Volume outline has no event_chain.'
       })
     }
-    if ((outline.data.writer_cycles ?? []).length < 3) {
+    if ((outline.data.story_cycles ?? []).length < 3) {
       issues.push({
         severity: 'info',
-        code: 'volume-thin-writer-cycles',
-        message: 'Volume should advance at least three Writer cycles.'
+        code: 'volume-thin-story-cycles',
+        message: 'Volume should advance at least three story cycles.'
       })
     }
     if (!(outline.data.related_timeline ?? []).length) {

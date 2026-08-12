@@ -4,7 +4,9 @@ Quillarium (羽笔馆) is a local-first, Obsidian-backed writing system for long
 stores a novel as Markdown and YAML, keeps planning facts traceable, records AI runs, checks
 continuity, and exports accepted prose.
 
-Obsidian is Quillarium's sole active compatibility target and durable manual-editing surface.
+Quillarium is the sole product runtime. Obsidian is its durable manual-editing surface. A writing
+workspace may register multiple projects and shared guidance, while each project directory is both
+an independent Obsidian vault and a Quillarium project root.
 
 ## What Works Now
 
@@ -14,8 +16,9 @@ Obsidian is Quillarium's sole active compatibility target and durable manual-edi
 - A working source-run CLI for creating and editing those records, importing Markdown, assembling
   context, generating drafts, running deterministic or opt-in semantic checks, accepting runs, and
   exporting manuscripts.
-- An Electron desktop app for choosing an Obsidian vault, creating or opening projects, planning,
-  writing, importing Markdown text, generating/checking scenes, reviewing runs, and accepting prose.
+- An Electron desktop app for registering a writing workspace, creating or opening direct
+  project-vaults, safely migrating legacy projects, planning, writing, generating/checking scenes,
+  reviewing runs, and accepting prose.
 - Markdown and plain-text manuscript export from accepted outputs or final scenes, with explicit gap
   reporting and optional volume filtering.
 - An optional retained SillyTavern interchange package for CCv2/CCv3 JSON or PNG import, CCv2 JSON
@@ -35,15 +38,18 @@ pnpm build
 pnpm test
 ```
 
-Create a local vault and project:
+Given a directory containing `quillarium-workspace.yaml` and `projects/`, register it and create a
+direct project-vault:
 
 ```bash
-pnpm cli config set-vault ./local-vaults
-pnpm cli init "My Novel" --genre fantasy
+pnpm cli config set-workspace ./writing-workspace
+pnpm cli init "My Novel" --id my-novel --genre fantasy
 pnpm cli --help
 ```
 
-The project is created at `./local-vaults/novels/My Novel`. Continue with the
+The project is created and registered at `./writing-workspace/projects/my-novel`; that directory is
+also the Obsidian vault. Explicit `init --vault <path>` remains only for legacy compatibility.
+Continue with the
 [CLI guide](docs/CLI.md) for the end-to-end writing, checking, acceptance, and export flow. The guide
 also documents the optional retained SillyTavern commands.
 
@@ -55,10 +61,11 @@ Start the Electron app from source:
 pnpm desktop:dev
 ```
 
-Then choose an Obsidian vault, create or open a novel, build its outline and supporting modules,
-select a scene, and edit or generate prose. The context/check inspector and recorded runs make the
-inputs and outputs reviewable; accepting a run writes its raw output to `output-accepted.md` and the
-scene document. AI profiles and credential status are managed from desktop settings.
+Then register a writing workspace, open or create a project-vault, build its outline and supporting
+modules, select a scene, and edit or generate prose. A configured legacy vault can still be opened or
+migrated through the explicit dry-run, backup, apply, verify, and report flow; migration never moves
+or deletes the source. The context/check inspector and recorded runs make inputs and outputs
+reviewable. AI profiles and credential status are managed from desktop settings.
 
 Use `pnpm desktop:build` to verify the desktop source build. The existing `electron-builder`
 configuration retains Windows and macOS packaging commands:
@@ -79,7 +86,7 @@ not current acceptance gates.
 
 A typical CLI workflow is:
 
-1. Configure a vault and initialize a project.
+1. Configure a writing workspace and initialize a direct project-vault.
 2. Add Canon, characters, locations, timeline events, an outline, and scenes.
 3. Assemble context or run `generate --dry-run` to inspect the recorded prompt without a network
    call.
@@ -98,19 +105,25 @@ pnpm cli <command> --help
 ## Project Layout
 
 ```text
-Obsidian Vault/
-  novels/
-    My Novel/
+Writing Workspace/
+  quillarium-workspace.yaml
+  methodology/            templates/
+  projects/
+    my-novel/              # Quillarium project root and Obsidian vault
+      .obsidian/
       project.yaml
-      canon/              characters/       character-states/
-      timeline/           locations/        world/
-      foreshadowing/      references/       issues/
-      strategy/           patterns/         resources/
-      causality/          outlines/         scenes/
-      prompts/            runs/             imports/
-      reviews/            style/            exports/
-      sillytavern/        .quillarium/
+      canon/               characters/       character-states/
+      timeline/            locations/        world/
+      foreshadowing/       references/       issues/
+      strategy/            patterns/         resources/
+      causality/           outlines/         scenes/
+      prompts/             runs/             imports/
+      reviews/             style/            exports/
+      sillytavern/         .quillarium/
 ```
+
+Workspace manifests contain only relative, contained paths and non-secret metadata. Machine-local
+paths and credentials stay in the user configuration outside the workspace.
 
 ## Packages
 
@@ -123,7 +136,10 @@ Obsidian Vault/
 - [@quillarium/sillytavern](packages/sillytavern/README.md) — Character Card and World Info conversion.
 
 The product and agent workflow rationale is documented in
-[docs/AGENT-DESIGN.md](docs/AGENT-DESIGN.md).
+[docs/AGENT-DESIGN.md](docs/AGENT-DESIGN.md). The target architecture and delivery priorities are in
+[docs/DESIGN.md](docs/DESIGN.md) and [ROADMAP.md](ROADMAP.md). External design research, independent
+implementation rules, and license boundaries are recorded in
+[docs/REFERENCES.md](docs/REFERENCES.md).
 
 ## Current Boundaries
 

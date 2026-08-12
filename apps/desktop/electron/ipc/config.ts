@@ -1,7 +1,15 @@
 import path from 'node:path'
-import { cp, mkdir, readdir, rename, rm } from 'node:fs/promises'
+import { realpath } from 'node:fs/promises'
 import { dialog } from 'electron'
-import { getObsidianDir, loadConfig, saveConfig, setObsidianDir } from '@quillarium/core'
+import {
+  getObsidianDir,
+  getWorkspaceDir,
+  loadConfig,
+  loadWorkspace,
+  saveConfig,
+  setObsidianDir,
+  setWorkspaceDir
+} from '@quillarium/core'
 import { isAIConfigured } from '@quillarium/ai'
 import {
   loadDesktopAIProfile,
@@ -10,10 +18,23 @@ import {
   saveDesktopGitHub
 } from './credentials.js'
 import { typedHandle } from './contract.js'
+import { applyLegacyProjectMigration, prepareLegacyProjectMigration } from './workspace-migration.js'
 
 export function registerConfigHandlers(): void {
   typedHandle('config:get', async () => loadDesktopConfig())
   typedHandle('config:getVault', async () => getObsidianDir())
+  typedHandle('config:getWorkspace', async () => getWorkspaceDir())
+  typedHandle('config:chooseWorkspace', async () => {
+    const result = await dialog.showOpenDialog({ properties: ['openDirectory'] })
+    if (result.canceled || !result.filePaths[0]) return null
+    await loadWorkspace(result.filePaths[0])
+    await setWorkspaceDir(result.filePaths[0])
+    return result.filePaths[0]
+  })
+  typedHandle('config:setWorkspace', async (_event, dir) => {
+    await loadWorkspace(dir)
+    return (await setWorkspaceDir(dir)).workspaceDir
+  })
   typedHandle('config:chooseVault', async () => {
     const result = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] })
     if (result.canceled || !result.filePaths[0]) return null
@@ -40,14 +61,51 @@ export function registerConfigHandlers(): void {
   typedHandle('config:saveGithub', async (_event, input) => saveDesktopGitHub(input))
   typedHandle('config:migrateVault', async () => {
     const currentVault = await getObsidianDir()
-    const result = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] })
+    const workspaceRoot = await getWorkspaceDir()
+    if (!currentVault) throw new Error('请先设置旧 Obsidian 目录。')
+    if (!workspaceRoot) throw new Error('请先注册写作工作区。')
+    const legacyProjectsRoot = path.join(currentVault, 'novels')
+    const result = await dialog.showOpenDialog({
+      title: '选择要无损迁移的旧小说项目',
+      defaultPath: legacyProjectsRoot,
+      properties: ['openDirectory']
+    })
     if (result.canceled || !result.filePaths[0]) return null
-    const targetVault = result.filePaths[0]
-    if (currentVault && path.resolve(currentVault) !== path.resolve(targetVault)) {
-      await migrateNovelProjects(currentVault, targetVault)
+    const sourceRoot = await realpath(path.resolve(result.filePaths[0]))
+    const projectsRoot = await realpath(path.resolve(legacyProjectsRoot))
+    const relative = path.relative(projectsRoot, sourceRoot)
+    if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+      throw new Error(`请选择旧布局 ${legacyProjectsRoot} 下的一部小说项目。`)
     }
-    await setObsidianDir(targetVault)
-    return targetVault
+
+    const prepared = await prepareLegacyProjectMigration(sourceRoot, workspaceRoot)
+    const confirmation = await dialog.showMessageBox({
+      type: 'warning',
+      title: '确认无损迁移',
+      message: `将《${prepared.title}》复制到写作工作区？`,
+      detail: [
+        `源文件：${prepared.dryRun.source_file_count}`,
+        `目标：${prepared.targetRoot}`,
+        `完整备份：${prepared.backupRoot}`,
+        '流程：dry-run → backup → apply → verify → report。源目录不会移动、删除或静默改写。'
+      ].join('\n'),
+      buttons: ['开始迁移', '取消'],
+      defaultId: 1,
+      cancelId: 1,
+      noLink: true
+    })
+    if (confirmation.response !== 0) return null
+
+    const migrated = await applyLegacyProjectMigration(prepared)
+    await setWorkspaceDir(workspaceRoot, migrated.projectRef.id)
+    await dialog.showMessageBox({
+      type: 'info',
+      title: '迁移完成',
+      message: `《${prepared.title}》已复制、验证并注册。`,
+      detail: `源目录保持不变。\n备份：${migrated.backupRoot}\n报告：${migrated.reportPath}`,
+      buttons: ['完成']
+    })
+    return migrated.targetRoot
   })
   typedHandle('config:aiStatus', async () => {
     const profiles = {
@@ -63,26 +121,4 @@ export function registerConfigHandlers(): void {
       storage: (await loadDesktopConfig()).aiKeyStorage
     }
   })
-}
-
-async function migrateNovelProjects(fromVault: string, toVault: string) {
-  const fromNovels = path.join(fromVault, 'novels')
-  const toNovels = path.join(toVault, 'novels')
-  await mkdir(toNovels, { recursive: true })
-  let entries
-  try {
-    entries = await readdir(fromNovels, { withFileTypes: true })
-  } catch {
-    return
-  }
-  for (const entry of entries) {
-    const from = path.join(fromNovels, entry.name)
-    const to = path.join(toNovels, entry.name)
-    try {
-      await rename(from, to)
-    } catch {
-      await cp(from, to, { recursive: true, force: false, errorOnExist: true })
-      await rm(from, { recursive: true, force: true })
-    }
-  }
 }

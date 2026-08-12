@@ -1,252 +1,159 @@
 # Quillarium Agent Design Decisions
 
-Quillarium is a writing agent for long-form serialized fiction. Writer is not a
-separate runtime project or an external source to migrate from; Writer is the
-methodology and product-design source for Quillarium.
+Quillarium is the product and runtime for planning, drafting, checking, accepting, and finalizing
+long-form serialized fiction. It is work-neutral: no particular novel, character, setting, or
+validation project belongs in product defaults, public terminology, or core test semantics.
 
-After Quillarium implements this methodology, actual writing happens inside
-Quillarium-managed Obsidian vault projects. A novel such as `景泰蓝` is a project
-under the vault. The older Writer workspace may remain as design background, but
-it is not a live data source and should not create a second editable version of
-the same novel.
+The durable data is Markdown plus YAML frontmatter. Each novel project is both an Obsidian vault and
+a Quillarium project root, so Quillarium and Obsidian operate on the same files instead of maintaining
+parallel editable copies.
 
-## Product Relationship
+## Single Source of Truth
 
-- Writer is the design source for Quillarium's serialized-fiction workflow.
-- Quillarium is the product that implements that workflow.
-- Obsidian vault projects are the live writing environment.
-- A novel project is the only editable truth for that novel.
-- Existing notes, AI discussions, and old Markdown can be imported as one-time
-  inputs, but only the Quillarium project remains active after import.
+- Accepted prose and confirmed hard Canon are the highest-authority project facts.
+- Project strategy, outlines, state ledgers, and other planning documents guide future writing but
+  do not override accepted prose.
+- Workspace-level shared guidance supplies methods and templates. It can shape a prompt but cannot
+  silently change project facts.
+- Imported source material is immutable evidence, not an active second copy of the project. Material
+  promoted from an import becomes an ordinary project document through a reviewable operation.
+- Uncertain imports, contradictions, and low-confidence extraction results become issues or warnings
+  for the author to resolve.
 
-The first validation novel is `景泰蓝`, which is the working title for
-`天地为枰`.
+The authority order used by context assembly and checks is:
 
-## Single Truth
+```text
+accepted prose / confirmed hard Canon
+  > project strategy, outlines, and state
+  > workspace shared guidance
+  > archived imports and optional references
+```
 
-Quillarium uses Markdown plus YAML frontmatter as the durable project data.
-Obsidian can read and edit the same files.
-
-The single-truth rule:
-
-- The Quillarium project Markdown file is the active source.
-- Imported source material is one-time input, not a parallel working copy.
-- If imported material is retained for traceability, it is archived and excluded
-  from normal context assembly.
-- Low-confidence AI import decisions create issues for the writer to confirm.
-- Confirmed decisions become ordinary Quillarium Markdown documents.
-
-This avoids a split between "original notes" and "structured notes" after the
-writer starts editing.
-
-## Canon Rule
-
-Keep canon states simple:
-
-- `confirmed` means currently effective.
-- `deprecated` means no longer effective.
-- uncertain material should become an issue instead of a weak canon layer.
-
-AI-created canon from accepted prose is written as `confirmed`. This does not
-make it immutable. The writer can edit or deprecate any canon document at any
-time. Quillarium should follow the current Markdown state on the next context
-assembly or check.
-
-Accepted prose is the strongest source of truth. Planning documents should bend
-around accepted prose. If accepted prose contradicts planning, Quillarium should
-surface the conflict and let the writer decide how to revise the project.
+Lower-authority material never overwrites higher-authority material. A conflict is surfaced with its
+sources and remains unresolved until the author makes an explicit project edit.
 
 ## Native Workflow Levels
 
-Quillarium works at four native levels.
+Quillarium uses five planning and delivery levels.
 
-### Book / Master Outline
+### Book
 
-Purpose: establish the operating system of the novel.
+The book level defines the series promise, genre boundary, core appeal, long suspense, Canon,
+worldbuilding, characters, timeline seeds, foreshadowing ledger, and reusable story patterns.
 
-Core work:
+### Volume
 
-- reader promise
-- genre boundary
-- core appeal and suspense
-- canon
-- worldbook entries
-- characters
-- timeline seeds
-- foreshadowing ledger
-- story and writing patterns
+The volume level defines why a volume exists: its destination, reader payoff, event chain, character
+growth, foreshadowing plan, arc arrangement, and emotional curve.
 
-The agent helps import and classify materials, extract stable facts, identify
-uncertain decisions, and build the first project structure.
+### Arc / Segment
 
-### Volume Outline
+The arc level turns a portion of the volume into an executable plot block: event order, conflict
+escalation, cast, fixed reveals, relationship movement, and foreshadowing plants or resolutions.
 
-Purpose: define why this volume exists.
+### Chapter
 
-Core work:
+The chapter is the minimum delivery and publication unit. A chapter plan records its promise,
+conflict, payoff, hook, continuity obligations, and the ordered scenes needed to fulfill them. A
+chapter is not complete merely because all of its scenes have drafts.
 
-- volume goal
-- reader payoff
-- event chain
-- character growth
-- foreshadowing plan
-- act / arc arrangement
-- emotional curve
+### Scene
 
-The agent checks whether the volume advances the novel rather than only adding
-events or lore.
+A scene is the minimum prose-generation unit. It binds POV, time, location, participants, constraints,
+and intended state changes. A chapter may contain several scenes, and multiple candidates may exist
+for a scene without any candidate becoming authoritative.
 
-### Arc / Segment Outline
+## Chapter Lifecycle
 
-Purpose: make a concrete block of plot work.
+The product workflow is chapter-centered:
 
-Core work:
+```text
+prepare chapter
+  -> generate scene candidates
+  -> select and accept scenes
+  -> check the complete chapter
+  -> finalize chapter
+  -> apply continuity updates
+  -> record publication feedback and retrospective
+```
 
-- event order
-- conflict escalation
-- main cast
-- fixed reveals
-- foreshadowing plants and resolves
-- relationship movement
-
-The cast and major events are expected to be relatively stable at this level.
-
-### Chapter / Section Writing
-
-Purpose: produce and finalize prose.
-
-Core work:
-
-- writing environment
-- POV, time, location, and participant state
-- conflict check
-- prompt assembly
-- section generation
-- manual revision
-- accepted prose
-- post-acceptance extraction
-
-The prose unit is `section`. A chapter may contain multiple sections, but a
-section should not be split further by Quillarium in the first implementation.
+Candidate selection only chooses a draft for the next step. It does not publish the chapter, mutate
+Canon, or update continuity. Acceptance creates authoritative prose for the selected scene. Chapter
+finalization proposes the derived updates; a separate atomic apply operation writes those approved
+updates and records an audit trail.
 
 ## Agent Responsibilities
 
-Quillarium should expose agent work through the desktop app first. CLI commands
-exist primarily as internal tools for the agent and for debugging.
+Agents may classify, propose, draft, compare, extract, and check. They must not conceal decisions or
+silently mutate authoritative files.
 
-Agent roles:
+- Import Agent: classify source files, preserve provenance, and propose structured project records.
+- Book Agent: organize Canon, world, timeline, characters, foreshadowing, and patterns.
+- Volume Agent: develop volume goals, event chains, growth, pacing, and payoff.
+- Arc Agent: arrange events, cast, conflict movement, reveals, and foreshadowing.
+- Chapter Agent: prepare chapter obligations and coordinate scene production.
+- Scene Agent: assemble explainable context and generate one or more prose candidates.
+- Check Agent: run deterministic checks first and add clearly identified semantic findings.
+- Finalization Agent: propose Canon, timeline, character-state, resource, foreshadowing, and issue
+  updates from accepted chapter prose.
+- Retrospective Agent: connect publication feedback to future planning without rewriting accepted
+  prose.
 
-- Import Agent: classify existing notes and add frontmatter.
-- Book Agent: organize canon, world, timeline, characters, foreshadowing, and patterns.
-- Volume Agent: build and check volume goals, event chains, growth, and payoff.
-- Arc Agent: arrange events, cast, conflict movement, and foreshadowing.
-- Chapter Agent: assemble the writing context and generate section prose.
-- Finalization Agent: extract canon, timeline events, character states,
-  foreshadowing updates, and issues from accepted prose.
-- Pattern Agent: extract reusable story and writing patterns.
+Default prompts are Chinese, while schemas and import adapters may support other languages.
 
-All default prompts should be Chinese. English compatibility can remain possible,
-but the product default is Chinese.
+## Permission and Write Rules
 
-## AI Decision Rules
+Every agent operation has an explicit scope and produces reviewable artifacts.
 
-AI can classify, propose, extract, check, and draft. It should not hide decisions
-from the writer.
+- Read scope is limited to the active workspace, project, and declared shared-guidance files.
+- Context assembly is read-only and records why every prompt block was included, truncated, or
+  excluded.
+- Generation writes only run artifacts and candidates.
+- Accepting prose requires an explicit author action and writes only the selected target plus its run
+  metadata.
+- Finalization is a proposal until the author confirms it.
+- Applying finalization validates the entire change set, writes it atomically, and records before and
+  after evidence. A partial apply is a failure and must be recoverable.
+- Credentials, local indexes, UI state, and regenerable exports are never written into a project or
+  workspace manifest.
 
-Rules:
+The desktop application is the primary product surface. CLI commands expose the same primitives for
+automation, migration, testing, and diagnosis, but normal writing must not depend on shell access.
 
-- If the agent is confident, create or update the relevant Markdown document.
-- If the agent is uncertain, create an issue.
-- If a contradiction affects the story truth, create an issue or check report.
-- If accepted prose produces new canon, create confirmed canon.
-- If accepted prose changes a character, create or update character state.
-- If accepted prose plants, reinforces, or resolves foreshadowing, update the
-  foreshadowing ledger.
+## Canon and Continuity Rules
 
-The writer can always edit the resulting Markdown directly.
+Canon states stay intentionally small:
 
-## Patterns
+- `confirmed`: currently effective project fact.
+- `deprecated`: retained for history but no longer effective.
+- uncertainty: represented by an issue, never by an implicit weak truth layer.
 
-Use one project directory:
+Accepted prose may justify a proposed Canon or continuity update, but the proposal records its source
+chapter and requires the finalization/apply boundary. The author can later edit or deprecate any
+record. The next context assembly follows the current files and reports contradictions rather than
+guessing which fact should win.
 
-```text
-patterns/
-```
+## Reusable Patterns
 
-Do not use separate directories for each pattern family. Keep the structure
-flat and distinguish pattern types with frontmatter.
+Reusable project patterns live in one flat `patterns/` directory and use frontmatter to distinguish
+their purpose:
 
-Pattern kinds:
-
-- `story`: structure patterns such as volume rhythm, reveal order, hook shape,
-  payoff setup, and foreshadowing cadence.
-- `writing`: prose and scene-execution patterns such as historical-political
-  dialogue pressure, exposition control, emotional beat shape, and chapter-end
+- `story`: structure, reveal order, hook shape, payoff setup, and foreshadowing cadence.
+- `writing`: prose execution, dialogue pressure, exposition control, emotional beats, and chapter-end
   pressure.
-- `prompt`: reusable agent prompt patterns. The schema should allow this kind,
-  but the first UI can focus on `story` and `writing`.
+- `prompt`: reusable prompt behavior; supported by the schema even if not exposed in the first UI.
 
-Recommended frontmatter:
+Pattern sources may be `user`, `ai`, `accepted_prose`, or `imported`. A pattern influences drafting;
+it never outranks project facts.
 
-```yaml
-type: pattern
-kind: story
-scope: volume
-status: active
-title: Example Pattern
-applies_to:
-  - historical
-  - political
-source: user
-```
+## Auditability and Reproduction
 
-Pattern sources may include `user`, `ai`, `accepted_prose`, or `imported`.
+Each AI run records the selected model, writing preset, prompt blocks, context trace, token counts,
+input hashes, candidate lineage, checks, and accepted output. Workspace guidance used by a run is
+snapshotted with its relative path, scope, SHA-256, and read time. Later template edits affect only
+new runs.
 
-## Writer Templates As Native Product Inputs
-
-Writer templates are not migration targets. They define Quillarium's native
-forms and agent prompts.
-
-Mapping:
-
-- Series bible becomes the book-level setup workflow.
-- Volume arc becomes the volume outline workflow.
-- Chapter card becomes the chapter / section writing workflow.
-- Continuity ledger becomes distributed Quillarium modules: timeline,
-  character states, resources, foreshadowing, canon, and issues.
-
-If a template field cannot be mapped cleanly, Quillarium should generate an
-issue rather than inventing extra status layers.
-
-## Desktop First
-
-The desktop app is the primary product surface.
-
-Required workspaces:
-
-- book / master outline workspace
-- volume workspace
-- arc workspace
-- chapter / section writing workspace
-- finalization and canon-backfill workspace
-- issue review workspace
-- pattern workspace
-
-The CLI should expose the same primitives for automation, tests, and agent
-execution, but the writer should not need to operate the CLI during normal use.
-
-## First Validation Project
-
-`景泰蓝` is the first Quillarium validation novel. It is the current working
-title for `天地为枰`.
-
-Validation goals:
-
-- create a Quillarium-managed novel project
-- express the book-level method natively
-- create volume, arc, chapter, and section outlines
-- generate section prose from assembled context
-- allow manual revision in the same writing environment
-- accept prose and automatically backfill canon, events, character states,
-  foreshadowing updates, and issues
-- keep all active data in the Quillarium project Markdown files
+External projects can inform design research, but Quillarium independently implements its product
+semantics. Design references and license boundaries are recorded in [REFERENCES.md](REFERENCES.md);
+the deterministic context decision is recorded in
+[ADR-context-activation.md](adr/ADR-context-activation.md).

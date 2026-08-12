@@ -120,7 +120,7 @@ export function normalizePatternSource(value?: string): 'user' | 'ai' | 'accepte
   return 'user'
 }
 
-export function normalizeWriterCycles(
+export function normalizeStoryCycles(
   value: unknown
 ): Array<'desire' | 'pressure' | 'growth' | 'reveal' | 'relationship'> {
   const allowed = new Set(['desire', 'pressure', 'growth', 'reveal', 'relationship'])
