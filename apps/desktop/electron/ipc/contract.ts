@@ -147,6 +147,44 @@ export interface CanonDiscussionRequest {
   message?: string
 }
 
+export const PLANNING_DOCUMENT_KINDS = [
+  'character',
+  'world_entry',
+  'timeline_event',
+  'location',
+  'foreshadowing',
+  'strategy',
+  'pattern',
+  'issue',
+  'reference'
+] as const
+
+export type PlanningDocumentKind = (typeof PLANNING_DOCUMENT_KINDS)[number]
+export type PlanningChatRole = 'author' | 'assistant'
+
+export interface PlanningChatMessage {
+  role: PlanningChatRole
+  content: string
+}
+
+export interface PlanningDraft {
+  kind: PlanningDocumentKind
+  title: string
+  fields: Record<string, unknown>
+  content: string
+}
+
+export interface PlanningChatRequest {
+  module: string
+  messages: PlanningChatMessage[]
+  proposal?: PlanningDraft | null
+}
+
+export interface PlanningChatResponse {
+  message: string
+  proposal: PlanningDraft | null
+}
+
 export interface GitStatus {
   initialized: boolean
   dirty: boolean
@@ -217,6 +255,14 @@ export interface IpcContract {
   }
   'import:landSession': { request: [root: string, sessionId: string]; response: ImportSession }
   'canon:discuss': { request: [root: string, input: CanonDiscussionRequest]; response: string }
+  'planning:discuss': {
+    request: [root: string, input: PlanningChatRequest]
+    response: PlanningChatResponse
+  }
+  'planning:confirm': {
+    request: [root: string, proposal: PlanningDraft]
+    response: { path: string; document: MarkdownDocument }
+  }
   'scene:context': { request: [root: string, sceneId: string]; response: string }
   'target:context': {
     request: [root: string, target: TargetInput]
@@ -324,6 +370,8 @@ export const QUILLARIUM_API_CHANNELS = {
   answerImportIssue: 'import:answerIssue',
   landImportSession: 'import:landSession',
   discussCanon: 'canon:discuss',
+  discussPlanningRecord: 'planning:discuss',
+  confirmPlanningRecord: 'planning:confirm',
   assembleContext: 'scene:context',
   assembleTargetContext: 'target:context',
   checkTarget: 'target:check',

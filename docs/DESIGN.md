@@ -13,6 +13,23 @@ legacy migration, shared-guidance snapshots, and server-scoped workspace Git ope
 next phase is the explainable chapter-production work in the root [ROADMAP](../ROADMAP.md), including
 real token budgeting, typed prompt blocks, multiple candidates, branches, and versioned presets.
 
+The desktop planning baseline also uses a deliberately small surface: the unselected-project screen
+has one active library-management entry, while display, GitHub, and the three AI profiles live in
+settings with independent persistence. Creating a planning record is a staged operation:
+
+```text
+open module -> discuss with background AI -> inspect/edit proposal -> confirm -> atomic Markdown write
+```
+
+Discussion and cancellation have no project-file side effects. The AI may select among character,
+world, timeline, location, foreshadowing, strategy, pattern, issue, and reference schemas, but it
+cannot use this flow to edit existing documents, Canon, outlines, scenes, or accepted prose.
+
+Planning documents expose separate Markdown source and read-only preview modes over one unsaved
+buffer. CommonMark plus GFM tables are supported; raw HTML and unsafe URLs are not rendered.
+Known structured fields use typed controls where practical, while nested and unknown frontmatter is
+shown as reversible JSON and saved through the same YAML serializer.
+
 ## Product and Storage Shape
 
 A writing workspace groups projects and optional shared guidance. The workspace itself is not an

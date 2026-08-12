@@ -30,6 +30,8 @@ import {
   structuredLineForSection
 } from './outline-model.js'
 import { MetadataEditor, StructuredTile } from './OutlineShared.js'
+import { MarkdownBodyEditor } from '../markdown/MarkdownBodyEditor.js'
+import { isAIPlanningContext } from '../planning/planning-model.js'
 
 export function OutlineHome({
   docs,
@@ -53,6 +55,7 @@ export function OutlineHome({
   onSelect,
   onOpenVolume,
   onCreate,
+  onAIPlanningCreate,
   onDelete,
   onOpenExternal,
   onReloadDoc,
@@ -82,6 +85,7 @@ export function OutlineHome({
   onSelect: (target: TargetSelection) => void
   onOpenVolume: (volume: DocEntry) => void
   onCreate: (kind: string, input: Record<string, unknown>) => Promise<void>
+  onAIPlanningCreate: (section: OutlineHomeSection) => void
   onDelete: () => Promise<void>
   onOpenExternal: () => Promise<void>
   onReloadDoc: () => Promise<void>
@@ -91,7 +95,10 @@ export function OutlineHome({
   language: LanguageName
 }) {
   const shellRef = useRef<HTMLDivElement | null>(null)
+  const zh = language === 'zh'
   const section = OUTLINE_HOME_SECTIONS.find((item) => item.id === activeSection) ?? OUTLINE_HOME_SECTIONS[0]
+  const sectionTitle = zh ? section.title : section.enTitle
+  const sectionHeading = zh ? section.heading : section.enHeading
   const items = filterDocs(outlineSectionDocs(docs, activeSection), search)
   const selected = selectedTarget
     ? docs.find((item) => item.data.id === selectedTarget.id && item.data.type === selectedTarget.type)
@@ -117,7 +124,11 @@ export function OutlineHome({
   }
 
   const createCurrent = async () => {
-    const title = window.prompt(`新建${section.title}`)
+    if (isAIPlanningContext(activeSection)) {
+      onAIPlanningCreate(activeSection)
+      return
+    }
+    const title = window.prompt(zh ? `新建${section.title}` : `New ${section.enTitle}`)
     if (!title?.trim()) return
     const input = createInputForOutlineSection(activeSection, title.trim(), docs, project)
     await onCreate(input.kind, input.data)
@@ -127,10 +138,14 @@ export function OutlineHome({
     <main className={`outline-home ${leftOpen ? '' : 'left-narrow'} ${rightOpen ? '' : 'right-narrow'}`}>
       <aside className="outline-nav">
         <div className="outline-nav-head">
-          <button className="icon-button" onClick={onToggleLeft} title={leftOpen ? '收窄左栏' : '展开左栏'}>
+          <button
+            className="icon-button"
+            onClick={onToggleLeft}
+            title={leftOpen ? (zh ? '收窄左栏' : 'Collapse sidebar') : zh ? '展开左栏' : 'Expand sidebar'}
+          >
             <ChevronDown size={16} />
           </button>
-          {leftOpen && <strong>大纲</strong>}
+          {leftOpen && <strong>{zh ? '大纲' : 'Outline'}</strong>}
         </div>
         <div className="outline-nav-list">
           {OUTLINE_HOME_SECTIONS.map((item) => (
@@ -138,16 +153,16 @@ export function OutlineHome({
               key={item.id}
               className={activeSection === item.id ? 'active' : ''}
               onClick={() => onSection(item.id)}
-              title={item.title}
+              title={zh ? item.title : item.enTitle}
             >
               <item.icon size={17} />
               {leftOpen ? (
                 <>
-                  <span>{item.title}</span>
+                  <span>{zh ? item.title : item.enTitle}</span>
                   <small>{countSection(docs, item.id)}</small>
                 </>
               ) : (
-                <span className="one-char">{item.short}</span>
+                <span className="one-char">{zh ? item.short : item.enShort}</span>
               )}
             </button>
           ))}
@@ -165,9 +180,17 @@ export function OutlineHome({
             ))}
           </div>
         )}
-        <button className="outline-import" onClick={onImport} title="导入新的设定">
+        <button
+          className="outline-import"
+          onClick={onImport}
+          title={zh ? '导入新的设定' : 'Import planning records'}
+        >
           <Upload size={17} />
-          {leftOpen ? <span>导入新的设定</span> : <span className="one-char">导</span>}
+          {leftOpen ? (
+            <span>{zh ? '导入新的设定' : 'Import records'}</span>
+          ) : (
+            <span className="one-char">{zh ? '导' : 'I'}</span>
+          )}
         </button>
       </aside>
       <section
@@ -178,15 +201,15 @@ export function OutlineHome({
         <div className="outline-collection">
           <div className="outline-collection-head">
             <div>
-              <span className="badge ok">{section.title}</span>
-              <h2>{section.heading}</h2>
+              <span className="badge ok">{sectionTitle}</span>
+              <h2>{sectionHeading}</h2>
             </div>
             <div className="outline-actions">
               <button onClick={createCurrent} disabled={busy}>
-                <Plus size={15} /> 新增
+                <Plus size={15} /> {zh ? '新增' : 'New'}
               </button>
               <button onClick={onDelete} disabled={!doc || busy}>
-                <Trash2 size={15} /> 删除
+                <Trash2 size={15} /> {zh ? '删除' : 'Delete'}
               </button>
             </div>
           </div>
@@ -196,21 +219,21 @@ export function OutlineHome({
               <input
                 value={search}
                 onChange={(event) => onSearch(event.target.value)}
-                placeholder="搜索标题、字段或正文"
+                placeholder={zh ? '搜索标题、字段或正文' : 'Search titles, fields, or body'}
               />
             </label>
             <div className="icon-segment">
               <button
                 className={viewMode === 'list' ? 'active' : ''}
                 onClick={() => onViewMode('list')}
-                title="列表"
+                title={zh ? '列表' : 'List'}
               >
                 <List size={16} />
               </button>
               <button
                 className={viewMode === 'tile' ? 'active' : ''}
                 onClick={() => onViewMode('tile')}
-                title="平铺"
+                title={zh ? '平铺' : 'Tiles'}
               >
                 <LayoutGrid size={16} />
               </button>
@@ -233,7 +256,9 @@ export function OutlineHome({
                 {viewMode === 'tile' && <StructuredTile doc={item} />}
               </button>
             ))}
-            {!items.length && <p className="empty-row">当前栏目还没有内容。</p>}
+            {!items.length && (
+              <p className="empty-row">{zh ? '当前栏目还没有内容。' : 'No records in this section yet.'}</p>
+            )}
           </div>
         </div>
         <div className="resize-handle" onPointerDown={startDrag} />
@@ -243,27 +268,35 @@ export function OutlineHome({
               <>
                 <div className="detail-head">
                   <div>
-                    <span className="badge ok">{selected ? docTypeLabel(selected) : '文档'}</span>
-                    <h2>{String(doc.data.title ?? '未命名')}</h2>
+                    <span className="badge ok">
+                      {selected ? docTypeLabel(selected) : zh ? '文档' : 'Document'}
+                    </span>
+                    <h2>{String(doc.data.title ?? (zh ? '未命名' : 'Untitled'))}</h2>
                   </div>
-                  <button className="icon-button" onClick={onToggleRight} title="收窄右栏">
+                  <button
+                    className="icon-button"
+                    onClick={onToggleRight}
+                    title={zh ? '收窄右栏' : 'Collapse details'}
+                  >
                     <ChevronDown size={16} />
                   </button>
                 </div>
-                <MetadataEditor data={doc.data} onChange={(data) => onDocChange({ ...doc, data })} />
-                <label className="detail-editor">
-                  正文
-                  <textarea
-                    value={doc.content}
-                    onChange={(event) => onDocChange({ ...doc, content: event.target.value })}
-                  />
-                </label>
+                <MetadataEditor
+                  data={doc.data}
+                  language={language}
+                  onChange={(data) => onDocChange({ ...doc, data })}
+                />
+                <MarkdownBodyEditor
+                  value={doc.content}
+                  onChange={(content) => onDocChange({ ...doc, content })}
+                  language={language}
+                />
                 <div className="detail-actions">
                   <button onClick={onOpenExternal}>
-                    <FileText size={15} /> 编辑
+                    <FileText size={15} /> {zh ? '编辑' : 'Edit'}
                   </button>
                   <button onClick={onReloadDoc}>
-                    <RefreshCw size={15} /> 同步
+                    <RefreshCw size={15} /> {zh ? '同步' : 'Sync'}
                   </button>
                   <button onClick={onSave} disabled={!dirty}>
                     <Save size={15} /> {dirty ? `${t(language, 'save')} *` : t(language, 'saved')}
@@ -272,13 +305,21 @@ export function OutlineHome({
               </>
             ) : (
               <div className="empty-editor">
-                <h2>请选择内容</h2>
-                <p>从中栏选择条目后，右侧会展开编辑。</p>
+                <h2>{zh ? '请选择内容' : 'Select a record'}</h2>
+                <p>
+                  {zh
+                    ? '从中栏选择条目后，右侧会展开编辑。'
+                    : 'Select an item to open it in the detail pane.'}
+                </p>
               </div>
             )
           ) : (
-            <button className="detail-rail" onClick={onToggleRight} title="展开详情">
-              详
+            <button
+              className="detail-rail"
+              onClick={onToggleRight}
+              title={zh ? '展开详情' : 'Expand details'}
+            >
+              {zh ? '详' : 'D'}
             </button>
           )}
         </aside>

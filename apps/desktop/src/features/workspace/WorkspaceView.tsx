@@ -1,4 +1,4 @@
-import type { Dispatch, SetStateAction } from 'react'
+import { useState, type Dispatch, type SetStateAction } from 'react'
 import type {
   AIStatus,
   CheckReport,
@@ -28,6 +28,7 @@ import { VolumeHome } from '../outline/VolumeHome.js'
 import { TopChrome } from '../settings/TopChrome.js'
 import { WritingBottomPanel } from '../writing/WritingBottomPanel.js'
 import { WritingWorkspace } from '../writing/WritingWorkspace.js'
+import { PlanningCreationDialog } from '../planning/PlanningCreationDialog.js'
 
 type EditableDoc = { data: Record<string, unknown>; content: string; path: string }
 
@@ -119,6 +120,7 @@ interface WorkspaceViewProps {
 }
 
 export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
+  const [planningCreateContext, setPlanningCreateContext] = useState<string | null>(null)
   const { root, theme, density, language, aiStatus, onTheme, onDensity, onLanguage, onAIStatus, onBack } = app
   const {
     data,
@@ -222,8 +224,10 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
           workspaceMode === 'writing'
             ? `${t(language, 'writing')} / ${projectPath}`
             : workspacePage === 'volume' && activeVolume
-              ? `大纲 / ${activeVolume.data.title}`
-              : '大纲'
+              ? `${language === 'zh' ? '大纲' : 'Outline'} / ${activeVolume.data.title}`
+              : language === 'zh'
+                ? '大纲'
+                : 'Outline'
         }
         workspaceMode={workspaceMode}
         onWorkspaceMode={(mode) => {
@@ -299,6 +303,9 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
                   docs={docs}
                   runs={data.runs}
                   onCreate={createDoc}
+                  onAIPlanningCreate={setPlanningCreateContext}
+                  selectedTarget={selectedTarget}
+                  onSelect={setSelectedTarget}
                   onReload={load}
                   language={language}
                 />
@@ -372,6 +379,7 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
             setSelectedTarget({ type: String(loaded.data.type), id: String(loaded.data.id) })
             setRightOpen(true)
           }}
+          onAIPlanningCreate={setPlanningCreateContext}
           onDelete={deleteSelectedDoc}
           onOpenExternal={async () => {
             if (!doc) return
@@ -379,7 +387,15 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
           }}
           onReloadDoc={async () => {
             if (!doc) return
-            if (dirty && !window.confirm('当前有未保存修改。同步外部文件会覆盖右栏内容，继续吗？')) return
+            if (
+              dirty &&
+              !window.confirm(
+                language === 'zh'
+                  ? '当前有未保存修改。同步外部文件会覆盖右栏内容，继续吗？'
+                  : 'You have unsaved changes. Syncing the external file will replace the detail pane. Continue?'
+              )
+            )
+              return
             const parsed = await bridge.readDoc(doc.path)
             setDoc({ ...parsed, path: doc.path })
             setDirty(false)
@@ -435,6 +451,7 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
             setSelectedTarget({ type: String(loaded.data.type), id: String(loaded.data.id) })
             setRightOpen(true)
           }}
+          onAIPlanningCreate={setPlanningCreateContext}
           onDelete={deleteSelectedDoc}
           onOpenExternal={async () => {
             if (!doc) return
@@ -442,7 +459,15 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
           }}
           onReloadDoc={async () => {
             if (!doc) return
-            if (dirty && !window.confirm('当前有未保存修改。同步外部文件会覆盖右栏内容，继续吗？')) return
+            if (
+              dirty &&
+              !window.confirm(
+                language === 'zh'
+                  ? '当前有未保存修改。同步外部文件会覆盖右栏内容，继续吗？'
+                  : 'You have unsaved changes. Syncing the external file will replace the detail pane. Continue?'
+              )
+            )
+              return
             const parsed = await bridge.readDoc(doc.path)
             setDoc({ ...parsed, path: doc.path })
             setDirty(false)
@@ -485,6 +510,22 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
             </div>
           </section>
         </div>
+      )}
+      {planningCreateContext && (
+        <PlanningCreationDialog
+          root={root}
+          module={planningCreateContext}
+          language={language}
+          onClose={() => setPlanningCreateContext(null)}
+          onCreated={async ({ path: createdPath, document }) => {
+            await load()
+            setDoc({ ...document, path: createdPath })
+            setSelectedTarget({ type: String(document.data.type), id: String(document.data.id) })
+            setRightOpen(true)
+            setDirty(false)
+            setPlanningCreateContext(null)
+          }}
+        />
       )}
       {(actionError || importMessage || gitMessage) && (
         <div className={`toast ${actionError ? 'error' : ''}`} role={actionError ? 'alert' : 'status'}>

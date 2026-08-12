@@ -16,7 +16,6 @@ export function App() {
     check: false,
     ready: false
   })
-  const [vault, setVault] = useState<string | null>(null)
   const [writingWorkspace, setWritingWorkspace] = useState<string | null>(null)
   const [projects, setProjects] = useState<ProjectListItem[]>([])
   const [workspaceRoot, setWorkspaceRoot] = useState<string | null>(null)
@@ -40,8 +39,6 @@ export function App() {
       if (config.theme) setTheme(config.theme as ThemeName)
       if (config.density) setDensity(config.density as DensityName)
       if (config.language) setLanguage(config.language as LanguageName)
-      const v = await bridge.getVault()
-      setVault(v)
       setWritingWorkspace(await bridge.getWorkspace())
       setProjects(await bridge.listProjects())
       setAiStatus(await bridge.aiStatus())
@@ -58,7 +55,6 @@ export function App() {
   if (!workspaceRoot) {
     return (
       <Welcome
-        vault={vault}
         writingWorkspace={writingWorkspace}
         projects={projects}
         theme={theme}
@@ -108,7 +104,6 @@ class ErrorBoundary extends Component<{ children: React.ReactNode }, { error: st
 }
 
 function Welcome({
-  vault,
   writingWorkspace,
   projects,
   theme,
@@ -123,7 +118,6 @@ function Welcome({
   onRefresh,
   onOpen
 }: {
-  vault: string | null
   writingWorkspace: string | null
   projects: ProjectListItem[]
   theme: ThemeName
@@ -138,6 +132,7 @@ function Welcome({
   onRefresh: () => Promise<void>
   onOpen: (root: string) => void
 }) {
+  const zh = language === 'zh'
   const [form, setForm] = useState({
     title: '',
     genre: 'general',
@@ -147,20 +142,9 @@ function Welcome({
     defaultTheme: theme
   })
 
-  const chooseVault = async () => {
-    await bridge.chooseVault()
-    await onRefresh()
-  }
-
   const chooseWritingWorkspace = async () => {
     await bridge.chooseWorkspace()
     await onRefresh()
-  }
-
-  const migrateVault = async () => {
-    const migrated = await bridge.migrateVault()
-    await onRefresh()
-    if (migrated) onOpen(migrated)
   }
 
   const chooseProject = async () => {
@@ -186,44 +170,32 @@ function Welcome({
         onDensity={onDensity}
         onLanguage={onLanguage}
         onAIStatus={onAIStatus}
-        projectName="Quillarium"
-        path="羽笔馆"
       />
       <main className="welcome-main">
         <section className="welcome-hero">
-          <div className="app-logo" aria-label="Quillarium logo">
-            <span className="logo-feather">✒</span>
-            <span className="logo-book" />
-          </div>
+          <span className="welcome-kicker">STRUCTURED FICTION WORKSPACE</span>
           <h1>Quillarium</h1>
           <p>{t(language, 'welcomeSubtitle')}</p>
           <div className="vault-card">
             <div>
-              <strong>写作工作区</strong>
-              <code>{writingWorkspace ?? '未设置'}</code>
+              <strong>{language === 'zh' ? 'GitHub 写作库' : 'GitHub writing library'}</strong>
+              <code>{writingWorkspace ?? (zh ? '未设置' : 'Not registered')}</code>
+              <small>
+                {language === 'zh'
+                  ? '一个工作区仓库管理共享方法、模板与多部作品；每部作品仍是独立 Obsidian Vault。'
+                  : 'One workspace repository holds shared guidance and multiple project vaults.'}
+              </small>
             </div>
             <div className="vault-actions">
               <button className="primary" onClick={chooseWritingWorkspace}>
-                <FolderOpen size={16} /> {writingWorkspace ? '更换工作区' : '注册工作区'}
-              </button>
-            </div>
-          </div>
-          <div className="vault-card">
-            <div>
-              <strong>旧 Obsidian 目录（兼容/迁移）</strong>
-              <code>{vault ?? '未设置'}</code>
-            </div>
-            <div className="vault-actions">
-              <button className="secondary" onClick={chooseVault}>
-                <FolderOpen size={16} /> {vault ? t(language, 'changeVault') : t(language, 'chooseVault')}
-              </button>
-              <button
-                className="secondary"
-                onClick={migrateVault}
-                disabled={!vault || !writingWorkspace}
-                title={!writingWorkspace ? '请先注册写作工作区' : undefined}
-              >
-                <FolderOpen size={16} /> 无损迁移旧项目
+                <FolderOpen size={16} />{' '}
+                {language === 'zh'
+                  ? writingWorkspace
+                    ? '更换写作库'
+                    : '注册写作库'
+                  : writingWorkspace
+                    ? 'Change library'
+                    : 'Register library'}
               </button>
             </div>
           </div>
@@ -234,7 +206,7 @@ function Welcome({
             <BookOpen size={17} /> {t(language, 'novelProjects')}
           </div>
           <div className="project-section">
-            <h3>已有小说</h3>
+            <h3>{zh ? '已有小说' : 'Existing novels'}</h3>
             {projects.length === 0 ? (
               <div className="empty">{t(language, 'noProjects')}</div>
             ) : (
@@ -246,7 +218,7 @@ function Welcome({
                       <small>{project.genre}</small>
                     </div>
                     <button className="secondary project-enter" onClick={() => onOpen(project.root)}>
-                      进入
+                      {zh ? '进入' : 'Open'}
                     </button>
                   </div>
                 ))}
@@ -254,7 +226,7 @@ function Welcome({
             )}
           </div>
           <div className="create-form">
-            <h3>创建小说</h3>
+            <h3>{zh ? '创建小说' : 'Create a novel'}</h3>
             <input
               value={form.title}
               onChange={(e) => setForm({ ...form, title: e.target.value })}
@@ -263,11 +235,11 @@ function Welcome({
             <input
               value={form.genre}
               onChange={(e) => setForm({ ...form, genre: e.target.value })}
-              placeholder="类型"
+              placeholder={zh ? '类型' : 'Genre'}
             />
             <div className="number-grid">
               <label>
-                全书字数
+                {zh ? '全书字数' : 'Book words'}
                 <input
                   type="number"
                   value={form.targetWords}
@@ -275,7 +247,7 @@ function Welcome({
                 />
               </label>
               <label>
-                章字数
+                {zh ? '章字数' : 'Chapter words'}
                 <input
                   type="number"
                   value={form.chapterWords}
@@ -283,7 +255,7 @@ function Welcome({
                 />
               </label>
               <label>
-                节字数
+                {zh ? '节字数' : 'Scene words'}
                 <input
                   type="number"
                   value={form.sectionWords}
@@ -292,7 +264,7 @@ function Welcome({
               </label>
             </div>
             <button className="primary" onClick={create} disabled={!writingWorkspace || !form.title.trim()}>
-              创建小说
+              {zh ? '创建小说' : 'Create novel'}
             </button>
             <button className="secondary" onClick={chooseProject}>
               <FolderOpen size={16} /> {t(language, 'openExistingProject')}

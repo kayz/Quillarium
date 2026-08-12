@@ -16,9 +16,12 @@ an independent Obsidian vault and a Quillarium project root.
 - A working source-run CLI for creating and editing those records, importing Markdown, assembling
   context, generating drafts, running deterministic or opt-in semantic checks, accepting runs, and
   exporting manuscripts.
-- An Electron desktop app for registering a writing workspace, creating or opening direct
-  project-vaults, safely migrating legacy projects, planning, writing, generating/checking scenes,
-  reviewing runs, and accepting prose.
+- An Electron desktop app whose welcome screen registers a Git-backed writing library and opens or
+  creates direct project-vaults. Planning records can be created through a multi-turn background-AI
+  conversation, reviewed as structured fields plus Markdown, and written only after confirmation.
+- Safe source/preview switching for Markdown-backed planning documents, including GFM tables,
+  nested lists, quotes, links, and fenced code. Raw HTML is not executed, and unknown nested
+  frontmatter remains editable as reversible JSON.
 - Markdown and plain-text manuscript export from accepted outputs or final scenes, with explicit gap
   reporting and optional volume filtering.
 - An optional retained SillyTavern interchange package for CCv2/CCv3 JSON or PNG import, CCv2 JSON
@@ -61,11 +64,13 @@ Start the Electron app from source:
 pnpm desktop:dev
 ```
 
-Then register a writing workspace, open or create a project-vault, build its outline and supporting
-modules, select a scene, and edit or generate prose. A configured legacy vault can still be opened or
-migrated through the explicit dry-run, backup, apply, verify, and report flow; migration never moves
-or deletes the source. The context/check inspector and recorded runs make inputs and outputs
-reviewable. AI profiles and credential status are managed from desktop settings.
+Then register a GitHub writing library, open or create a project-vault, build its outline and
+supporting modules, select a scene, and edit or generate prose. Legacy layouts remain compatible in
+the runtime and migration services, but they are not an active welcome-screen choice. Migration is
+always an explicit dry-run, backup, apply, verify, and report operation and never moves or deletes
+the source. The context/check inspector and recorded runs make inputs and outputs reviewable.
+Theme, density, language, GitHub credentials, and each AI profile have independent save actions in
+desktop settings.
 
 Use `pnpm desktop:build` to verify the desktop source build. The existing `electron-builder`
 configuration retains Windows and macOS packaging commands:

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   BookOpen,
   Circle,
@@ -55,8 +55,8 @@ export function TopChrome({
   onDensity: (density: DensityName) => void
   onLanguage: (language: LanguageName) => void
   onAIStatus: (status: AIStatus) => void
-  projectName: string
-  path: string
+  projectName?: string
+  path?: string
   onBack?: () => void
   git?: GitState | null
   gitBusy?: boolean
@@ -67,18 +67,20 @@ export function TopChrome({
   workspaceMode?: WorkspaceMode
   onWorkspaceMode?: (mode: WorkspaceMode) => void
 }) {
-  const themes: ThemeName[] = ['paper', 'ink', 'mist', 'bamboo']
   const [showSettings, setShowSettings] = useState(false)
   const [showExport, setShowExport] = useState(false)
   const gitAction = gitActionFor(language, git)
   return (
     <header className="top-chrome">
       <button className="brand" onClick={onBack}>
-        <span className="brand-feather">⌁</span> Quillarium
+        Quillarium
       </button>
-      <div className="project-label">
-        《{projectName}》{locationLabel ? ` / ${locationLabel}` : path ? ` / ${path}` : ''}
-      </div>
+      {projectName && (
+        <div className="project-label">
+          {projectName}
+          {locationLabel ? ` / ${locationLabel}` : path ? ` / ${path}` : ''}
+        </div>
+      )}
       {workspaceMode && onWorkspaceMode && (
         <nav className="workspace-mode-nav" aria-label={language === 'zh' ? '工作区模式' : 'Workspace mode'}>
           <button
@@ -102,14 +104,36 @@ export function TopChrome({
         </button>
       )}
       <button
-        className="status-pill"
+        className={`status-pill ai-status ${aiStatusTone(aiStatus)}`}
         onClick={() => setShowSettings(true)}
         title={t(language, 'configureAI')}
       >
-        <Circle size={10} className={aiStatus.ready ? 'green' : 'amber'} />{' '}
-        {aiStatus.ready ? t(language, 'aiReady') : t(language, 'aiNotConfigured')}
+        <Circle size={10} aria-hidden="true" />{' '}
+        {root ? (
+          aiStatus.ready ? (
+            t(language, 'aiReady')
+          ) : aiStatus.prose || aiStatus.background || aiStatus.check ? (
+            language === 'zh' ? (
+              'AI 部分配置'
+            ) : (
+              'AI partly configured'
+            )
+          ) : (
+            t(language, 'aiNotConfigured')
+          )
+        ) : (
+          <span className="sr-only">
+            {aiStatus.ready
+              ? t(language, 'aiReady')
+              : aiStatus.prose || aiStatus.background || aiStatus.check
+                ? language === 'zh'
+                  ? 'AI 部分配置'
+                  : 'AI partly configured'
+                : t(language, 'aiNotConfigured')}
+          </span>
+        )}
       </button>
-      {git ? (
+      {root && git ? (
         <button
           className="status-pill"
           onClick={
@@ -124,54 +148,7 @@ export function TopChrome({
         >
           <GitBranch size={14} /> {gitBusy ? gitBusyLabel(language, git) : gitAction.label}
         </button>
-      ) : (
-        <button
-          className="status-pill"
-          onClick={() => setShowSettings(true)}
-          title={t(language, 'configureGithub')}
-        >
-          <GitBranch size={14} /> {t(language, 'githubCredentials')}
-        </button>
-      )}
-      <select
-        className="theme-select"
-        value={theme}
-        onChange={async (e) => {
-          const next = e.target.value as ThemeName
-          onTheme(next)
-          await bridge.setTheme(next)
-        }}
-      >
-        {themes.map((item) => (
-          <option key={item} value={item}>
-            {t(language, item)}
-          </option>
-        ))}
-      </select>
-      <select
-        className="theme-select"
-        value={density}
-        onChange={async (e) => {
-          const next = e.target.value as DensityName
-          onDensity(next)
-          await bridge.setDensity(next)
-        }}
-      >
-        <option value="comfortable">{t(language, 'comfortable')}</option>
-        <option value="compact">{t(language, 'compact')}</option>
-      </select>
-      <select
-        className="theme-select language-select"
-        value={language}
-        onChange={async (e) => {
-          const next = e.target.value as LanguageName
-          onLanguage(next)
-          await bridge.setLanguage(next)
-        }}
-      >
-        <option value="zh">中文</option>
-        <option value="en">English</option>
-      </select>
+      ) : null}
       <button className="status-pill" onClick={() => setShowSettings(true)}>
         {t(language, 'settings')}
       </button>
@@ -179,7 +156,12 @@ export function TopChrome({
         <SettingsModal
           root={root}
           git={git ?? null}
+          theme={theme}
+          density={density}
           language={language}
+          onTheme={onTheme}
+          onDensity={onDensity}
+          onLanguage={onLanguage}
           onAIStatus={onAIStatus}
           onClose={() => setShowSettings(false)}
         />
@@ -189,6 +171,12 @@ export function TopChrome({
       )}
     </header>
   )
+}
+
+function aiStatusTone(status: AIStatus): 'green' | 'amber' | 'red' {
+  if (status.ready) return 'green'
+  if (status.prose || status.background || status.check) return 'amber'
+  return 'red'
 }
 
 function gitActionFor(language: LanguageName, git?: GitState | null): { label: string; title: string } {
@@ -204,10 +192,17 @@ function gitActionFor(language: LanguageName, git?: GitState | null): { label: s
     }
   if (!git.remote)
     return {
-      label: git.repositoryScope === 'workspace' ? 'Workspace Git' : t(language, 'githubNotLinked'),
+      label:
+        git.repositoryScope === 'workspace'
+          ? language === 'zh'
+            ? '工作区 Git'
+            : 'Workspace Git'
+          : t(language, 'githubNotLinked'),
       title:
         git.repositoryScope === 'workspace'
-          ? 'Configure the remote at the writing workspace repository root.'
+          ? language === 'zh'
+            ? '请在写作工作区仓库根目录配置 remote。'
+            : 'Configure the remote at the writing workspace repository root.'
           : t(language, 'linkGithubRepoHint')
     }
   if (git.dirty)
@@ -235,16 +230,27 @@ const AI_PROFILE_NAMES = ['prose', 'background', 'check'] as const satisfies rea
 function SettingsModal({
   root,
   git,
+  theme,
+  density,
   language,
+  onTheme,
+  onDensity,
+  onLanguage,
   onAIStatus,
   onClose
 }: {
   root?: string
   git: GitState | null
+  theme: ThemeName
+  density: DensityName
   language: LanguageName
+  onTheme: (theme: ThemeName) => void
+  onDensity: (density: DensityName) => void
+  onLanguage: (language: LanguageName) => void
   onAIStatus: (status: AIStatus) => void
   onClose: () => void
 }) {
+  const closeRef = useRef<HTMLButtonElement | null>(null)
   const [github, setGithub] = useState<GitHubSettings>({
     token: '',
     defaultOwner: '',
@@ -262,8 +268,13 @@ function SettingsModal({
     check: 'none'
   })
   const [storage, setStorage] = useState<StorageStatus | null>(null)
+  const [display, setDisplay] = useState({ theme, density, language })
   const [busyAction, setBusyAction] = useState<string | null>(null)
   const [notice, setNotice] = useState<SettingsNotice | null>(null)
+
+  useEffect(() => {
+    setDisplay({ theme, density, language })
+  }, [theme, density, language])
 
   const updateCredentialMetadata = (config: DesktopConfig) => {
     const profileState = (profile: AIProfileName): CredentialState => {
@@ -326,27 +337,53 @@ function SettingsModal({
     }
   }, [language])
 
-  const saveAI = async () => {
-    setBusyAction('save-ai')
+  useEffect(() => {
+    closeRef.current?.focus()
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && busyAction === null) onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [busyAction, onClose])
+
+  const saveAI = async (profile: AIProfileName) => {
+    setBusyAction(`save-ai-${profile}`)
     setNotice(null)
     try {
-      let config: DesktopConfig | null = null
-      for (const profile of AI_PROFILE_NAMES) {
-        config = await bridge.saveAIProfile(profile, profiles[profile])
-      }
-      if (config) updateCredentialMetadata(config)
+      const config = await bridge.saveAIProfile(profile, profiles[profile])
+      updateCredentialMetadata(config)
       setProfiles((current) => ({
-        prose: { ...current.prose, apiKey: '' },
-        background: { ...current.background, apiKey: '' },
-        check: { ...current.check, apiKey: '' }
+        ...current,
+        [profile]: { ...current[profile], apiKey: '' }
       }))
       onAIStatus(await bridge.aiStatus())
-      setNotice({ tone: 'success', message: t(language, 'aiSettingsSaved') })
+      setNotice({ tone: 'success', message: `${t(language, profile)}：${t(language, 'aiSettingsSaved')}` })
     } catch (error) {
       setNotice({
         tone: 'danger',
         message: `${t(language, 'credentialActionFailed')} ${formatSettingsError(error)}`
       })
+    } finally {
+      setBusyAction(null)
+    }
+  }
+
+  const saveDisplay = async () => {
+    setBusyAction('save-display')
+    setNotice(null)
+    try {
+      await bridge.setTheme(display.theme)
+      await bridge.setDensity(display.density)
+      await bridge.setLanguage(display.language)
+      onTheme(display.theme)
+      onDensity(display.density)
+      onLanguage(display.language)
+      setNotice({
+        tone: 'success',
+        message: display.language === 'zh' ? '显示设置已保存。' : 'Display settings saved.'
+      })
+    } catch (error) {
+      setNotice({ tone: 'danger', message: formatSettingsError(error) })
     } finally {
       setBusyAction(null)
     }
@@ -461,9 +498,27 @@ function SettingsModal({
 
   return (
     <div className="modal-backdrop">
-      <section className="modal settings-modal">
-        <h2>{t(language, 'settings')}</h2>
-        <p>{t(language, 'privacyHint')}</p>
+      <section
+        className="modal settings-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settings-title"
+      >
+        <header className="settings-modal-head">
+          <div>
+            <h2 id="settings-title">{t(language, 'settings')}</h2>
+            <p>{t(language, 'privacyHint')}</p>
+          </div>
+          <button
+            ref={closeRef}
+            className="secondary"
+            type="button"
+            onClick={onClose}
+            disabled={busyAction !== null}
+          >
+            {t(language, 'close')}
+          </button>
+        </header>
         <section
           className={`credential-security-band ${storageHealthy ? 'is-encrypted' : 'is-warning'}`}
           aria-live="polite"
@@ -504,8 +559,60 @@ function SettingsModal({
         )}
         <div className="settings-group">
           <div className="settings-section-head">
+            <h3>{language === 'zh' ? '显示' : 'Display'}</h3>
+            <button className="secondary" type="button" onClick={saveDisplay} disabled={busyAction !== null}>
+              {busyAction === 'save-display'
+                ? t(language, 'saving')
+                : language === 'zh'
+                  ? '保存显示'
+                  : 'Save display'}
+            </button>
+          </div>
+          <div className="settings-grid three display-settings-grid">
+            <label>
+              {language === 'zh' ? '主题' : 'Theme'}
+              <select
+                value={display.theme}
+                onChange={(event) => setDisplay({ ...display, theme: event.target.value as ThemeName })}
+              >
+                {(['paper', 'ink', 'mist', 'bamboo'] as ThemeName[]).map((item) => (
+                  <option key={item} value={item}>
+                    {t(language, item)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              {language === 'zh' ? '密度' : 'Density'}
+              <select
+                value={display.density}
+                onChange={(event) => setDisplay({ ...display, density: event.target.value as DensityName })}
+              >
+                <option value="comfortable">{t(language, 'comfortable')}</option>
+                <option value="compact">{t(language, 'compact')}</option>
+              </select>
+            </label>
+            <label>
+              {language === 'zh' ? '语言' : 'Language'}
+              <select
+                value={display.language}
+                onChange={(event) => setDisplay({ ...display, language: event.target.value as LanguageName })}
+              >
+                <option value="zh">中文</option>
+                <option value="en">English</option>
+              </select>
+            </label>
+          </div>
+        </div>
+        <div className="settings-group">
+          <div className="settings-section-head">
             <h3>{t(language, 'globalGithubSettings')}</h3>
-            <CredentialBadge state={githubCredentialState} language={language} />
+            <div className="settings-section-actions">
+              <CredentialBadge state={githubCredentialState} language={language} />
+              <button className="secondary" type="button" onClick={saveGithub} disabled={busyAction !== null}>
+                {busyAction === 'save-github' ? t(language, 'saving') : t(language, 'saveGithub')}
+              </button>
+            </div>
           </div>
           <div className="settings-grid two">
             <div className="credential-field">
@@ -562,7 +669,9 @@ function SettingsModal({
             <h3>{t(language, 'currentNovelGit')}</h3>
             <p className="muted">
               {git?.repositoryScope === 'workspace'
-                ? '当前作品属于写作工作区仓库；remote 与同步在工作区根生效，作品提交仍只包含当前项目。'
+                ? language === 'zh'
+                  ? '当前作品属于写作工作区仓库；remote 与同步在工作区根生效，作品提交仍只包含当前项目。'
+                  : 'This project belongs to the writing workspace repository. Remote and sync apply at the workspace root, while project commits remain scoped to this project.'
                 : t(language, 'currentNovelGitHint')}
             </p>
             <div className="settings-grid two">
@@ -583,7 +692,17 @@ function SettingsModal({
             <article key={profile} className="ai-profile-card">
               <div className="ai-profile-card-head">
                 <strong>{t(language, profile)}</strong>
-                <CredentialBadge state={profileCredentials[profile]} language={language} />
+                <div className="settings-section-actions">
+                  <CredentialBadge state={profileCredentials[profile]} language={language} />
+                  <button
+                    className="secondary compact-save"
+                    type="button"
+                    onClick={() => void saveAI(profile)}
+                    disabled={busyAction !== null}
+                  >
+                    {busyAction === `save-ai-${profile}` ? t(language, 'saving') : t(language, 'save')}
+                  </button>
+                </div>
               </div>
               <label>
                 {t(language, 'provider')}
@@ -643,12 +762,6 @@ function SettingsModal({
         <div className="modal-actions">
           <button className="secondary" onClick={onClose}>
             {t(language, 'close')}
-          </button>
-          <button className="primary" onClick={saveGithub} disabled={busyAction !== null}>
-            {busyAction === 'save-github' ? t(language, 'saving') : t(language, 'saveGithub')}
-          </button>
-          <button className="primary" onClick={saveAI} disabled={busyAction !== null}>
-            {busyAction === 'save-ai' ? t(language, 'saving') : t(language, 'saveAI')}
           </button>
         </div>
       </section>

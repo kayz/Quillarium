@@ -75,8 +75,8 @@ export function levelTasks(level: string): {
 }
 
 export function formatFieldValue(value: unknown): string {
-  if (Array.isArray(value)) return value.map(String).filter(Boolean).join(' / ')
-  if (value && typeof value === 'object') return JSON.stringify(value)
+  if (Array.isArray(value)) return value.map(formatFieldValue).filter(Boolean).join(' / ')
+  if (value && typeof value === 'object') return JSON.stringify(value, null, 0)
   return String(value ?? '')
 }
 
@@ -168,7 +168,7 @@ export function filterDocs(items: DocEntry[], query: string): DocEntry[] {
   if (!needle) return items
   return items.filter((item) => {
     const haystack =
-      `${item.data.title}\n${item.content}\n${Object.values(item.data).join('\n')}`.toLowerCase()
+      `${item.data.title}\n${item.content}\n${Object.values(item.data).map(formatFieldValue).join('\n')}`.toLowerCase()
     return haystack.includes(needle)
   })
 }

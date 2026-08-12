@@ -126,111 +126,119 @@ export function registerProjectHandlers(): void {
     return true
   })
   typedHandle('doc:create', async (_event, root, kind, input) => {
-    switch (kind) {
-      case 'canon': {
-        const canon = input as Partial<CanonDoc>
-        return createCanon(root, requiredString(input.title, 'title'), optionalString(input.content), {
-          strength: canon.strength ?? 'hard',
-          source: canon.source ?? 'user',
-          status: canon.status ?? 'confirmed'
-        })
-      }
-      case 'character':
-        return createCharacter(
-          root,
-          requiredString(input.title, 'title'),
-          input as Partial<CharacterDoc>,
-          optionalString(input.content)
-        )
-      case 'character_state':
-        return createCharacterState(
-          root,
-          requiredString(input.title, 'title'),
-          input as Partial<CharacterStateDoc>,
-          optionalString(input.content)
-        )
-      case 'foreshadowing':
-        return createForeshadowing(
-          root,
-          requiredString(input.title, 'title'),
-          input as Partial<ForeshadowingDoc>,
-          optionalString(input.content)
-        )
-      case 'world_entry':
-        return createWorldEntry(
-          root,
-          requiredString(input.title, 'title'),
-          input as Partial<WorldEntryDoc>,
-          optionalString(input.content)
-        )
-      case 'reference':
-        return createReference(
-          root,
-          requiredString(input.title, 'title'),
-          input as Partial<ReferenceDoc>,
-          optionalString(input.content)
-        )
-      case 'issue':
-        return createIssue(
-          root,
-          requiredString(input.title, 'title'),
-          input as Partial<IssueDoc>,
-          optionalString(input.content)
-        )
-      case 'strategy':
-        return createStrategy(
-          root,
-          requiredString(input.title, 'title'),
-          input as Partial<StrategyDoc>,
-          optionalString(input.content)
-        )
-      case 'pattern':
-        return createPattern(
-          root,
-          requiredString(input.title, 'title'),
-          input as Partial<PatternDoc>,
-          optionalString(input.content)
-        )
-      case 'timeline_event':
-        return appendTimelineEvent(
-          root,
-          requiredString(input.title, 'title'),
-          input as Partial<TimelineEventDoc>,
-          optionalString(input.content)
-        )
-      case 'location':
-        return createLocation(
-          root,
-          requiredString(input.title, 'title'),
-          input as Partial<LocationDoc>,
-          optionalString(input.content)
-        )
-      case 'route':
-        return createRoute(
-          root,
-          requiredString(input.from, 'from'),
-          requiredString(input.to, 'to'),
-          input as Partial<RouteDoc>
-        )
-      case 'outline':
-        return createOutline(
-          root,
-          outlineLevel(input.level),
-          requiredString(input.title, 'title'),
-          input as Partial<OutlineDoc>,
-          optionalString(input.content)
-        )
-      case 'scene':
-        return createScene(
-          root,
-          requiredString(input.title, 'title'),
-          input as Partial<SceneDoc>,
-          optionalString(input.content)
-        )
-      default:
-        throw new Error(`Unsupported document kind: ${kind}`)
-    }
+    return createProjectDocument(root, kind, input)
   })
+}
+
+export async function createProjectDocument(
+  root: string,
+  kind: string,
+  input: Record<string, unknown>
+): Promise<string> {
+  switch (kind) {
+    case 'canon': {
+      const canon = input as Partial<CanonDoc>
+      return createCanon(root, requiredString(input.title, 'title'), optionalString(input.content), {
+        strength: canon.strength ?? 'hard',
+        source: canon.source ?? 'user',
+        status: canon.status ?? 'confirmed'
+      })
+    }
+    case 'character':
+      return createCharacter(
+        root,
+        requiredString(input.title, 'title'),
+        input as Partial<CharacterDoc>,
+        optionalString(input.content)
+      )
+    case 'character_state':
+      return createCharacterState(
+        root,
+        requiredString(input.title, 'title'),
+        input as Partial<CharacterStateDoc>,
+        optionalString(input.content)
+      )
+    case 'foreshadowing':
+      return createForeshadowing(
+        root,
+        requiredString(input.title, 'title'),
+        input as Partial<ForeshadowingDoc>,
+        optionalString(input.content)
+      )
+    case 'world_entry':
+      return createWorldEntry(
+        root,
+        requiredString(input.title, 'title'),
+        input as Partial<WorldEntryDoc>,
+        optionalString(input.content)
+      )
+    case 'reference':
+      return createReference(
+        root,
+        requiredString(input.title, 'title'),
+        input as Partial<ReferenceDoc>,
+        optionalString(input.content)
+      )
+    case 'issue':
+      return createIssue(
+        root,
+        requiredString(input.title, 'title'),
+        input as Partial<IssueDoc>,
+        optionalString(input.content)
+      )
+    case 'strategy':
+      return createStrategy(
+        root,
+        requiredString(input.title, 'title'),
+        input as Partial<StrategyDoc>,
+        optionalString(input.content)
+      )
+    case 'pattern':
+      return createPattern(
+        root,
+        requiredString(input.title, 'title'),
+        input as Partial<PatternDoc>,
+        optionalString(input.content)
+      )
+    case 'timeline_event':
+      return appendTimelineEvent(
+        root,
+        requiredString(input.title, 'title'),
+        input as Partial<TimelineEventDoc>,
+        optionalString(input.content)
+      )
+    case 'location':
+      return createLocation(
+        root,
+        requiredString(input.title, 'title'),
+        input as Partial<LocationDoc>,
+        optionalString(input.content)
+      )
+    case 'route':
+      return createRoute(
+        root,
+        requiredString(input.from, 'from'),
+        requiredString(input.to, 'to'),
+        input as Partial<RouteDoc>
+      )
+    case 'outline':
+      return createOutline(
+        root,
+        outlineLevel(input.level),
+        requiredString(input.title, 'title'),
+        input as Partial<OutlineDoc>,
+        optionalString(input.content)
+      )
+    case 'scene':
+      return createScene(
+        root,
+        requiredString(input.title, 'title'),
+        input as Partial<SceneDoc>,
+        optionalString(input.content)
+      )
+    default:
+      throw new Error(`Unsupported document kind: ${kind}`)
+  }
 }
 
 function requiredString(value: unknown, field: string): string {

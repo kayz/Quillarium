@@ -9,8 +9,8 @@ async function createWindow() {
   const win = new BrowserWindow({
     width: 1500,
     height: 980,
-    minWidth: 1100,
-    minHeight: 760,
+    minWidth: 760,
+    minHeight: 620,
     title: 'Quillarium',
     backgroundColor: '#f4f0e7',
     webPreferences: {
