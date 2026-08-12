@@ -5,6 +5,11 @@
     "rootDir": "src",
     "outDir": "dist"
   },
-  "references": [{ "path": "../core" }, { "path": "../checks" }, { "path": "../ai" }],
+  "references": [
+    { "path": "../core" },
+    { "path": "../checks" },
+    { "path": "../ai" },
+    { "path": "../sillytavern" }
+  ],
   "include": ["src/**/*.ts"]
 }

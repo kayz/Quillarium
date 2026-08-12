@@ -2,26 +2,41 @@ import path from 'node:path'
 import { ensureDir, listMarkdownFiles, pathExists, readMarkdown, readText, writeMarkdown } from './fs.js'
 import { makeId, slugify } from './ids.js'
 import {
+  baseDocSchema,
   canonSchema,
+  characterStateSchema,
   characterSchema,
+  foreshadowingSchema,
+  issueSchema,
   locationSchema,
   outlineSchema,
+  patternSchema,
+  referenceSchema,
   routeSchema,
   sceneSchema,
-  timelineEventSchema
+  strategySchema,
+  timelineEventSchema,
+  worldEntrySchema
 } from './schema.js'
 import type {
   BaseDoc,
   CanonDoc,
+  CharacterStateDoc,
   CharacterDoc,
   DocType,
+  ForeshadowingDoc,
+  IssueDoc,
   LocationDoc,
   OutlineDoc,
+  PatternDoc,
   ProjectIndex,
   ProjectIndexEntry,
+  ReferenceDoc,
   RouteDoc,
   SceneDoc,
-  TimelineEventDoc
+  StrategyDoc,
+  TimelineEventDoc,
+  WorldEntryDoc
 } from './types.js'
 import { loadProject, projectPaths } from './project.js'
 import { writeText } from './fs.js'
@@ -32,12 +47,41 @@ const TYPE_DIR: Record<DocType, string> = {
   timeline_event: 'timeline',
   location: 'locations',
   route: 'locations/routes',
+  foreshadowing: 'foreshadowing',
+  world_entry: 'world',
+  reference: 'references',
+  issue: 'issues',
+  strategy: 'strategy',
+  pattern: 'patterns',
+  character_state: 'character-states',
   resource: 'resources',
   causality: 'causality',
   outline: 'outlines',
   scene: 'scenes',
   prompt: 'prompts'
 }
+
+const DOC_SCHEMAS = {
+  canon: canonSchema.passthrough(),
+  character: characterSchema.passthrough(),
+  timeline_event: timelineEventSchema.passthrough(),
+  location: locationSchema.passthrough(),
+  route: routeSchema.passthrough(),
+  foreshadowing: foreshadowingSchema.passthrough(),
+  world_entry: worldEntrySchema.passthrough(),
+  reference: referenceSchema.passthrough(),
+  issue: issueSchema.passthrough(),
+  strategy: strategySchema.passthrough(),
+  pattern: patternSchema.passthrough(),
+  character_state: characterStateSchema.passthrough(),
+  resource: baseDocSchema.passthrough(),
+  causality: baseDocSchema.passthrough(),
+  outline: outlineSchema,
+  scene: sceneSchema.passthrough(),
+  prompt: baseDocSchema.passthrough()
+}
+
+const reservedAutoIds = new Map<string, Set<string>>()
 
 export function dirForType(projectRoot: string, type: DocType): string {
   return path.join(projectRoot, TYPE_DIR[type])
@@ -47,6 +91,35 @@ export function fileForDoc(projectRoot: string, type: DocType, id: string, title
   return path.join(dirForType(projectRoot, type), `${id}-${slugify(title)}.md`)
 }
 
+async function allocateAutoId(
+  projectRoot: string,
+  type: DocType,
+  prefix: string,
+  title: string
+): Promise<string> {
+  const suggested = makeId(prefix, title)
+  const reservationKey = `${path.resolve(projectRoot)}\0${type}`
+  const reserved = reservedAutoIds.get(reservationKey) ?? new Set<string>()
+  reservedAutoIds.set(reservationKey, reserved)
+  const existingIds = new Set(
+    (await listDocs<BaseDoc>(projectRoot, type)).map((document) => document.data.id)
+  )
+  if (!existingIds.has(suggested) && !reserved.has(suggested)) {
+    reserved.add(suggested)
+    return suggested
+  }
+
+  const base = `${prefix}-${slugify(title).toLocaleLowerCase()}`
+  for (let suffix = 2; suffix <= 100_000; suffix += 1) {
+    const candidate = `${base}-${suffix}`
+    if (!existingIds.has(candidate) && !reserved.has(candidate)) {
+      reserved.add(candidate)
+      return candidate
+    }
+  }
+  throw new Error(`Could not allocate a unique ${type} id for ${title}.`)
+}
+
 export async function createCanon(
   projectRoot: string,
   title: string,
@@ -54,7 +127,7 @@ export async function createCanon(
   partial: Partial<CanonDoc> = {}
 ): Promise<string> {
   const doc = canonSchema.parse({
-    id: partial.id ?? makeId('canon', title),
+    id: partial.id ?? (await allocateAutoId(projectRoot, 'canon', 'canon', title)),
     type: 'canon',
     schema_version: 1,
     title,
@@ -99,7 +172,7 @@ export async function createCharacter(
   content = ''
 ): Promise<string> {
   const doc = characterSchema.parse({
-    id: partial.id ?? makeId('char', name),
+    id: partial.id ?? (await allocateAutoId(projectRoot, 'character', 'char', name)),
     type: 'character',
     schema_version: 1,
     title: name,
@@ -111,13 +184,212 @@ export async function createCharacter(
     desire: partial.desire ?? '',
     fear: partial.fear ?? '',
     bottom_line: partial.bottom_line ?? '',
+    motivation_anchors: partial.motivation_anchors ?? [],
     relationships: partial.relationships ?? {},
     arc: partial.arc ?? {},
     ooc_guardrails: partial.ooc_guardrails ?? [],
+    active_flags: partial.active_flags ?? [],
+    disclosure: partial.disclosure ?? [],
     scene_state: partial.scene_state ?? {}
   }) as CharacterDoc
   const file = fileForDoc(projectRoot, 'character', doc.id, name)
   await writeMarkdown(file, doc as unknown as Record<string, unknown>, content || `## Profile\n\n## Notes\n`)
+  return file
+}
+
+export async function createForeshadowing(
+  projectRoot: string,
+  title: string,
+  partial: Partial<ForeshadowingDoc> = {},
+  content = ''
+): Promise<string> {
+  const doc = foreshadowingSchema.parse({
+    id:
+      partial.id ??
+      (partial.code
+        ? partial.code.toLocaleLowerCase()
+        : await allocateAutoId(projectRoot, 'foreshadowing', 'fb', title)),
+    type: 'foreshadowing',
+    schema_version: 1,
+    title,
+    status: partial.status ?? partial.state ?? 'planned',
+    tags: partial.tags ?? [],
+    code: partial.code ?? '',
+    level: partial.level ?? 'L4',
+    summary: partial.summary ?? '',
+    planned_plant: partial.planned_plant ?? '',
+    planted_at: partial.planted_at ?? null,
+    reinforced_at: partial.reinforced_at ?? [],
+    planned_resolve: partial.planned_resolve ?? '',
+    expires_at: partial.expires_at ?? '',
+    state: partial.state ?? 'planned',
+    related_characters: partial.related_characters ?? [],
+    related_arc: partial.related_arc ?? ''
+  }) as ForeshadowingDoc
+  const file = path.join(dirForType(projectRoot, 'foreshadowing'), `${doc.id}.md`)
+  await writeMarkdown(file, doc as unknown as Record<string, unknown>, content || `## Foreshadowing\n`)
+  return file
+}
+
+export async function createWorldEntry(
+  projectRoot: string,
+  title: string,
+  partial: Partial<WorldEntryDoc> = {},
+  content = ''
+): Promise<string> {
+  const doc = worldEntrySchema.parse({
+    id:
+      partial.id ??
+      (partial.code
+        ? partial.code.toLocaleLowerCase()
+        : await allocateAutoId(projectRoot, 'world_entry', 'world', title)),
+    type: 'world_entry',
+    schema_version: 1,
+    title,
+    status: partial.status ?? partial.entry_status ?? 'candidate',
+    tags: partial.tags ?? [],
+    code: partial.code ?? '',
+    triggers: partial.triggers ?? [],
+    category_tags: partial.category_tags ?? [],
+    role: partial.role ?? 'both',
+    valid_from: partial.valid_from ?? '',
+    valid_until: partial.valid_until ?? '',
+    entry_status: partial.entry_status ?? 'candidate',
+    importance: partial.importance ?? 'medium',
+    historical_reference: partial.historical_reference ?? '',
+    story_setting: partial.story_setting ?? '',
+    used_in: partial.used_in ?? [],
+    links: partial.links ?? [],
+    source: partial.source ?? ''
+  }) as WorldEntryDoc
+  const file = fileForDoc(projectRoot, 'world_entry', doc.id, title)
+  await writeMarkdown(file, doc as unknown as Record<string, unknown>, content || `## World Entry\n`)
+  return file
+}
+
+export async function createReference(
+  projectRoot: string,
+  title: string,
+  partial: Partial<ReferenceDoc> = {},
+  content = ''
+): Promise<string> {
+  const doc = referenceSchema.parse({
+    id: partial.id ?? (await allocateAutoId(projectRoot, 'reference', 'ref', title)),
+    type: 'reference',
+    schema_version: 1,
+    title,
+    status: partial.status ?? 'draft',
+    tags: partial.tags ?? [],
+    source_title: partial.source_title ?? title,
+    author: partial.author ?? '',
+    material_type: partial.material_type ?? 'other',
+    location: partial.location ?? '',
+    reading_status: partial.reading_status ?? 'unread',
+    topic_tags: partial.topic_tags ?? [],
+    extracted_entries: partial.extracted_entries ?? [],
+    value_assessment: partial.value_assessment ?? ''
+  }) as ReferenceDoc
+  const file = fileForDoc(projectRoot, 'reference', doc.id, title)
+  await writeMarkdown(file, doc as unknown as Record<string, unknown>, content || `## Reference\n`)
+  return file
+}
+
+export async function createIssue(
+  projectRoot: string,
+  title: string,
+  partial: Partial<IssueDoc> = {},
+  content = ''
+): Promise<string> {
+  const doc = issueSchema.parse({
+    id: partial.id ?? (await allocateAutoId(projectRoot, 'issue', 'issue', title)),
+    type: 'issue',
+    schema_version: 1,
+    title,
+    status: partial.status ?? partial.state ?? 'open',
+    tags: partial.tags ?? [],
+    priority: partial.priority ?? 'medium',
+    state: partial.state ?? 'open',
+    due: partial.due ?? '',
+    decision_needed: partial.decision_needed ?? '',
+    related_docs: partial.related_docs ?? []
+  }) as IssueDoc
+  const file = path.join(dirForType(projectRoot, 'issue'), `${doc.id}.md`)
+  await writeMarkdown(file, doc as unknown as Record<string, unknown>, content || `## Issue\n`)
+  return file
+}
+
+export async function createStrategy(
+  projectRoot: string,
+  title: string,
+  partial: Partial<StrategyDoc> = {},
+  content = ''
+): Promise<string> {
+  const doc = strategySchema.parse({
+    id: partial.id ?? (await allocateAutoId(projectRoot, 'strategy', 'strategy', title)),
+    type: 'strategy',
+    schema_version: 1,
+    title,
+    status: partial.status ?? 'active',
+    tags: partial.tags ?? [],
+    category: partial.category ?? 'narrative',
+    scope: partial.scope ?? 'project',
+    principles: partial.principles ?? [],
+    avoid: partial.avoid ?? []
+  }) as StrategyDoc
+  const file = fileForDoc(projectRoot, 'strategy', doc.id, title)
+  await writeMarkdown(file, doc as unknown as Record<string, unknown>, content || `## Strategy\n`)
+  return file
+}
+
+export async function createPattern(
+  projectRoot: string,
+  title: string,
+  partial: Partial<PatternDoc> = {},
+  content = ''
+): Promise<string> {
+  const doc = patternSchema.parse({
+    id: partial.id ?? (await allocateAutoId(projectRoot, 'pattern', 'pattern', title)),
+    type: 'pattern',
+    schema_version: 1,
+    title,
+    status: partial.status ?? 'active',
+    tags: partial.tags ?? [],
+    kind: partial.kind ?? 'story',
+    scope: partial.scope ?? 'project',
+    applies_to: partial.applies_to ?? [],
+    source: partial.source ?? 'user'
+  }) as PatternDoc
+  const file = fileForDoc(projectRoot, 'pattern', doc.id, title)
+  await writeMarkdown(file, doc as unknown as Record<string, unknown>, content || `## Pattern\n`)
+  return file
+}
+
+export async function createCharacterState(
+  projectRoot: string,
+  title: string,
+  partial: Partial<CharacterStateDoc>,
+  content = ''
+): Promise<string> {
+  const doc = characterStateSchema.parse({
+    id: partial.id ?? (await allocateAutoId(projectRoot, 'character_state', 'state', title)),
+    type: 'character_state',
+    schema_version: 1,
+    title,
+    status: partial.status ?? 'active',
+    tags: partial.tags ?? [],
+    character: partial.character,
+    scope_type: partial.scope_type ?? 'outline',
+    scope_id: partial.scope_id,
+    timeline_node: partial.timeline_node ?? null,
+    motivation: partial.motivation ?? '',
+    emotion: partial.emotion ?? '',
+    knowledge: partial.knowledge ?? [],
+    relationship_delta: partial.relationship_delta ?? {},
+    public_disclosure: partial.public_disclosure ?? [],
+    notes: partial.notes ?? ''
+  }) as CharacterStateDoc
+  const file = fileForDoc(projectRoot, 'character_state', doc.id, title)
+  await writeMarkdown(file, doc as unknown as Record<string, unknown>, content || `## Character State\n`)
   return file
 }
 
@@ -131,7 +403,7 @@ export async function appendTimelineEvent(
   const previous =
     partial.previous === undefined ? (events.at(-1)?.data.id ?? null) : (partial.previous ?? null)
   const doc = timelineEventSchema.parse({
-    id: partial.id ?? makeId('evt', title),
+    id: partial.id ?? (await allocateAutoId(projectRoot, 'timeline_event', 'evt', title)),
     type: 'timeline_event',
     schema_version: 1,
     title,
@@ -157,7 +429,7 @@ export async function createLocation(
   content = ''
 ): Promise<string> {
   const doc = locationSchema.parse({
-    id: partial.id ?? makeId('loc', title),
+    id: partial.id ?? (await allocateAutoId(projectRoot, 'location', 'loc', title)),
     type: 'location',
     schema_version: 1,
     title,
@@ -179,7 +451,7 @@ export async function createRoute(
 ): Promise<string> {
   const title = partial.title ?? `${from} to ${to}`
   const doc = routeSchema.parse({
-    id: partial.id ?? makeId('route', title),
+    id: partial.id ?? (await allocateAutoId(projectRoot, 'route', 'route', title)),
     type: 'route',
     schema_version: 1,
     title,
@@ -205,7 +477,7 @@ export async function createOutline(
   content = ''
 ): Promise<string> {
   const doc = outlineSchema.parse({
-    id: partial.id ?? makeId(level, title),
+    id: partial.id ?? (await allocateAutoId(projectRoot, 'outline', level, title)),
     type: 'outline',
     schema_version: 1,
     title,
@@ -215,7 +487,40 @@ export async function createOutline(
     parent: partial.parent ?? null,
     order: partial.order ?? 0,
     target_words: partial.target_words,
-    chapter_hook: partial.chapter_hook
+    chapter_hook: partial.chapter_hook,
+    reader_promise: partial.reader_promise ?? '',
+    reader_payoff: partial.reader_payoff ?? '',
+    reader_benefit: partial.reader_benefit ?? '',
+    core_appeal: partial.core_appeal ?? [],
+    core_suspense: partial.core_suspense ?? [],
+    genre_boundary: partial.genre_boundary ?? [],
+    volume_goal: partial.volume_goal ?? '',
+    event_chain: partial.event_chain ?? [],
+    character_growth: partial.character_growth ?? [],
+    story_cycles: partial.story_cycles ?? [],
+    conflict_ladder: partial.conflict_ladder ?? [],
+    cast_lock: partial.cast_lock ?? [],
+    fixed_reveals: partial.fixed_reveals ?? [],
+    chapter_goal: partial.chapter_goal ?? '',
+    chapter_conflict: partial.chapter_conflict ?? '',
+    chapter_change: partial.chapter_change ?? '',
+    ending_hook: partial.ending_hook ?? '',
+    invariants: partial.invariants ?? [],
+    narrative_function: partial.narrative_function ?? '',
+    emotional_curve: partial.emotional_curve ?? '',
+    povs: partial.povs ?? [],
+    start_state: partial.start_state ?? '',
+    end_state: partial.end_state ?? '',
+    context_pins: partial.context_pins ?? [],
+    context_exclusions: partial.context_exclusions ?? [],
+    related_timeline: partial.related_timeline ?? [],
+    related_characters: partial.related_characters ?? [],
+    related_events: partial.related_events ?? [],
+    related_foreshadowing: partial.related_foreshadowing ?? [],
+    world_entries_used: partial.world_entries_used ?? [],
+    foreshadowing_planted: partial.foreshadowing_planted ?? [],
+    foreshadowing_resolved: partial.foreshadowing_resolved ?? [],
+    related_patterns: partial.related_patterns ?? []
   }) as OutlineDoc
   const file = fileForDoc(projectRoot, 'outline', doc.id, title)
   await writeMarkdown(file, doc as unknown as Record<string, unknown>, content || `## ${title}\n`)
@@ -230,20 +535,40 @@ export async function createScene(
 ): Promise<string> {
   const project = await loadProject(projectRoot)
   const doc = sceneSchema.parse({
-    id: partial.id ?? makeId('scene', title),
+    id: partial.id ?? (await allocateAutoId(projectRoot, 'scene', 'scene', title)),
     type: 'scene',
     schema_version: 1,
     title,
     status: partial.status ?? 'draft',
     tags: partial.tags ?? [],
+    chapter_number: partial.chapter_number ?? '',
+    volume: partial.volume ?? '',
+    act: partial.act ?? '',
     section: partial.section,
     timeline_node: partial.timeline_node,
     location: partial.location,
     pov: partial.pov,
     characters: partial.characters ?? [],
+    world_time: partial.world_time ?? '',
+    chapter_break_hook: partial.chapter_break_hook ?? '',
+    narrative_function: partial.narrative_function ?? '',
+    writing_environment: partial.writing_environment ?? '',
+    scene_goal: partial.scene_goal ?? '',
+    scene_conflict: partial.scene_conflict ?? '',
+    scene_change: partial.scene_change ?? '',
+    reader_benefit: partial.reader_benefit ?? '',
+    ending_hook: partial.ending_hook ?? '',
+    foreshadowing_planted: partial.foreshadowing_planted ?? [],
+    foreshadowing_resolved: partial.foreshadowing_resolved ?? [],
+    foreshadowing_reinforced: partial.foreshadowing_reinforced ?? [],
+    world_entries_used: partial.world_entries_used ?? [],
+    impact: partial.impact ?? [],
     target_words: partial.target_words ?? project.section_words,
     chapter_hook: partial.chapter_hook ?? false,
-    previous_scene: partial.previous_scene ?? null
+    previous_scene: partial.previous_scene ?? null,
+    context_pins: partial.context_pins ?? [],
+    context_exclusions: partial.context_exclusions ?? [],
+    related_patterns: partial.related_patterns ?? []
   }) as SceneDoc
   const volume = partial.tags?.find((t) => t.startsWith('volume-')) ?? 'volume-01'
   const chapter = partial.tags?.find((t) => t.startsWith('chapter-')) ?? 'chapter-001'
@@ -263,6 +588,13 @@ export async function listDocs<T extends BaseDoc>(
         'characters',
         'timeline',
         'locations',
+        'foreshadowing',
+        'world',
+        'references',
+        'issues',
+        'strategy',
+        'patterns',
+        'character-states',
         'resources',
         'causality',
         'outlines',
@@ -273,10 +605,25 @@ export async function listDocs<T extends BaseDoc>(
   const docs = []
   for (const file of files) {
     const parsed = await readMarkdown<Record<string, unknown>>(file)
-    if (!type || parsed.data.type === type)
-      docs.push({ path: file, data: parsed.data, content: parsed.content })
+    if (type && parsed.data.type !== type) continue
+    const data = parseKnownDocument(parsed.data, file)
+    docs.push({ path: file, data, content: parsed.content })
   }
   return docs as Array<{ path: string; data: T; content: string }>
+}
+
+function parseKnownDocument(data: Record<string, unknown>, file: string): Record<string, unknown> {
+  const type = data.type
+  if (typeof type !== 'string' || !Object.hasOwn(DOC_SCHEMAS, type)) return data
+
+  const schema = DOC_SCHEMAS[type as keyof typeof DOC_SCHEMAS]
+  const result = schema.safeParse(data)
+  if (result.success) return result.data
+
+  const details = result.error.issues
+    .map((issue) => `${issue.path.length ? issue.path.join('.') : 'frontmatter'}: ${issue.message}`)
+    .join('; ')
+  throw new Error(`Invalid ${type} document at ${file}: ${details}`)
 }
 
 export async function findDoc<T extends BaseDoc>(

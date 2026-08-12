@@ -1,5 +1,9 @@
 # MVP Worklist: Obsidian-Based Writing Flow
 
+> Historical implementation checklist: vault-level `init --vault` entries below document the
+> original MVP compatibility path. The current default is a registered writing workspace with
+> direct `projects/<project-id>/` project-vaults; see [DESIGN.md](DESIGN.md) and [CLI.md](CLI.md).
+
 This MVP focuses on a usable Obsidian-backed writing workflow before building a full desktop UI.
 
 ## Goal

@@ -1,0 +1,88 @@
+# Quillarium Product Roadmap
+
+This roadmap covers the Quillarium product and runtime only. Individual novels, private writing
+archives, and project-specific validation logs live outside the product repository.
+
+## Completed Gate: Work-Neutral Workspace Foundation
+
+Completed on 2026-08-12. The current tree now enforces the work-neutral workspace boundary rather
+than treating it only as a design target.
+
+- Keep product code, defaults, tests, documentation, and examples free of real-work names, IDs,
+  characters, and plot details.
+- Use a workspace manifest to register direct project-vault roots and reusable shared guidance.
+- Keep the legacy `<vault>/novels/<title>` layout compatible through an explicit, backed-up,
+  verified migration path.
+- Use stable project IDs independently of display titles and aliases.
+- Scope Git status, staging, commits, remotes, and sync to the trusted workspace/project boundary.
+- Snapshot shared guidance and its hashes in every new run without allowing it to override project
+  truth.
+
+The gate passed migration-integrity, direct project-vault, workspace-discovery, shared-guidance
+snapshot, scoped-Git, secret-scan, build, desktop-build, test, coverage, lint, format, and dependency
+audit checks. Legacy cycle fields remain only in the internal compatibility parser and migration
+tests.
+
+## Current Focus: P0 Explainable Chapter Production
+
+### Context compiler
+
+Implement `ContextPolicy`, typed `PromptBlock` values, and `ContextTrace` using the deterministic
+pipeline defined in
+[ADR-context-activation.md](docs/adr/ADR-context-activation.md):
+
+```text
+writing scope -> candidates -> triggers/relationships -> ordering
+              -> real token budget -> truncation -> trace
+```
+
+Provide a generation preview with source, purpose, authority, priority, token count, truncation, and
+inclusion reason. Bound recursive expansion and make compilation reproducible.
+
+### Multiple candidates and branches
+
+- Generate several candidates in one group and compare them side by side.
+- Record `candidate_group_id`, `parent_run_id`, `branch_id`, and `selected_at`.
+- Preserve unselected candidates and allow a candidate to seed a new branch.
+- Keep candidate selection distinct from scene acceptance, chapter finalization, and publication.
+
+### Versioned writing presets
+
+Create `WritingPreset` as a versioned combination of model configuration, prompt stack, context
+policy, and check policy. Store a sanitized snapshot or reproducible hash in every run; credentials
+remain machine-local.
+
+## P1: Auditable Lifecycle and Memory
+
+- Publish strongly typed events after committed core operations, including `context.assembled`,
+  `candidate.selected`, `scene.accepted`, and `finalization.applied`.
+- Add scoped writing notes with explicit expiry.
+- Add rebuildable rolling summaries that cite source chapters and never replace accepted prose.
+- Complete atomic finalization apply with validation, backup, verification, audit records, and
+  recovery.
+- Connect publication feedback to chapter-level retrospectives and future planning.
+
+## P2: Declarative Chapter Recipes
+
+After the chapter lifecycle is stable, add permission-checked recipes such as:
+
+```text
+assemble context -> generate three candidates -> check -> compare
+                 -> accept scenes -> check chapter -> finalize
+```
+
+Recipes invoke typed Quillarium operations. They are not a general command language and cannot run
+arbitrary scripts.
+
+## Deferred: Plugin Platform
+
+A plugin system is not on the near-term critical path. If introduced, it must use a manifest,
+version requirements, dependency/capability declarations, isolation, and explicit file/network/AI
+permissions. Arbitrary JavaScript installation is out of scope.
+
+## Integration Boundary
+
+Obsidian is the durable manual-editing surface. SillyTavern is only a design-pattern reference and an
+optional format-adapter boundary: it is not a dependency, product model, or compatibility roadmap.
+Research provenance and the AGPL-3.0 boundary are recorded in
+[docs/REFERENCES.md](docs/REFERENCES.md).

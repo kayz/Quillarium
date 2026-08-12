@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process'
+import { spawn, type SpawnOptions } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import path from 'node:path'
 import { createRequire } from 'node:module'
@@ -25,10 +25,7 @@ if (!devUrl) throw new Error('Vite dev server did not expose a local URL.')
 await run('pnpm', ['exec', 'tsc', '-p', 'tsconfig.main.json'])
 await ensureElectronBinary()
 
-const electron = spawn('pnpm', ['exec', 'electron', 'dist/main/main.js'], {
-  cwd: appRoot,
-  shell: true,
-  stdio: 'inherit',
+const electron = spawnCommand('pnpm', ['exec', 'electron', 'dist/main/main.js'], {
   env: { ...process.env, VITE_DEV_SERVER_URL: devUrl }
 })
 
@@ -40,16 +37,30 @@ electron.on('exit', (code) => {
 
 async function run(command: string, args: string[]) {
   await new Promise<void>((resolve, reject) => {
-    const child = spawn(command, args, {
-      cwd: appRoot,
-      shell: true,
-      stdio: 'inherit'
-    })
+    const child = spawnCommand(command, args)
     child.on('exit', (code) => {
       if (code === 0) resolve()
       else reject(new Error(`${command} ${args.join(' ')} exited with ${code}`))
     })
   })
+}
+
+function spawnCommand(command: string, args: string[], options: SpawnOptions = {}) {
+  const invocation = resolveCommand(command, args)
+  return spawn(invocation.command, invocation.args, {
+    cwd: appRoot,
+    stdio: 'inherit',
+    ...options,
+    shell: false
+  })
+}
+
+function resolveCommand(command: string, args: string[]) {
+  if (process.platform !== 'win32' || command !== 'pnpm') return { command, args }
+  return {
+    command: process.env.ComSpec ?? 'cmd.exe',
+    args: ['/d', '/s', '/c', 'pnpm', ...args]
+  }
 }
 
 async function ensureElectronBinary() {

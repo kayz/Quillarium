@@ -6,7 +6,7 @@ export function slugify(input: string): string {
     .replace(/[\\/:*?"<>|#^[\]{}%`]/g, '')
     .replace(/\s+/g, '-')
     .replace(/-+/g, '-')
-  return normalized || 'untitled'
+  return normalized.slice(0, 80).replace(/-+$/g, '') || 'untitled'
 }
 
 export function makeId(prefix: string, title: string): string {
