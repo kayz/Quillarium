@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import type {
   DocEntry,
+  LanguageName,
   OutlineHomeSection,
   ProjectListItem,
   VolumeSection,
@@ -26,45 +27,251 @@ import {
   outlineSortKey
 } from '../../shared/outline.js'
 
-export const OUTLINE_HOME_SECTIONS: Array<{
-  id: OutlineHomeSection
+export interface OutlineSectionDefinition<T extends string> {
+  id: T
   title: string
   short: string
   heading: string
+  enTitle: string
+  enShort: string
+  enHeading: string
   icon: typeof BookOpen
-}> = [
-  { id: 'volumes', title: '卷纲', short: '卷', heading: '全书卷纲', icon: BookOpen },
-  { id: 'canon', title: '正设', short: '正', heading: 'Canon 正设', icon: CheckCircle2 },
-  { id: 'world', title: '世界书', short: '世', heading: '世界书', icon: Library },
-  { id: 'characters', title: '人物', short: '人', heading: '人物档案', icon: UserRound },
-  { id: 'timeline', title: '时间线', short: '时', heading: '时间线', icon: Clock3 },
-  { id: 'locations', title: '地点', short: '地', heading: '地点与空间', icon: MapPin },
-  { id: 'foreshadowing', title: '伏笔', short: '伏', heading: '伏笔台账', icon: Sparkles },
-  { id: 'style', title: '文风', short: '文', heading: '文笔与文风', icon: PenLine },
-  { id: 'patterns', title: '模式', short: '模', heading: '故事与提示词模式', icon: WandSparkles },
-  { id: 'issues', title: '问题', short: '问', heading: '待确认问题', icon: Circle },
-  { id: 'references', title: '参考', short: '参', heading: '参考资料', icon: FileText }
+}
+
+export const OUTLINE_HOME_SECTIONS: Array<OutlineSectionDefinition<OutlineHomeSection>> = [
+  {
+    id: 'volumes',
+    title: '卷纲',
+    short: '卷',
+    heading: '全书卷纲',
+    enTitle: 'Volumes',
+    enShort: 'V',
+    enHeading: 'Volume outlines',
+    icon: BookOpen
+  },
+  {
+    id: 'canon',
+    title: '正设',
+    short: '正',
+    heading: 'Canon 正设',
+    enTitle: 'Canon',
+    enShort: 'C',
+    enHeading: 'Canon',
+    icon: CheckCircle2
+  },
+  {
+    id: 'world',
+    title: '世界书',
+    short: '世',
+    heading: '世界书',
+    enTitle: 'World',
+    enShort: 'W',
+    enHeading: 'World entries',
+    icon: Library
+  },
+  {
+    id: 'characters',
+    title: '人物',
+    short: '人',
+    heading: '人物档案',
+    enTitle: 'Characters',
+    enShort: 'H',
+    enHeading: 'Character records',
+    icon: UserRound
+  },
+  {
+    id: 'timeline',
+    title: '时间线',
+    short: '时',
+    heading: '时间线',
+    enTitle: 'Timeline',
+    enShort: 'T',
+    enHeading: 'Timeline',
+    icon: Clock3
+  },
+  {
+    id: 'locations',
+    title: '地点',
+    short: '地',
+    heading: '地点与空间',
+    enTitle: 'Locations',
+    enShort: 'L',
+    enHeading: 'Locations and spaces',
+    icon: MapPin
+  },
+  {
+    id: 'foreshadowing',
+    title: '伏笔',
+    short: '伏',
+    heading: '伏笔台账',
+    enTitle: 'Foreshadowing',
+    enShort: 'F',
+    enHeading: 'Foreshadowing ledger',
+    icon: Sparkles
+  },
+  {
+    id: 'style',
+    title: '文风',
+    short: '文',
+    heading: '文笔与文风',
+    enTitle: 'Style',
+    enShort: 'S',
+    enHeading: 'Prose and style',
+    icon: PenLine
+  },
+  {
+    id: 'patterns',
+    title: '模式',
+    short: '模',
+    heading: '故事与提示词模式',
+    enTitle: 'Patterns',
+    enShort: 'P',
+    enHeading: 'Story and prompt patterns',
+    icon: WandSparkles
+  },
+  {
+    id: 'issues',
+    title: '问题',
+    short: '问',
+    heading: '待确认问题',
+    enTitle: 'Issues',
+    enShort: 'I',
+    enHeading: 'Open issues',
+    icon: Circle
+  },
+  {
+    id: 'references',
+    title: '参考',
+    short: '参',
+    heading: '参考资料',
+    enTitle: 'References',
+    enShort: 'R',
+    enHeading: 'Reference materials',
+    icon: FileText
+  }
 ]
 
-export const VOLUME_SECTIONS: Array<{
-  id: VolumeSection
-  title: string
-  short: string
-  heading: string
-  icon: typeof BookOpen
-}> = [
-  { id: 'arcs', title: '段纲', short: '段', heading: '本卷段纲', icon: BookOpen },
-  { id: 'canon', title: '正设', short: '正', heading: '本卷正设', icon: CheckCircle2 },
-  { id: 'world', title: '世界书', short: '世', heading: '本卷世界书', icon: Library },
-  { id: 'characters', title: '人物', short: '人', heading: '本卷人物', icon: UserRound },
-  { id: 'timeline', title: '时间线', short: '时', heading: '本卷时间线', icon: Clock3 },
-  { id: 'locations', title: '地点', short: '地', heading: '本卷地点', icon: MapPin },
-  { id: 'foreshadowing', title: '伏笔', short: '伏', heading: '本卷伏笔', icon: Sparkles },
-  { id: 'style', title: '文风', short: '文', heading: '本卷文笔与文风', icon: PenLine },
-  { id: 'patterns', title: '模式', short: '模', heading: '本卷故事与提示词模式', icon: WandSparkles },
-  { id: 'issues', title: '问题', short: '问', heading: '本卷待确认问题', icon: Circle },
-  { id: 'references', title: '参考', short: '参', heading: '本卷参考资料', icon: FileText }
+export const VOLUME_SECTIONS: Array<OutlineSectionDefinition<VolumeSection>> = [
+  {
+    id: 'arcs',
+    title: '段纲',
+    short: '段',
+    heading: '本卷段纲',
+    enTitle: 'Arcs',
+    enShort: 'A',
+    enHeading: 'Volume arcs',
+    icon: BookOpen
+  },
+  {
+    id: 'canon',
+    title: '正设',
+    short: '正',
+    heading: '本卷正设',
+    enTitle: 'Canon',
+    enShort: 'C',
+    enHeading: 'Volume canon',
+    icon: CheckCircle2
+  },
+  {
+    id: 'world',
+    title: '世界书',
+    short: '世',
+    heading: '本卷世界书',
+    enTitle: 'World',
+    enShort: 'W',
+    enHeading: 'Volume world entries',
+    icon: Library
+  },
+  {
+    id: 'characters',
+    title: '人物',
+    short: '人',
+    heading: '本卷人物',
+    enTitle: 'Characters',
+    enShort: 'H',
+    enHeading: 'Volume characters',
+    icon: UserRound
+  },
+  {
+    id: 'timeline',
+    title: '时间线',
+    short: '时',
+    heading: '本卷时间线',
+    enTitle: 'Timeline',
+    enShort: 'T',
+    enHeading: 'Volume timeline',
+    icon: Clock3
+  },
+  {
+    id: 'locations',
+    title: '地点',
+    short: '地',
+    heading: '本卷地点',
+    enTitle: 'Locations',
+    enShort: 'L',
+    enHeading: 'Volume locations',
+    icon: MapPin
+  },
+  {
+    id: 'foreshadowing',
+    title: '伏笔',
+    short: '伏',
+    heading: '本卷伏笔',
+    enTitle: 'Foreshadowing',
+    enShort: 'F',
+    enHeading: 'Volume foreshadowing',
+    icon: Sparkles
+  },
+  {
+    id: 'style',
+    title: '文风',
+    short: '文',
+    heading: '本卷文笔与文风',
+    enTitle: 'Style',
+    enShort: 'S',
+    enHeading: 'Volume prose and style',
+    icon: PenLine
+  },
+  {
+    id: 'patterns',
+    title: '模式',
+    short: '模',
+    heading: '本卷故事与提示词模式',
+    enTitle: 'Patterns',
+    enShort: 'P',
+    enHeading: 'Volume story and prompt patterns',
+    icon: WandSparkles
+  },
+  {
+    id: 'issues',
+    title: '问题',
+    short: '问',
+    heading: '本卷待确认问题',
+    enTitle: 'Issues',
+    enShort: 'I',
+    enHeading: 'Volume open issues',
+    icon: Circle
+  },
+  {
+    id: 'references',
+    title: '参考',
+    short: '参',
+    heading: '本卷参考资料',
+    enTitle: 'References',
+    enShort: 'R',
+    enHeading: 'Volume references',
+    icon: FileText
+  }
 ]
+
+export function localizedOutlineSection(
+  section: OutlineSectionDefinition<string>,
+  language: LanguageName
+): { title: string; short: string; heading: string } {
+  return language === 'zh'
+    ? { title: section.title, short: section.short, heading: section.heading }
+    : { title: section.enTitle, short: section.enShort, heading: section.enHeading }
+}
 
 export function outlineSectionDocs(docs: DocEntry[], section: OutlineHomeSection): DocEntry[] {
   const typeMap: Partial<Record<OutlineHomeSection, string>> = {

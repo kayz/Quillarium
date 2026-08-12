@@ -43,6 +43,8 @@ const api: QuillariumAPI = {
     invoke('import:answerIssue', root, sessionId, issueId, answer),
   landImportSession: (root, sessionId) => invoke('import:landSession', root, sessionId),
   discussCanon: (root, input) => invoke('canon:discuss', root, input),
+  discussPlanningRecord: (root, input) => invoke('planning:discuss', root, input),
+  confirmPlanningRecord: (root, proposal) => invoke('planning:confirm', root, proposal),
   assembleContext: (root, sceneId) => invoke('scene:context', root, sceneId),
   assembleTargetContext: (root, target) => invoke('target:context', root, target),
   checkTarget: (root, target) => invoke('target:check', root, target),

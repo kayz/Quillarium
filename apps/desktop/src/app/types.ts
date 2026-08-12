@@ -37,6 +37,28 @@ export type DensityName = 'compact' | 'comfortable'
 export type LanguageName = 'zh' | 'en'
 export type AIProfileName = 'prose' | 'background' | 'check'
 export type AIProviderName = 'openai-compatible' | 'openai' | 'claude' | 'gemini' | 'deepseek' | 'ollama'
+export type PlanningDocumentKind =
+  | 'character'
+  | 'world_entry'
+  | 'timeline_event'
+  | 'location'
+  | 'foreshadowing'
+  | 'strategy'
+  | 'pattern'
+  | 'issue'
+  | 'reference'
+
+export interface PlanningChatMessage {
+  role: 'author' | 'assistant'
+  content: string
+}
+
+export interface PlanningDraft {
+  kind: PlanningDocumentKind
+  title: string
+  fields: Record<string, unknown>
+  content: string
+}
 
 export interface AIProfileForm {
   provider: AIProviderName

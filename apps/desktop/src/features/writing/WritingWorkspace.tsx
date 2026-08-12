@@ -28,7 +28,7 @@ import {
   outlineLevelLabel,
   structuredLine
 } from '../../shared/outline.js'
-import { renderMiniMarkdown } from '../../shared/text.js'
+import { MarkdownPreview } from '../markdown/MarkdownPreview.js'
 
 export function WritingWorkspace({
   docs,
@@ -281,9 +281,4 @@ export function OutlineSummary({
       </div>
     </article>
   )
-}
-
-export function MarkdownPreview({ content }: { content: string }) {
-  const html = renderMiniMarkdown(content)
-  return <div className="markdown-preview" dangerouslySetInnerHTML={{ __html: html }} />
 }

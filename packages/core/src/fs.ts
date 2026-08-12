@@ -1,4 +1,5 @@
-import { mkdir, readFile, readdir, writeFile, stat } from 'node:fs/promises'
+import { mkdir, readFile, readdir, rename, rm, writeFile, stat } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
 import path from 'node:path'
 import { stringifyFrontmatter, parseMarkdown } from './yaml.js'
 
@@ -17,7 +18,14 @@ export async function pathExists(filePath: string): Promise<boolean> {
 
 export async function writeText(filePath: string, text: string): Promise<void> {
   await ensureDir(path.dirname(filePath))
-  await writeFile(filePath, text, 'utf8')
+  const temporary = path.join(path.dirname(filePath), `.${path.basename(filePath)}.${randomUUID()}.tmp`)
+  try {
+    await writeFile(temporary, text, { encoding: 'utf8', flag: 'wx' })
+    await rename(temporary, filePath)
+  } catch (error) {
+    await rm(temporary, { force: true })
+    throw error
+  }
 }
 
 export async function readText(filePath: string): Promise<string> {

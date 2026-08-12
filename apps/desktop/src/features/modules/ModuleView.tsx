@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import type { DocEntry, LanguageName, ModuleName, RunSummary } from '../../app/types.js'
+import { Plus } from 'lucide-react'
+import type { DocEntry, LanguageName, ModuleName, RunSummary, TargetSelection } from '../../app/types.js'
 import { I18N, t } from '../../app/i18n.js'
 import { CanonWorkspace } from './CanonWorkspace.js'
 
@@ -9,6 +9,9 @@ export function ModuleView({
   docs,
   runs,
   onCreate,
+  onAIPlanningCreate,
+  selectedTarget,
+  onSelect,
   onReload,
   language
 }: {
@@ -17,6 +20,9 @@ export function ModuleView({
   docs: DocEntry[]
   runs: RunSummary[]
   onCreate: (kind: string, input: Record<string, unknown>) => Promise<unknown>
+  onAIPlanningCreate: (module: ModuleName) => void
+  selectedTarget: TargetSelection | null
+  onSelect: (target: TargetSelection) => void
   onReload: () => Promise<void>
   language: LanguageName
 }) {
@@ -66,11 +72,16 @@ export function ModuleView({
   }
   return (
     <section className="module-view module-view-full">
-      <ModuleCreateForm module={module} docs={docs} onCreate={onCreate} language={language} />
+      <ModuleCreateForm module={module} onCreate={onAIPlanningCreate} language={language} />
       <ModuleFilters module={module} docs={docs} language={language} />
       <div className="cards-grid">
         {filtered.map((doc) => (
-          <article key={doc.data.id} className="info-card">
+          <button
+            type="button"
+            key={doc.data.id}
+            className={`info-card module-info-card ${selectedTarget?.id === doc.data.id ? 'active' : ''}`}
+            onClick={() => onSelect({ type: doc.data.type, id: doc.data.id })}
+          >
             <strong>{doc.data.title}</strong>
             <small>
               {doc.data.status} · {doc.data.id}
@@ -99,7 +110,7 @@ export function ModuleView({
               </small>
             )}
             <p>{doc.content.slice(0, 180) || t(language, 'emptyBody')}</p>
-          </article>
+          </button>
         ))}
       </div>
     </section>
@@ -142,80 +153,21 @@ export function RouteTable({ docs, locationId }: { docs: DocEntry[]; locationId:
 
 export function ModuleCreateForm({
   module,
-  docs,
   onCreate,
   language
 }: {
   module: ModuleName
-  docs: DocEntry[]
-  onCreate: (kind: string, input: Record<string, unknown>) => Promise<unknown>
+  onCreate: (module: ModuleName) => void
   language: LanguageName
 }) {
-  const [title, setTitle] = useState('')
-  const first = (type: string) => docs.find((doc) => doc.data.type === type)?.data.id ?? ''
-  const kindMap: Partial<Record<ModuleName, string>> = {
-    canon: 'canon',
-    world: 'world_entry',
-    characters: 'character',
-    timeline: 'timeline_event',
-    foreshadowing: 'foreshadowing',
-    issues: 'issue',
-    references: 'reference',
-    strategy: 'strategy',
-    patterns: 'pattern',
-    locations: 'location'
-  }
-  const submit = async () => {
-    if (!title.trim()) return
-    const kind = kindMap[module]
-    if (!kind) return
-    const base: Record<string, unknown> = { title, content: '' }
-    if (kind === 'character') {
-      base.role = 'supporting'
-    }
-    if (kind === 'timeline_event') {
-      base.location = first('location') || null
-      base.characters = first('character') ? [first('character')] : []
-    }
-    if (kind === 'world_entry') {
-      base.role = 'both'
-      base.entry_status = 'candidate'
-    }
-    if (kind === 'foreshadowing') {
-      base.level = 'L4'
-      base.state = 'planned'
-    }
-    if (kind === 'issue') {
-      base.priority = 'medium'
-      base.state = 'open'
-    }
-    if (kind === 'strategy') {
-      base.category = 'narrative'
-      base.scope = 'project'
-    }
-    if (kind === 'pattern') {
-      base.kind = 'story'
-      base.scope = 'project'
-      base.source = 'user'
-    }
-    if (kind === 'outline') {
-      base.level = 'section'
-    }
-    await onCreate(kind, base)
-    setTitle('')
-  }
+  const enabled = !['write', 'canon', 'runs'].includes(module)
   return (
     <div className="module-head">
       <h2>{moduleTitle(module, language)}</h2>
-      {kindMap[module] && (
-        <div className="inline-create">
-          <input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder={t(language, 'newTitle')}
-          />
-          <button onClick={submit}>{t(language, 'create')}</button>
-        </div>
+      {enabled && (
+        <button className="primary" type="button" onClick={() => onCreate(module)}>
+          <Plus size={15} /> {language === 'zh' ? '与 AI 对话新增' : 'Create with AI'}
+        </button>
       )}
     </div>
   )

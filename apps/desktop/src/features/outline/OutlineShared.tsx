@@ -1,4 +1,5 @@
-import type { DocEntry, TargetSelection } from '../../app/types.js'
+import { useEffect, useState } from 'react'
+import type { DocEntry, LanguageName, TargetSelection } from '../../app/types.js'
 import { formatFieldValue } from '../../shared/outline.js'
 import { fieldLabel, structuredLineForSection, timelineBelongsToArc } from './outline-model.js'
 
@@ -91,39 +92,168 @@ export function StructuredTile({ doc }: { doc: DocEntry }) {
 
 export function MetadataEditor({
   data,
-  onChange
+  onChange,
+  language = 'zh'
 }: {
   data: Record<string, unknown>
   onChange: (data: Record<string, unknown>) => void
+  language?: LanguageName
 }) {
   const editableKeys = Object.keys(data).filter((key) => !['id', 'type', 'schema_version'].includes(key))
-  const update = (key: string, value: string) => {
-    const current = data[key]
-    let next: unknown = value
-    if (Array.isArray(current))
-      next = value
-        .split(',')
-        .map((item) => item.trim())
-        .filter(Boolean)
-    else if (typeof current === 'number') next = Number(value)
-    else if (typeof current === 'boolean') next = value === 'true'
-    onChange({ ...data, [key]: next })
-  }
   return (
     <div className="metadata-editor">
-      {editableKeys.map((key) => {
-        const value = data[key]
-        if (value && typeof value === 'object' && !Array.isArray(value)) return null
-        return (
-          <label key={key}>
-            {fieldLabel(key)}
-            <input
-              value={Array.isArray(value) ? value.join(', ') : String(value ?? '')}
-              onChange={(event) => update(key, event.target.value)}
-            />
-          </label>
-        )
-      })}
+      {editableKeys.map((key) => (
+        <MetadataField
+          key={key}
+          name={key}
+          value={data[key]}
+          language={language}
+          onChange={(value) => onChange({ ...data, [key]: value })}
+        />
+      ))}
     </div>
   )
+}
+
+const ENUM_FIELDS: Record<string, readonly string[]> = {
+  status: ['draft', 'confirmed', 'active', 'inactive', 'deprecated', 'planned', 'resolved'],
+  strength: ['hard', 'soft'],
+  source: ['user', 'ai', 'imported', 'historical', 'accepted_prose'],
+  role: ['supporting', 'constraint', 'texture', 'both'],
+  entry_status: ['candidate', 'active', 'inactive'],
+  importance: ['high', 'medium', 'low'],
+  level: ['L1', 'L2', 'L3', 'L4', 'L5'],
+  state: ['planned', 'planted', 'reinforced', 'resolved', 'abandoned', 'open', 'deferred'],
+  material_type: ['book', 'paper', 'article', 'webpage', 'video', 'other'],
+  reading_status: ['unread', 'reading', 'read'],
+  priority: ['high', 'medium', 'low'],
+  category: ['narrative', 'style', 'pacing', 'reader_expectation', 'genre_boundary', 'other'],
+  kind: ['story', 'writing', 'prompt'],
+  scope: ['book', 'volume', 'arc', 'chapter', 'section', 'agent', 'project']
+}
+
+function MetadataField({
+  name,
+  value,
+  language,
+  onChange
+}: {
+  name: string
+  value: unknown
+  language: LanguageName
+  onChange: (value: unknown) => void
+}) {
+  const options = ENUM_FIELDS[name]
+  if (options && (typeof value === 'string' || value === undefined)) {
+    const choices = value && !options.includes(value) ? [value, ...options] : options
+    return (
+      <label>
+        {fieldLabel(name)}
+        <select value={String(value ?? '')} onChange={(event) => onChange(event.target.value)}>
+          {!value && <option value="">—</option>}
+          {choices.map((option) => (
+            <option key={option} value={option}>
+              {option}
+            </option>
+          ))}
+        </select>
+      </label>
+    )
+  }
+  if (typeof value === 'boolean') {
+    return (
+      <label className="metadata-checkbox">
+        <input type="checkbox" checked={value} onChange={(event) => onChange(event.target.checked)} />
+        {fieldLabel(name)}
+      </label>
+    )
+  }
+  if (typeof value === 'number') {
+    return (
+      <label>
+        {fieldLabel(name)}
+        <input type="number" value={value} onChange={(event) => onChange(Number(event.target.value))} />
+      </label>
+    )
+  }
+  if (isStructuredValue(value)) {
+    return <StructuredMetadataField name={name} value={value} language={language} onChange={onChange} />
+  }
+  return (
+    <label>
+      {fieldLabel(name)}
+      <input
+        value={String(value ?? '')}
+        onChange={(event) => onChange(value === null && !event.target.value ? null : event.target.value)}
+      />
+    </label>
+  )
+}
+
+function StructuredMetadataField({
+  name,
+  value,
+  language,
+  onChange
+}: {
+  name: string
+  value: object
+  language: LanguageName
+  onChange: (value: unknown) => void
+}) {
+  const canonical = formatStructuredFieldDraft(value)
+  const [draft, setDraft] = useState(canonical)
+  const [error, setError] = useState<string | null>(null)
+  useEffect(() => {
+    setDraft(canonical)
+    setError(null)
+  }, [canonical])
+  return (
+    <label className="metadata-complex-field">
+      <span>
+        {fieldLabel(name)} <small>JSON</small>
+      </span>
+      <textarea
+        value={draft}
+        spellCheck={false}
+        aria-invalid={Boolean(error)}
+        onChange={(event) => {
+          const next = event.target.value
+          setDraft(next)
+          const parsed = parseStructuredFieldDraft(next)
+          if (!parsed.ok) {
+            setError(parsed.error)
+            return
+          }
+          setError(null)
+          onChange(parsed.value)
+        }}
+      />
+      {error && (
+        <small className="field-error">
+          {language === 'zh' ? 'JSON 格式有误' : 'Invalid JSON'}：{error}
+        </small>
+      )}
+    </label>
+  )
+}
+
+function isStructuredValue(value: unknown): value is object {
+  return typeof value === 'object' && value !== null
+}
+
+export function formatStructuredFieldDraft(value: object): string {
+  return JSON.stringify(value, null, 2)
+}
+
+export function parseStructuredFieldDraft(
+  value: string
+): { ok: true; value: unknown } | { ok: false; error: string } {
+  try {
+    const parsed: unknown = JSON.parse(value)
+    if (!isStructuredValue(parsed)) return { ok: false, error: '需要 JSON 数组或对象' }
+    return { ok: true, value: parsed }
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) }
+  }
 }

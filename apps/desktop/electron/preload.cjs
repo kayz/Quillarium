@@ -36,6 +36,8 @@ const api = {
     ipcRenderer.invoke('import:answerIssue', root, sessionId, issueId, answer),
   landImportSession: (root, sessionId) => ipcRenderer.invoke('import:landSession', root, sessionId),
   discussCanon: (root, input) => ipcRenderer.invoke('canon:discuss', root, input),
+  discussPlanningRecord: (root, input) => ipcRenderer.invoke('planning:discuss', root, input),
+  confirmPlanningRecord: (root, proposal) => ipcRenderer.invoke('planning:confirm', root, proposal),
   assembleContext: (root, sceneId) => ipcRenderer.invoke('scene:context', root, sceneId),
   assembleTargetContext: (root, target) => ipcRenderer.invoke('target:context', root, target),
   checkTarget: (root, target) => ipcRenderer.invoke('target:check', root, target),

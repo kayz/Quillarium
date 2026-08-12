@@ -23,6 +23,20 @@ snapshot, scoped-Git, secret-scan, build, desktop-build, test, coverage, lint, f
 audit checks. Legacy cycle fields remain only in the internal compatibility parser and migration
 tests.
 
+## Completed Gate: Desktop Planning Baseline
+
+Completed on 2026-08-12 for the `0.2.0-alpha.2` milestone.
+
+- Reduce the welcome surface to GitHub writing-library registration and direct project selection;
+  keep legacy layout support in compatibility services rather than the primary onboarding UI.
+- Move theme, density, and language into settings, with independent save actions for display,
+  GitHub, prose AI, background AI, and check AI configuration.
+- Replace blank planning-record creation with a background-AI conversation, schema-validated
+  editable proposal, and explicit atomic confirmation for nine planning document families.
+- Provide safe Markdown source/preview switching and reversible editing for nested or unknown
+  frontmatter without executing raw HTML.
+- Keep Canon, outline, scene, accepted prose, and existing documents outside the AI creation flow.
+
 ## Current Focus: P0 Explainable Chapter Production
 
 ### Context compiler
