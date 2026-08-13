@@ -5,6 +5,13 @@
 - Decision owners: Quillarium maintainers
 - Related research: [Design References](../REFERENCES.md)
 
+Implementation status as of 2026-08-13: partial. The runtime has deterministic document selection,
+typed prompt-source cards for chapter writing, pins/exclusions, keyword and relationship activation,
+authority warnings, a document-level packet trace, and immutable shared-guidance snapshots. It still
+uses fixed per-category document caps. The `ContextPolicy`, tokenizer-aware budget, complete
+candidate trace, recursive traversal limits, versioned preset, and persisted `context-trace.json`
+described below remain the accepted target rather than current API guarantees.
+
 ## Context
 
 The initial context assembler selects a small fixed number of documents. That is simple but cannot
@@ -35,9 +42,9 @@ writing scope
   -> emit ordered PromptBlocks and ContextTrace
 ```
 
-The input snapshot includes the active workspace and project revision, target hierarchy levels (book,
-volume, arc, chapter, and scene), explicit pins, selected `WritingPreset`, tokenizer identity, and
-`ContextPolicy` version.
+The input snapshot includes the active workspace and project revision, target hierarchy levels
+(overview, book, volume, part, optional act, chapter, and scene), explicit pins, selected
+`WritingPreset`, tokenizer identity, and `ContextPolicy` version.
 
 ### `ContextPolicy`
 
@@ -126,8 +133,9 @@ scope, policy, preset, and tokenizer, compilation produces the same blocks, hash
   acceptance, and finalization have stronger domain semantics than conversational turns.
 - **Random or stateful activation for authoritative records:** rejected because identical inputs could
   omit different facts and make runs irreproducible.
-- **Fixed document counts or character limits:** rejected because they do not represent provider
-  context capacity and hide truncation tradeoffs.
+- **Fixed document counts or character limits as the final design:** rejected because they do not
+  represent provider context capacity and hide truncation tradeoffs. Fixed caps remain a transitional
+  safeguard until the accepted compiler is complete.
 - **Unbounded recursive retrieval:** rejected because it can explode context, loop through links, and
   obscure the source of a selected claim.
 - **Shared guidance overwriting project files:** rejected because reusable methods are advisory and

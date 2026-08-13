@@ -42,12 +42,13 @@ Completed on 2026-08-12 on the `0.2.0-alpha.1` adjustment line.
 
 ### Completed foundation: planning-card workbench
 
-Completed locally on 2026-08-13 for the active `0.2.0-alpha.1` adjustment line.
+Implemented in the 2026-08-13 `0.2.0-alpha.1` code baseline.
 
 - Treat planning records as typed cards with enablement, source-material references, and validated
   card-to-card relations; keep reference bodies outside generation context.
 - Provide a linked time chain with concurrent events, a six-scale spatial explorer, and a draggable
-  time-filtered character relationship graph.
+  time-filtered character relationship graph. Relationship phase cards carry start/end timeline
+  nodes; only the active phase is drawn, with its name on the edge and an arrow for directed links.
 - Activate world knowledge by keywords and explicit links, and evaluate foreshadowing reminder
   conditions for the current writing scope.
 - Merge new style and pattern guidance into enabled narrative cards while retaining legacy readers.
@@ -57,10 +58,13 @@ Completed locally on 2026-08-13 for the active `0.2.0-alpha.1` adjustment line.
   persist deduplicated findings as issue cards linked to repairable project records.
 - Keep every structured field localized with an explanation and preserve a restrained, resizable
   editorial layout whose flexible space belongs to prose, diagrams, and relationship views.
+- Preserve document origin for AI conversations and file/AI imports, restore a prior conversation
+  when possible, and allow a file-derived card to locate and re-read its source for one-card
+  re-import without replacing unrelated cards.
 
 ### Completed foundation: seven-level story lifecycle
 
-Completed locally on 2026-08-13 for the active `0.2.0-alpha.1` adjustment line.
+Implemented in the 2026-08-13 `0.2.0-alpha.1` code baseline.
 
 - Separate story overview from the book outline; use volume → part → optional act → chapter → scene.
 - Keep legacy `arc`/scene `section` readable without silent file rewrites.
@@ -73,6 +77,11 @@ Completed locally on 2026-08-13 for the active `0.2.0-alpha.1` adjustment line.
 - Provide large serif editors, character counts, and resizable prompt/prose panes.
 
 ### Context compiler
+
+Current code already assembles a deterministic `ContextPacket`, records document-level inclusion
+trace entries, respects pins/exclusions and enabled state, activates linked or keyword-matching
+cards, reports conflicts, and snapshots shared guidance into each generation run. It still uses
+fixed per-category document limits rather than a model tokenizer.
 
 Implement `ContextPolicy`, typed `PromptBlock` values, and `ContextTrace` using the deterministic
 pipeline defined in
@@ -88,12 +97,18 @@ inclusion reason. Bound recursive expansion and make compilation reproducible.
 
 ### Multiple candidates and branches
 
+The current run schema records one target and one raw/accepted output. The following fields and
+branch operations are not implemented yet:
+
 - Generate several candidates in one group and compare them side by side.
 - Record `candidate_group_id`, `parent_run_id`, `branch_id`, and `selected_at`.
 - Preserve unselected candidates and allow a candidate to seed a new branch.
 - Keep candidate selection distinct from scene acceptance, chapter finalization, and publication.
 
 ### Versioned writing presets
+
+Desktop AI profiles currently separate prose, background, and check responsibilities and keep
+credentials machine-local. A reusable, versioned project writing preset is still future work.
 
 Create `WritingPreset` as a versioned combination of model configuration, prompt stack, context
 policy, and check policy. Store a sanitized snapshot or reproducible hash in every run; credentials

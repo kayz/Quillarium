@@ -14,6 +14,12 @@ manual AI checks that persist issue cards, and card-by-card prompt composition. 
 root [ROADMAP](../ROADMAP.md) completes real token budgeting, multiple candidates, branches, and
 versioned presets.
 
+The implemented context layer currently returns one deterministic `ContextPacket` with selected
+documents, warnings, shared guidance, included/excluded IDs, and a document-level trace. Selection
+uses explicit links, pins and exclusions, outline ancestry, enabled state, keyword matching, and
+fixed per-category limits. It does not yet implement tokenizer-aware budgets, general recursive
+activation, candidate lineage, a versioned `WritingPreset`, or a persisted `context-trace.json`.
+
 The desktop planning baseline also uses a deliberately small surface: the unselected-project screen
 has one active library-management entry, while display, GitHub, and the three AI profiles live in
 settings with independent persistence. Creating a planning record is a staged operation:
@@ -118,8 +124,10 @@ prepare -> generate candidates -> accept scenes -> check chapter
 ```
 
 Selecting a candidate does not accept prose. Accepting a scene does not finalize a chapter.
-Finalization first produces a reviewable change set; applying it is atomic and records the affected
-files, source chapter, before/after hashes, and recovery information.
+The current implementation can create and answer a reviewable finalization-impact session, and it
+separately enforces chapter finalization/publication. The atomic continuity-apply operation that
+writes confirmed Canon, timeline, character-state, foreshadowing, or issue updates with before/after
+hashes and recovery information is still P1 work.
 
 Chapter prose has three states:
 
@@ -183,10 +191,10 @@ prerequisites, actions, and consequences.
 
 ### Outlines and Scenes
 
-Overview, book, volume, part, optional act, chapter, and scene outlines store level-appropriate
-constraints. Chapter plans hold promise, conflict, payoff, hook, foreshadowing, and continuity
-obligations. Scenes bind writing focus, order, POV, time, location, participants, intended state
-changes, and the chapter obligation they serve.
+`OutlineDoc` stores overview, book, volume, part, optional act, and chapter plans. `SceneDoc` supplies
+the seventh level and keeps its durable outline in `outline_content`. Chapter plans hold promise,
+conflict, payoff, hook, foreshadowing, and continuity obligations. Scenes bind writing focus, order,
+POV, time, location, participants, intended state changes, and the chapter obligation they serve.
 
 Before scene generation, the author sees a two-column prompt composer. The left column contains
 individually removable source cards for Canon, parent outlines, time, place, people, activated world
@@ -215,35 +223,54 @@ Narrative collection, but new UI and AI/import proposals create `narrative` card
 
 ### Runs and Candidates
 
-Every generation creates an immutable run record. Runs may belong to a candidate group and record
-parent run, branch, selection time, and a versioned writing-preset snapshot. Candidate comparison can
-include deterministic findings and optional semantic scores, but only an explicit author action
-selects or accepts a draft.
+Every generation or dry run creates a run directory. Its metadata moves through `created`,
+`generated`, `checked`, and `accepted`; the run is therefore an auditable lifecycle record, not an
+immutable directory. Acceptance is explicit and writes non-empty plain prose into the owning scene
+and chapter. Shared-guidance snapshots, once created for a run, are immutable.
 
-Typical run artifacts include:
+Current run artifacts are:
 
 ```text
 metadata.yaml
 context.md
-context-trace.json
 prompt.md
-preset-snapshot.yaml
-shared-guidance.md
-shared-guidance.json
 output-raw.md
 output-accepted.md
 check-report.md
 ```
 
+`shared-guidance.md` and `shared-guidance.json` are added when workspace guidance is present and
+snapshotted. Candidate groups, parent runs, branches, selection timestamps, persisted context traces,
+and preset snapshots are target fields described in the roadmap; they are not part of the current
+`RunMetadata` contract.
+
 ### Prompts and Writing Presets
 
-Prompts are ordered, typed blocks rather than one opaque string. A versioned `WritingPreset` binds
-model settings, prompt stack, context policy, and check policy. Each run stores the exact snapshot or
-content hash needed to reproduce its inputs.
+The chapter-writing service currently exposes typed `PromptSourceBlock` values for instruction,
+outline, scene outline, guidance, Canon, time, place, characters, world knowledge, foreshadowing,
+narrative rules, warnings, finalized prose, and continuation. The desktop lets the author remove
+optional source cards and edit the resulting prompt; the exact adjusted text is saved as
+`prompt.md`.
+
+A versioned `WritingPreset` that binds model settings, prompt stack, context policy, and check policy
+is planned. Current desktop AI profiles are machine-local connection/configuration profiles and must
+not be confused with that future project-level preset.
 
 ## Explainable Context Compiler
 
-Context assembly follows a deterministic compiler pipeline:
+Current context assembly is deterministic at document-selection level:
+
+```text
+writing target -> outline ancestry and explicit links -> enabled cards
+               -> keyword/relationship selection -> fixed category caps
+               -> warnings + document-level trace -> rendered context
+```
+
+It records why high-authority blocks such as Canon, outlines, and shared guidance were included or
+excluded, and it snapshots the shared guidance actually used by a generation run. Its caps count
+documents, not model tokens; it does not yet provide a complete trace entry for every candidate.
+
+The target compiler pipeline is:
 
 ```text
 writing scope
@@ -258,7 +285,8 @@ writing scope
 `ContextPolicy` defines scope, explicit pins, eligible relationships, recursion limits, token budget,
 and truncation rules. `PromptBlock` records a block's type, role, source, authority, priority, token
 count, truncation strategy, and inclusion reason. `ContextTrace` explains every candidate's outcome
-and the final budget calculation. Recursive expansion is cycle-safe and bounded.
+and the final budget calculation. Recursive expansion will be cycle-safe and bounded. These three
+contracts describe the next P0 compiler, not the full shape of the current packet.
 
 Probability, sticky state, and cooldown do not decide which authoritative facts enter context. Given
 the same project snapshot, policy, model tokenizer, and writing scope, compilation produces the same
@@ -267,22 +295,23 @@ ordered blocks and trace. See
 
 ## Events, Notes, and Summaries
 
-Committed core operations publish strongly typed lifecycle events such as `context.assembled`,
-`candidate.selected`, `scene.accepted`, and `finalization.applied`. Events describe completed domain
-changes; they do not authorize arbitrary file writes.
+Planned committed core operations will publish strongly typed lifecycle events such as
+`context.assembled`, `candidate.selected`, `scene.accepted`, and `finalization.applied`. The current
+core does not expose an event bus. Future events will describe completed domain changes; they will
+not authorize arbitrary file writes.
 
-Scoped writing notes may influence a book, volume, arc, chapter, or scene and may have explicit
-expiry. Rolling summaries are rebuildable derived artifacts with source-chapter references. Neither
-notes nor summaries replace accepted prose.
+Scoped expiring writing notes and source-citing rolling summaries are also planned. When introduced,
+neither notes nor summaries may replace accepted prose.
 
 ## Consistency Checks
 
 Deterministic checks cover planning-card graph integrity, timeline continuity, spatial hierarchy,
 time-scoped character relationships, foreshadowing reminder configuration, world-entry triggers,
-narrative-card completeness, Canon conflict, open issues, resources, causality, genre constraints,
-and chapter obligations. The project-level AI check is manual-only, omits references and disabled
-cards, and persists stable fingerprinted issue cards. Semantic checks are additive and clearly
-labeled; their failure never erases deterministic findings.
+narrative-card completeness, document references, open issues, routes, chapter obligations, and
+plain-prose constraints. The project-level AI check is manual-only, omits references, issue cards,
+and disabled cards, and persists stable fingerprinted issue cards. Scene semantic checks add OOC,
+character-state drift, and Canon-conflict judgment. Semantic failures are clearly labeled and never
+erase deterministic findings.
 
 ## Integration Boundary
 

@@ -33,6 +33,9 @@ The desktop app reads and writes the same Markdown + YAML frontmatter files as t
   Obsidian-readable.
 - `runs/` stores AI context, prompt, raw/accepted output, checks, and immutable shared-guidance
   snapshots with source path, scope, SHA-256, and read time.
+- Imported or AI-created cards may carry `quillarium_origin`. File-backed origins record source
+  paths and SHA-256 values; AI-import origins also retain the import-session and candidate index.
+  Origin metadata is hidden from ordinary field editing and drives explicit source/re-import actions.
 
 Planning records use schema-aware direct controls for scalar fields, arrays, nested objects, and
 unknown frontmatter. The renderer never asks an author to type JSON or YAML: tag-like arrays are
@@ -81,6 +84,12 @@ conversation when available, otherwise creates a reviewed editing session for th
 updates only the seeded card. It cannot accept prose, mutate Canon or outlines, or bypass the
 accepted-text lifecycle. Imported cards keep their source/re-import workflow as a separate action.
 
+Bulk source ingestion is a different reviewed workflow: the author pastes text or chooses
+`.md`, `.markdown`, or `.txt` files; background AI proposes typed cards; the author edits the
+candidate list and resolves questions; confirmation lands only the approved candidates. A landed
+file-derived card can later show its source status and re-import exactly that card. Missing or changed
+sources are reported instead of silently replacing content.
+
 ## Planning Card Workbench
 
 - Reference material has no lifecycle status and never enters prompts by itself. Its detail pane shows
@@ -105,6 +114,11 @@ accepted-text lifecycle. Imported cards keep their source/re-import workflow as 
 - Issue cards list their related records and offer direct inspection or an AI-assisted in-place repair.
 - Source cards, field explanations, compact action bars, serif content typography, and bounded buttons
   preserve a calm editorial hierarchy while leaving flexible space to the actual editor or diagram.
+
+Desktop service errors pass through a bilingual presentation layer before reaching the renderer.
+Notices follow the selected interface language, can be dismissed immediately, and expire
+automatically after five seconds for status messages or eight seconds for errors. Unknown errors are
+still shown rather than swallowed.
 
 ## Privacy and Git
 
@@ -138,13 +152,17 @@ The implemented desktop baseline supports:
 4. browse planning modules and create new planning records through a review-before-write AI dialog
 5. edit schema-aware metadata without serialization syntax, inspect cross-type tag matches, and
    switch Markdown bodies between safe Source and Preview modes
-6. select, edit, and save a plain-text scene working draft
-7. assemble context and run deterministic checks
-8. assemble and author-edit a chapter prompt, create AI generation records, and preview run files
-9. accept raw output into a scene and write it into chapter prose in order without headings or
-   separator characters
-10. open chapter prose as a dedicated large plain-text editor with word progress and lifecycle actions
-11. delete an unpublished volume/part/act/chapter/scene, recursively cleaning its descendants and runs
+6. paste or choose source files, review AI-proposed cards, land approved cards, and inspect or
+   re-import one card through retained provenance
+7. create timeline coordinates, attach concurrent events, browse time-filtered people, and create
+   labeled time-scoped relationship phases
+8. select, edit, and save a plain-text scene working draft
+9. assemble context and run deterministic checks or an explicit project planning check
+10. assemble and author-edit a chapter prompt, create AI generation records, and preview run files
+11. accept raw output into a scene and write it into chapter prose in order without headings or
+    separator characters
+12. open chapter prose as a dedicated large plain-text editor with word progress and lifecycle actions
+13. delete an unpublished volume/part/act/chapter/scene, recursively cleaning its descendants and runs
 
 The AI-writing page uses a resizable two-column prompt composer: source cards on the left and the
 exact editable prompt on the right. Chapter prose has its own full-width page rather than sharing

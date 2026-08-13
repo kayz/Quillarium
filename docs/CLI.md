@@ -48,7 +48,11 @@ pnpm cli canon add "Succession Rule" --project "./writing-workspace/projects/my-
 pnpm cli character add "Lin Yue" --project "./writing-workspace/projects/my-novel" --role protagonist --ooc "Never breaks an explicit oath"
 pnpm cli location add "Old Palace" --project "./writing-workspace/projects/my-novel"
 pnpm cli timeline append "Opening Night" --project "./writing-workspace/projects/my-novel" --location loc-old-palace --characters char-lin-yue
-pnpm cli outline add section "Opening Section" --project "./writing-workspace/projects/my-novel" --chapter-hook
+pnpm cli outline add overview "Story Purpose" --project "./writing-workspace/projects/my-novel"
+pnpm cli outline add book "Book Outline" --project "./writing-workspace/projects/my-novel"
+pnpm cli outline add volume "Volume One" --parent <book-id> --project "./writing-workspace/projects/my-novel"
+pnpm cli outline add part "Opening Part" --parent <volume-id> --project "./writing-workspace/projects/my-novel"
+pnpm cli outline add chapter "Opening Chapter" --parent <part-id> --project "./writing-workspace/projects/my-novel" --chapter-hook
 ```
 
 Create commands print the created file path. Use the corresponding `list` command to confirm the
@@ -64,12 +68,23 @@ pnpm cli issue add "Decide first-act POV order" --project "./writing-workspace/p
 pnpm cli strategy add "Courtroom Pressure" --project "./writing-workspace/projects/my-novel" --category pacing --principle "Every exchange changes leverage" --avoid "Unopposed exposition"
 ```
 
+The desktop and current import/AI proposal flow create unified `narrative` cards for new style,
+structure, pacing, and genre guidance. The source-run CLI does not yet have a `narrative` command; its
+`strategy` and `pattern` groups are retained compatibility surfaces and continue to create those
+legacy document families.
+
 ### 2. Create a scene
+
+The current hierarchy is `book → volume → part → optional act → chapter → scene`. The source-run
+CLI retains the option name `--section` for pre-0.2 compatibility, but the value must be the owning
+**chapter outline ID**; the created document writes both current `chapter_id` and the readable legacy
+alias. Likewise, `--timeline` currently receives the linked timeline-event ID created by
+`timeline append`. The desktop exposes the newer explicit timeline-coordinate workflow.
 
 ```bash
 pnpm cli scene create "Opening Scene" \
   --project "./writing-workspace/projects/my-novel" \
-  --section section-opening-section \
+  --section <chapter-id> \
   --timeline evt-opening-night \
   --location loc-old-palace \
   --pov char-lin-yue \
@@ -145,6 +160,11 @@ provider, model, and creation metadata.
 accepts the target scene into its chapter and appends it to the independent chapter prose in order.
 Empty or Markdown-formatted output is rejected. Pass `--scene <scene-id>` only when the scene
 recorded in run metadata must be overridden.
+
+The CLI exposes finalization-impact review through `finalize review-plan/show/confirm`; it does not
+currently expose the desktop's chapter `draft → final → published` actions or the two-confirmation
+publication UI. Confirming a review impact records the author's decision but does not apply Canon or
+continuity changes atomically; that apply service remains roadmap work.
 
 ### 5. Export accepted prose
 
@@ -230,7 +250,9 @@ pnpm cli import markdown ./research.md --type reference --project "./writing-wor
 
 The `import ai-plan`, `answer`, `land`, and `show` commands manage reviewable import sessions. The
 `ai-plan` command prints a prompt unless a structured `--ai-response <json>` is supplied; it does not
-silently call a provider.
+silently call a provider. Landed cards retain `quillarium_origin` metadata with source paths and
+SHA-256 values. The desktop uses that provenance to locate changed/missing source files and can ask
+the background AI to re-extract exactly one imported card without re-importing neighboring cards.
 
 ## SillyTavern Interchange
 
@@ -267,36 +289,36 @@ interchange does not support CHARX, CCv3 export, or materializing embedded CCv3 
 This map mirrors the current Commander tree. Use `--help` on any group or leaf command for arguments
 and options.
 
-| Command          | Subcommands or purpose                                                         |
-| ---------------- | ------------------------------------------------------------------------------ |
-| `workspace`      | `list`, `create-project`                                                       |
-| `config`         | Workspace configuration plus explicit legacy-vault compatibility               |
-| `init`           | Create/register `projects/<id>`; `--vault` is legacy-only                      |
-| `canon`          | `add`, `import`, `list`, `search`                                              |
-| `character`      | `add`, `list`                                                                  |
-| `foreshadowing`  | `add`, `list`                                                                  |
-| `world`          | `add`, `list`                                                                  |
-| `reference`      | `add`, `list`                                                                  |
-| `issue`          | `add`, `list`                                                                  |
-| `strategy`       | `add`, `list`                                                                  |
-| `pattern`        | `add`, `list`                                                                  |
-| `timeline`       | `append`, `list`, `check`                                                      |
-| `location`       | `add`, `list`                                                                  |
-| `route`          | `add`                                                                          |
-| `outline`        | `add`, `list`                                                                  |
-| `scene`          | `create`, `list`                                                               |
-| `index`          | Rebuild the project index                                                      |
-| `export`         | Export accepted manuscript prose; format `md` or `txt`, optional `--volume`    |
-| `prompt`         | `init`, `show`                                                                 |
-| `import`         | `markdown`, `ai-plan`, `answer`, `land`, `show`                                |
-| `context`        | Assemble scene context; optional `--run`                                       |
-| `generate`       | Generate a scene; optional `--dry-run`                                         |
-| `check`          | Scene/outline checks via `--type`; scenes allow `--semantic`; optional `--run` |
-| `st`             | `import-card`, `export-card`, `export-lorebook`                                |
-| `finalize`       | `review-plan`, `show`, `confirm`                                               |
-| `chapter-plan`   | Build ordered scene-writing prompts for a chapter                              |
-| `run`            | `list`, `show`, `set-output`, `accept`                                         |
-| `help [command]` | Display help for a command                                                     |
+| Command          | Subcommands or purpose                                                               |
+| ---------------- | ------------------------------------------------------------------------------------ |
+| `workspace`      | `list`, `create-project`                                                             |
+| `config`         | Workspace configuration plus explicit legacy-vault compatibility                     |
+| `init`           | Create/register `projects/<id>`; `--vault` is legacy-only                            |
+| `canon`          | `add`, `import`, `list`, `search`                                                    |
+| `character`      | `add`, `list`                                                                        |
+| `foreshadowing`  | `add`, `list`                                                                        |
+| `world`          | `add`, `list`                                                                        |
+| `reference`      | `add`, `list`                                                                        |
+| `issue`          | `add`, `list`                                                                        |
+| `strategy`       | `add`, `list`                                                                        |
+| `pattern`        | `add`, `list`                                                                        |
+| `timeline`       | `append`, `list`, `check`                                                            |
+| `location`       | `add`, `list`                                                                        |
+| `route`          | `add`                                                                                |
+| `outline`        | `add`, `list`; new levels are `overview`, `book`, `volume`, `part`, `act`, `chapter` |
+| `scene`          | `create`, `list`; `--section` is the compatibility spelling for owning chapter ID    |
+| `index`          | Rebuild the project index                                                            |
+| `export`         | Export accepted manuscript prose; format `md` or `txt`, optional `--volume`          |
+| `prompt`         | `init`, `show`                                                                       |
+| `import`         | `markdown`, `ai-plan`, `answer`, `land`, `show`                                      |
+| `context`        | Assemble scene context; optional `--run`                                             |
+| `generate`       | Generate a scene; optional `--dry-run`                                               |
+| `check`          | Scene/outline checks via `--type`; scenes allow `--semantic`; optional `--run`       |
+| `st`             | `import-card`, `export-card`, `export-lorebook`                                      |
+| `finalize`       | `review-plan`, `show`, `confirm`                                                     |
+| `chapter-plan`   | Build ordered scene-writing prompts for a chapter                                    |
+| `run`            | `list`, `show`, `set-output`, `accept`                                               |
+| `help [command]` | Display help for a command                                                           |
 
 For example:
 
@@ -306,3 +328,6 @@ pnpm cli st import-card --help
 pnpm cli check --help
 pnpm cli export --help
 ```
+
+The Commander help text is the executable contract. Where a retained flag name says `section`, the
+current document model and desktop labels still use `scene`/“节” under a chapter.

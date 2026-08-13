@@ -27,7 +27,8 @@ These need product/design confirmation before or during implementation:
 - [x] Theme defaults: Paper by default, with Ink / Mist / Bamboo available.
 - [x] Git workflow defaults: local Git only by default, optional remote later.
 - [x] AI calls from desktop main process.
-- [x] Writing-workspace registration is the primary first-launch gate; a legacy vault is optional.
+- [x] Writing-workspace registration is the primary first-launch gate; legacy vaults remain in
+      compatibility/migration services rather than as a competing welcome choice.
 
 ## Milestone UI-1: App Shell
 
@@ -81,7 +82,7 @@ These need product/design confirmation before or during implementation:
   - [x] genre
   - [x] target words
   - [x] chapter words
-  - [x] section words
+  - [x] scene words (`section_words` remains the compatibility storage key)
   - [x] default theme
 - [x] Create and register `projects/<project-id>/` as a direct project-vault.
 - [x] Open newly created project workspace.
@@ -93,12 +94,12 @@ These need product/design confirmation before or during implementation:
 - [x] Top bar:
   - [x] app name
   - [x] project selector
-  - [x] current path: volume / chapter / section
+  - [x] current path: volume / part / optional act / chapter / scene
   - [x] AI status
   - [x] Git/sync status
   - [x] theme switcher
 - [x] Left structure panel:
-  - [x] unified book → volume → arc → chapter → AI-writing workflow tree
+  - [x] parallel overview/book roots plus book → volume → part → optional act → chapter → scene
   - [x] each outline level plans its direct child level
   - [x] quick module nav: Canon, Characters, Timeline, Locations, Runs
 - [x] Center work area:
@@ -131,7 +132,7 @@ These need product/design confirmation before or during implementation:
 - [x] Load scene Markdown.
 - [x] Edit prose body without damaging frontmatter.
 - [x] Save scene file.
-- [x] Show section title.
+- [x] Show scene title.
 - [x] Show target word count progress.
 - [x] Show current status badge.
 - [x] Add commands:
@@ -188,8 +189,12 @@ These need product/design confirmation before or during implementation:
 - [x] Edit speech style, desire, fear, bottom line.
 - [x] Edit OOC guardrails.
 - [x] Edit scene state.
-- [x] Edit volume arc matrix.
+- [x] Edit the per-volume character-arc matrix.
 - [x] Show character state in inspector.
+- [x] Edit birth, introduction, exit, and death timeline coordinates.
+- [x] Create time-scoped relationship phases with mutual/directed edges.
+- [x] Draw only current-time relationships with the relationship name on the line.
+- [x] Keep people outside the current time visible in a secondary index.
 
 ## Milestone UI-11: Timeline Module
 
@@ -199,6 +204,8 @@ These need product/design confirmation before or during implementation:
 - [x] Validate forward-only chain.
 - [x] Show flashback reference separately.
 - [x] Link events to scenes.
+- [x] Create explicit timeline coordinates and attach concurrent events.
+- [x] Reuse an event's legacy story-time field when creating its coordinate.
 
 ## Milestone UI-12: Location Module
 
@@ -232,13 +239,13 @@ These need product/design confirmation before or during implementation:
 - [x] Commit accepted scene/run changes.
 - [x] Support optional remote config.
 - [x] Default remote mode: none.
-- [x] Add private GitHub remote flow later.
+- [x] Add an explicit private GitHub remote flow.
 - [x] Never default to public publishing.
 
 ## Milestone UI-15: Documentation and UX Review
 
 - [x] Add UI architecture docs.
-- [x] Add screenshots or mockups.
+- [ ] Add maintained screenshots for the current seven-level and relationship workflows.
 - [x] Add theme customization docs.
 - [x] Add first-launch walkthrough.
 - [x] Add privacy and Git docs.
@@ -259,10 +266,27 @@ These need product/design confirmation before or during implementation:
 - [x] Let issue cards open or AI-edit their related records in place.
 - [x] Localize every structured field with a title and explanation.
 - [x] Keep controls compact and reserve elastic space for prose, maps, timelines, and graphs.
+- [x] Preserve AI-conversation and document-import provenance on landed cards.
+- [x] Restore an originating AI conversation when available.
+- [x] Locate changed/missing source files and re-import exactly one file-derived card.
+- [x] Localize errors and auto-dismiss status/error notices while retaining manual close controls.
 
-## First UI Slice
+## Current End-to-End UI Slice
 
-The first useful UI slice should be:
+The implemented author flow is:
+
+1. register a writing workspace and create/open a direct project-vault
+2. build overview/book/volume/part/optional-act/chapter structure
+3. add planning cards manually, through a reviewed AI conversation, or through reviewed bulk import
+4. establish timeline coordinates, places, character lifespans, and relationship phases
+5. create or select an ordered scene under a chapter
+6. assemble removable prompt-source cards and edit the exact prompt
+7. generate or write plain scene prose, check it, and accept it into chapter prose
+8. edit the chapter prose directly when needed
+9. finalize and, after two confirmations, publish and lock the chapter
+10. inspect runs, issues, provenance, exports, and scoped Git state
+
+The original MVP slice was:
 
 1. register writing workspace (optionally register/migrate a legacy vault)
 2. create/open a direct project-vault
@@ -273,4 +297,4 @@ The first useful UI slice should be:
 7. create dry-run / generation run
 8. inspect run history
 
-Everything else can layer onto that.
+It is retained here only as milestone history; the current UI is broader than that baseline.

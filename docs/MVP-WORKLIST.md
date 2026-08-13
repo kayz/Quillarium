@@ -3,6 +3,8 @@
 > Historical implementation checklist: vault-level `init --vault` entries below document the
 > original MVP compatibility path. The current default is a registered writing workspace with
 > direct `projects/<project-id>/` project-vaults; see [DESIGN.md](DESIGN.md) and [CLI.md](CLI.md).
+> Old `arc`, `section`, and event-as-timeline-node examples are intentionally preserved as migration
+> history. Do not use this file as current command documentation.
 
 This MVP focuses on a usable Obsidian-backed writing workflow before building a full desktop UI.
 
@@ -207,7 +209,10 @@ assemble context for one section, save generation runs, and produce consistency 
 - [x] Add schema reference.
 - [x] Add contribution guide.
 
-## First Usable Flow
+## Historical First Usable Flow (Pre-0.2)
+
+For current commands and the overview/book/volume/part/optional-act/chapter/scene model, use
+[CLI.md](CLI.md). The following transcript records the original MVP contract only:
 
 ```bash
 quill config set-vault ./local-vaults
@@ -226,4 +231,5 @@ quill run accept <run-id> --project "./local-vaults/novels/My Novel"
 
 ## Remaining MVP Gaps After Audit
 
-All audited MVP gaps are complete.
+All gaps in the original MVP checklist were completed. Post-MVP work is tracked in the root
+[ROADMAP.md](../ROADMAP.md) and must not be inferred from this historical list.

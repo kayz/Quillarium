@@ -8,6 +8,11 @@ Quillarium is the sole product runtime. Obsidian is its durable manual-editing s
 workspace may register multiple projects and shared guidance, while each project directory is both
 an independent Obsidian vault and a Quillarium project root.
 
+This document describes the `0.2.0-alpha.1` code line as of 2026-08-13. “Works now” means the
+behavior is present in the repository and covered by local tests; planned context budgeting,
+multi-candidate branching, writing presets, lifecycle events, and atomic continuity apply are kept
+in the [roadmap](ROADMAP.md), not presented as completed features.
+
 ## What Works Now
 
 - A file-backed project model for Canon, characters and time-scoped relationships, linked timelines,
@@ -40,6 +45,12 @@ an independent Obsidian vault and a Quillarium project root.
 
 AI is optional for project management, import, context assembly, deterministic checks, and export.
 Generation and `check --semantic` require an OpenAI-compatible endpoint or configured provider.
+
+The current context packet is deterministic and explainable at document level: it follows the
+outline chain, explicit pins and exclusions, typed relations, timeline links, keyword activation,
+enabled-card state, and fixed per-category limits. Real tokenizer-aware budgeting, recursive
+`PromptBlock` compilation, candidate groups/branches, and versioned `WritingPreset` snapshots are
+the next P0 work rather than current runtime guarantees.
 
 ## Quick Start
 
@@ -125,6 +136,11 @@ pnpm cli --help
 pnpm cli <command> --help
 ```
 
+The desktop is the primary surface for the current seven-level hierarchy and explicit timeline
+coordinates. The source-run CLI retains two pre-0.2 option names for compatibility:
+`scene create --section` receives the owning chapter ID, and `--timeline` receives the linked
+timeline event ID. These names do not change the current `chapter_id`-based scene model.
+
 ## Project Layout
 
 ```text
@@ -166,6 +182,9 @@ The product and agent workflow rationale is documented in
 [docs/DESIGN.md](docs/DESIGN.md) and [ROADMAP.md](ROADMAP.md). External design research, independent
 implementation rules, and license boundaries are recorded in
 [docs/REFERENCES.md](docs/REFERENCES.md).
+
+[docs/MVP-WORKLIST.md](docs/MVP-WORKLIST.md) is an explicitly historical checklist for the original
+CLI/vault MVP. It is retained for provenance and is not a current usage guide.
 
 ## Current Boundaries
 
