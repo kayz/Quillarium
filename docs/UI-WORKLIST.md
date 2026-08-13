@@ -98,8 +98,8 @@ These need product/design confirmation before or during implementation:
   - [x] Git/sync status
   - [x] theme switcher
 - [x] Left structure panel:
-  - [x] novel hierarchy tree
-  - [x] section/scene selection
+  - [x] unified book → volume → arc → chapter → AI-writing workflow tree
+  - [x] each outline level plans its direct child level
   - [x] quick module nav: Canon, Characters, Timeline, Locations, Runs
 - [x] Center work area:
   - [x] editor tab
@@ -112,14 +112,19 @@ These need product/design confirmation before or during implementation:
   - [x] timeline node
   - [x] location
   - [x] consistency check results
-- [x] Bottom run panel:
-  - [x] AI run history
-  - [x] prompt
-  - [x] raw output
-  - [x] accepted output
-  - [x] check report
+- [x] Chapter AI-writing workspace:
+  - [x] assemble a first prompt from current context
+  - [x] let the author adjust the actual generation prompt
+  - [x] snapshot the adjusted prompt into the run
+  - [x] AI run history, raw/accepted output, checks, and comparison
 - [x] Resizable panels.
+- [x] Pointer- and keyboard-resizable planning navigation/collection/detail columns.
+- [x] Pointer- and keyboard-resizable metadata/Markdown detail rows.
+- [x] Pointer- and keyboard-resizable writing navigation and overview/detail.
 - [x] Collapsible side panels.
+- [x] Collapsible metadata groups with direct nested-field editors.
+- [x] Tag, trigger, category, topic, kind, and scope chip presentation.
+- [x] Exact-match cross-type tag drawer from the right.
 
 ## Milestone UI-6: Editor MVP
 
@@ -206,12 +211,18 @@ These need product/design confirmation before or during implementation:
 
 ## Milestone UI-13: Outline and Beat Board
 
-- [x] Show book/volume/arc/chapter/section hierarchy.
+- [x] Show overview/book/volume/part/optional-act/chapter/scene hierarchy.
 - [x] Create outline nodes.
 - [x] Edit outline body.
 - [x] Add card view for story beats.
 - [x] Add chapter hook marker.
-- [x] Create scene from selected section.
+- [x] Create ordered scene from selected chapter.
+- [x] Allow a chapter to belong directly to a part or to one optional act.
+- [x] Compose prompts from removable source cards beside the exact editable prompt.
+- [x] Append accepted scene prose to an independent chapter-prose document in order.
+- [x] Enforce draft/final/published chapter locks in core and desktop write paths.
+- [x] Require two confirmations before publication and purge scene run artifacts afterward.
+- [x] Provide large serif chapter/scene editors with character counts and resizable panes.
 
 ## Milestone UI-14: Git and Privacy
 
@@ -232,6 +243,22 @@ These need product/design confirmation before or during implementation:
 - [x] Add first-launch walkthrough.
 - [x] Add privacy and Git docs.
 - [x] Run a manual writing-session smoke test.
+
+## Milestone UI-16: Planning Card Workbench
+
+- [x] Give every planning card enablement, material provenance, and validated typed relations.
+- [x] Keep reference material status-free and show its live derived-card reverse index.
+- [x] Render timeline nodes as one ordered chain with concurrent events.
+- [x] Add a draggable time-filtered character relationship graph.
+- [x] Add a six-scale positioning/layout location explorer with coordinate and compass views.
+- [x] Activate world entries from current-scope keywords and explicit links.
+- [x] Evaluate foreshadowing conditions as non-mutating author reminders.
+- [x] Merge new style, structure, and pattern guidance into enabled narrative cards.
+- [x] Split generated prompts into removable typed source cards.
+- [x] Persist manual project AI-check findings as deduplicated issue cards.
+- [x] Let issue cards open or AI-edit their related records in place.
+- [x] Localize every structured field with a title and explanation.
+- [x] Keep controls compact and reserve elastic space for prose, maps, timelines, and graphs.
 
 ## First UI Slice
 

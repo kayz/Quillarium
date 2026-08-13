@@ -14,12 +14,29 @@ import {
   createScene,
   createStrategy,
   createWorldEntry,
-  appendTimelineEvent
+  appendTimelineEvent,
+  parseKnownDocument
 } from './documents.js'
-import { ensureDir, listMarkdownFiles, pathExists, readText, writeText } from './fs.js'
+import {
+  ensureDir,
+  listMarkdownFiles,
+  pathExists,
+  readMarkdown,
+  readText,
+  writeMarkdown,
+  writeText
+} from './fs.js'
 import { makeId, timestampId } from './ids.js'
 import { readPrompt } from './prompts.js'
-import type { DocType } from './types.js'
+import {
+  DOCUMENT_ORIGIN_FIELD,
+  assertProjectPath,
+  attachDocumentOrigin,
+  refreshOriginSources,
+  type AIImportOrigin,
+  type OriginSourceFile
+} from './provenance.js'
+import type { BaseDoc, DocType } from './types.js'
 
 export interface SourceIndexEntry {
   source: string
@@ -50,6 +67,14 @@ export interface ImportSessionIssue {
   related_items: string[]
   state: 'open' | 'resolved' | 'deferred'
   answer?: string
+  origin?: 'source-review' | 'candidate-confirmation'
+}
+
+export interface ImportSessionFailure {
+  candidate_index: number
+  type: DocType
+  title: string
+  message: string
 }
 
 export interface ImportSession {
@@ -63,8 +88,15 @@ export interface ImportSession {
   summary?: string
   candidates: ImportCandidate[]
   issues: ImportSessionIssue[]
-  landed: Array<{ type: DocType; title: string; path: string }>
-  status: 'planned' | 'needs-confirmation' | 'landed'
+  landed: Array<{
+    type: DocType
+    title: string
+    path: string
+    document_id?: string
+    candidate_index?: number
+  }>
+  failures?: ImportSessionFailure[]
+  status: 'planned' | 'needs-confirmation' | 'partial' | 'landed'
 }
 
 export interface ImportPlanInput {
@@ -152,17 +184,8 @@ export async function createImportSessionPlan(
   const parsed = input.aiResponse ? parseImportAIResponse(input.aiResponse) : null
   const candidates = parsed?.items ?? []
   const issues = [
-    ...(parsed?.issues ?? []),
-    ...candidates
-      .filter((item) => item.confidence < 0.72 || item.questions.length)
-      .map((item) => ({
-        id: makeId('issue', `${item.title} 导入确认`),
-        title: `${item.title} 导入确认`,
-        priority: item.confidence < 0.5 ? ('high' as const) : ('medium' as const),
-        decision_needed: item.questions.join('；') || `确认是否作为 ${item.type} 落地。`,
-        related_items: [item.title],
-        state: 'open' as const
-      }))
+    ...(parsed?.issues ?? []).map((issue) => ({ ...issue, origin: 'source-review' as const })),
+    ...candidateConfirmationIssues(candidates)
   ]
   const session: ImportSession = {
     id,
@@ -205,15 +228,77 @@ export async function answerImportIssue(
   return session
 }
 
+export async function updateImportSessionCandidates(
+  projectRoot: string,
+  sessionId: string,
+  candidates: ImportCandidate[]
+): Promise<ImportSession> {
+  const session = await loadImportSession(projectRoot, sessionId)
+  if (session.landed.length) {
+    throw new Error('Candidates cannot be edited after this import has started landing files.')
+  }
+  const priorCandidateIssueIds = new Set(
+    session.candidates.map((candidate) => makeId('issue', `${candidate.title} 导入确认`))
+  )
+  session.candidates = candidates.map((candidate) => ({
+    type: candidate.type,
+    title: String(candidate.title ?? '').trim() || '未命名导入',
+    confidence: Math.max(0, Math.min(1, Number(candidate.confidence ?? 0))),
+    frontmatter: candidate.frontmatter ?? {},
+    content: String(candidate.content ?? ''),
+    reason: String(candidate.reason ?? ''),
+    questions: Array.isArray(candidate.questions) ? candidate.questions.map(String) : []
+  }))
+  const candidateIssues = candidateConfirmationIssues(session.candidates, session.issues)
+  const candidateIssueIds = new Set(candidateIssues.map((issue) => issue.id))
+  session.issues = [
+    ...session.issues.filter(
+      (issue) =>
+        issue.origin !== 'candidate-confirmation' &&
+        !(issue.origin === undefined && priorCandidateIssueIds.has(issue.id)) &&
+        !candidateIssueIds.has(issue.id)
+    ),
+    ...candidateIssues
+  ]
+  session.status = session.issues.some((issue) => issue.state === 'open') ? 'needs-confirmation' : 'planned'
+  session.failures = []
+  await saveImportSession(projectRoot, session)
+  return session
+}
+
 export async function landImportSession(projectRoot: string, sessionId: string): Promise<ImportSession> {
   const session = await loadImportSession(projectRoot, sessionId)
+  if (session.status === 'landed') return session
   if (session.issues.some((issue) => issue.state === 'open')) {
     throw new Error('Import session still has open issues.')
   }
-  for (const candidate of session.candidates) {
-    if (candidate.confidence < 0.72) continue
-    const file = await createCandidateDoc(projectRoot, candidate)
-    session.landed.push({ type: candidate.type, title: candidate.title, path: file })
+  const landedIndexes = new Set(
+    session.landed
+      .map((item) => item.candidate_index)
+      .filter((index): index is number => typeof index === 'number')
+  )
+  const failures: ImportSessionFailure[] = []
+  for (const [candidateIndex, candidate] of session.candidates.entries()) {
+    if (landedIndexes.has(candidateIndex)) continue
+    try {
+      const file = await createCandidateDoc(projectRoot, candidate)
+      const document = await readMarkdown<BaseDoc & Record<string, unknown>>(file)
+      await attachDocumentOrigin(file, aiImportOrigin(session, candidateIndex))
+      session.landed.push({
+        type: candidate.type,
+        title: candidate.title,
+        path: file,
+        document_id: document.data.id,
+        candidate_index: candidateIndex
+      })
+    } catch (error) {
+      failures.push({
+        candidate_index: candidateIndex,
+        type: candidate.type,
+        title: candidate.title,
+        message: error instanceof Error ? error.message : String(error)
+      })
+    }
   }
   const index = await loadSourceIndex(projectRoot)
   const bySource = new Map(index.map((entry) => [path.resolve(entry.source), entry]))
@@ -226,7 +311,8 @@ export async function landImportSession(projectRoot: string, sessionId: string):
     })
   }
   await saveSourceIndex(projectRoot, [...bySource.values()])
-  session.status = 'landed'
+  session.failures = failures
+  session.status = failures.length ? 'partial' : 'landed'
   await saveImportSession(projectRoot, session)
   return session
 }
@@ -243,7 +329,106 @@ export function buildImportPrompt(session: ImportSession): string {
   ].join('\n')
 }
 
-function parseImportAIResponse(raw: string): {
+export function buildSingleCardReimportPrompt(
+  session: ImportSession,
+  candidateIndex: number,
+  currentDocument: { data: Record<string, unknown>; content: string },
+  sourceText: string
+): string {
+  const candidate = session.candidates[candidateIndex]
+  if (!candidate) throw new Error('The original import candidate no longer exists.')
+  return [
+    session.prompt,
+    '',
+    '# 单卡重提取任务',
+    '只重新提取下面指定的一张卡片。不要返回同一来源中的其它人物、事件或词条。',
+    `文档类型必须保持为 ${candidate.type}。JSON 的 items 必须恰好包含一项，issues 必须为空。`,
+    '不要输出 id、type、schema_version 或 quillarium_origin 等系统字段。',
+    '',
+    '# 当前卡片',
+    JSON.stringify(
+      {
+        type: currentDocument.data.type,
+        title: currentDocument.data.title,
+        fields: Object.fromEntries(
+          Object.entries(currentDocument.data).filter(
+            ([key]) => !['id', 'type', 'schema_version', DOCUMENT_ORIGIN_FIELD].includes(key)
+          )
+        ),
+        content: currentDocument.content
+      },
+      null,
+      2
+    ),
+    '',
+    '# 原候选定位',
+    JSON.stringify(candidate, null, 2),
+    '',
+    '# 当前源文件正文',
+    sourceText
+  ].join('\n')
+}
+
+export async function readImportSessionSources(session: ImportSession): Promise<string> {
+  const files = session.sources
+    .map((source) => source.source)
+    .filter((source) => source !== 'pasted-markdown')
+  if (!files.length) {
+    throw new Error('This import came from pasted text and has no source file to re-read.')
+  }
+  return readSources(files)
+}
+
+export async function reimportAIImportCard(
+  projectRoot: string,
+  targetPath: string,
+  origin: AIImportOrigin,
+  aiResponse: string
+): Promise<{ path: string; document: { data: Record<string, unknown>; content: string } }> {
+  const parsed = parseImportAIResponse(aiResponse)
+  if (parsed.items.length !== 1 || parsed.issues.length) {
+    throw new Error(
+      'Background AI did not return exactly one issue-free card; the original card was not changed.'
+    )
+  }
+  const session = await loadImportSession(projectRoot, origin.session_id)
+  const result = await reapplyImportCandidate(projectRoot, targetPath, parsed.items[0], origin)
+  session.candidates[origin.candidate_index] = parsed.items[0]
+  session.ai_response = aiResponse
+  await saveImportSession(projectRoot, session)
+  return result
+}
+
+export async function reapplyImportCandidate(
+  projectRoot: string,
+  targetPath: string,
+  candidate: ImportCandidate,
+  origin: AIImportOrigin
+): Promise<{ path: string; document: { data: Record<string, unknown>; content: string } }> {
+  const target = assertProjectPath(projectRoot, targetPath)
+  const current = await readMarkdown<Record<string, unknown>>(target)
+  if (current.data.type !== candidate.type) {
+    throw new Error(`Re-import returned ${candidate.type}; expected ${String(current.data.type)}.`)
+  }
+  const candidateData = {
+    ...current.data,
+    ...candidate.frontmatter,
+    id: current.data.id,
+    type: current.data.type,
+    schema_version: current.data.schema_version,
+    title: candidate.title,
+    [DOCUMENT_ORIGIN_FIELD]: {
+      ...origin,
+      sources: await refreshOriginSources(origin.sources),
+      updated_at: new Date().toISOString()
+    }
+  }
+  const parsed = parseKnownDocument(candidateData, target)
+  await writeMarkdown(target, parsed, candidate.content)
+  return { path: target, document: await readMarkdown(target) }
+}
+
+export function parseImportAIResponse(raw: string): {
   summary?: string
   items: ImportCandidate[]
   issues: ImportSessionIssue[]
@@ -270,8 +455,46 @@ function parseImportAIResponse(raw: string): {
       priority: issue.priority ?? 'medium',
       decision_needed: issue.decision_needed ?? '',
       related_items: issue.related_items ?? [],
-      state: issue.state ?? 'open'
+      state: issue.state ?? 'open',
+      origin: issue.origin ?? 'source-review'
     }))
+  }
+}
+
+function candidateConfirmationIssues(
+  candidates: ImportCandidate[],
+  previous: ImportSessionIssue[] = []
+): ImportSessionIssue[] {
+  return candidates
+    .filter((item) => item.confidence < 0.72 || item.questions.length)
+    .map((item) => {
+      const id = makeId('issue', `${item.title} 导入确认`)
+      const existing = previous.find((issue) => issue.id === id)
+      return {
+        id,
+        title: `${item.title} 导入确认`,
+        priority: item.confidence < 0.5 ? ('high' as const) : ('medium' as const),
+        decision_needed: item.questions.join('；') || `确认是否作为 ${item.type} 落地。`,
+        related_items: [item.title],
+        state: existing?.state ?? ('open' as const),
+        ...(existing?.answer ? { answer: existing.answer } : {}),
+        origin: 'candidate-confirmation' as const
+      }
+    })
+}
+
+function aiImportOrigin(session: ImportSession, candidateIndex: number): AIImportOrigin {
+  const now = new Date().toISOString()
+  return {
+    schema_version: 1,
+    kind: 'ai-import',
+    session_id: session.id,
+    candidate_index: candidateIndex,
+    sources: session.sources
+      .filter((source) => source.source !== 'pasted-markdown')
+      .map((source): OriginSourceFile => ({ path: source.source, sha256: source.sha256 })),
+    created_at: now,
+    updated_at: now
   }
 }
 
@@ -306,7 +529,8 @@ async function createCandidateDoc(projectRoot: string, candidate: ImportCandidat
         (input.level as never) ?? 'book',
         candidate.title,
         input,
-        candidate.content
+        candidate.content,
+        { placement: 'legacy-import' }
       )
     case 'scene':
       return createScene(projectRoot, candidate.title, input, candidate.content)

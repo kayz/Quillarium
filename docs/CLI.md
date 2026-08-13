@@ -55,7 +55,7 @@ Create commands print the created file path. Use the corresponding `list` comman
 generated IDs before referring to them from another document.
 
 Other first-class records include world entries, foreshadowing, references, issues, patterns,
-routes, and book/volume/arc/chapter outlines:
+routes, and overview/book/volume/part/act/chapter outlines:
 
 ```bash
 pnpm cli world add "Granulated Powder" --project "./writing-workspace/projects/my-novel" --trigger powder fire-lance --role constraint --valid-from 1449 --content "The powder ignites only when kept dry."
@@ -142,8 +142,9 @@ supports reviewing prose produced outside the configured provider while retainin
 provider, model, and creation metadata.
 
 `run accept` copies a non-empty `output-raw.md` to `output-accepted.md`, marks the run accepted, and
-replaces the target scene body. Empty output is rejected so an unfinished dry run cannot erase scene
-prose. Pass `--scene <scene-id>` only when the scene recorded in run metadata must be overridden.
+accepts the target scene into its chapter and appends it to the independent chapter prose in order.
+Empty or Markdown-formatted output is rejected. Pass `--scene <scene-id>` only when the scene
+recorded in run metadata must be overridden.
 
 ### 5. Export accepted prose
 
@@ -217,7 +218,7 @@ The importer maps English frontmatter and structured Chinese fields when possibl
 - `类型: 词条` to world entry
 - `类型: 参考资料` to reference
 - `类型: 设定集` to Canon
-- `类型: 总纲 | 卷纲 | 幕纲 | 章纲 | 节纲` to outline
+- `类型: 总览 | 总纲 | 卷纲 | 篇纲 | 幕纲 | 章纲 | 节纲` to outline
 
 Markdown without frontmatter is classified from its path, first heading, and early content. Use
 `--strategy auto|single|sections`, or force a default type for unstructured notes:

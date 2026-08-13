@@ -1,5 +1,6 @@
-import React, { useRef } from 'react'
+import React, { useRef, type CSSProperties } from 'react'
 import {
+  Bot,
   ChevronDown,
   FileText,
   LayoutGrid,
@@ -8,6 +9,7 @@ import {
   RefreshCw,
   Save,
   Search,
+  ShieldCheck,
   Trash2,
   Upload
 } from 'lucide-react'
@@ -30,9 +32,19 @@ import {
   VOLUME_SECTIONS,
   volumeSectionDocs
 } from './outline-model.js'
-import { MetadataEditor, StructuredTile, VolumeTimeline } from './OutlineShared.js'
+import {
+  AI_EDITABLE_CARD_TYPES,
+  MetadataEditor,
+  PlanningCardSupportPanel,
+  StructuredTile
+} from './OutlineShared.js'
 import { MarkdownBodyEditor } from '../markdown/MarkdownBodyEditor.js'
 import { isAIPlanningContext } from '../planning/planning-model.js'
+import { clampPaneSize, SplitHandle } from '../layout/SplitHandle.js'
+import { OutlineCreateDialog } from './OutlineCreateDialog.js'
+import { EditableDocumentTitle } from './EditableDocumentTitle.js'
+import { enumChoiceLabel } from '../metadata/field-presentation.js'
+import { CharacterRelationView, LocationExplorerView, TimelineChainView } from '../planning/PlanningViews.js'
 
 export function VolumeHome({
   docs,
@@ -60,10 +72,13 @@ export function VolumeHome({
   onSelect,
   onCreate,
   onAIPlanningCreate,
+  onAIEditCard,
+  onPlanningCheck,
   onDelete,
   onOpenExternal,
   onReloadDoc,
   onDocChange,
+  onInspectTag,
   onSave,
   onImport,
   language
@@ -93,22 +108,32 @@ export function VolumeHome({
   onSelect: (target: TargetSelection) => void
   onCreate: (kind: string, input: Record<string, unknown>) => Promise<void>
   onAIPlanningCreate: (section: VolumeSection) => void
+  onAIEditCard: (doc: DocEntry) => void
+  onPlanningCheck: () => Promise<void>
   onDelete: () => Promise<void>
   onOpenExternal: () => Promise<void>
   onReloadDoc: () => Promise<void>
   onDocChange: (doc: { data: Record<string, unknown>; content: string; path: string }) => void
+  onInspectTag: (tag: string, displayValue?: string) => void
   onSave: () => Promise<void>
   onImport: () => void
   language: LanguageName
 }) {
   const shellRef = useRef<HTMLDivElement | null>(null)
+  const detailSplitRef = useRef<HTMLDivElement | null>(null)
+  const [navigationWidth, setNavigationWidth] = React.useState(280)
+  const [detailMetadataPct, setDetailMetadataPct] = React.useState(38)
+  const [createSection, setCreateSection] = React.useState<VolumeSection | null>(null)
+  const [creating, setCreating] = React.useState(false)
   const zh = language === 'zh'
   const section = VOLUME_SECTIONS.find((item) => item.id === activeSection) ?? VOLUME_SECTIONS[0]
   const sectionHeading = zh ? section.heading : section.enHeading
-  const arcs = docs
+  const parts = docs
     .filter(
       (item) =>
-        item.data.type === 'outline' && item.data.level === 'arc' && item.data.parent === volume.data.id
+        item.data.type === 'outline' &&
+        (item.data.level === 'part' || item.data.level === 'arc') &&
+        item.data.parent === volume.data.id
     )
     .sort((a, b) => outlineSortKey(a).localeCompare(outlineSortKey(b)))
   const items = filterDocs(volumeSectionDocs(docs, volume, activeSection), search)
@@ -116,47 +141,22 @@ export function VolumeHome({
     ? docs.find((item) => item.data.id === selectedTarget.id && item.data.type === selectedTarget.type)
     : null
 
-  const startDrag = (event: React.PointerEvent<HTMLDivElement>) => {
-    const box = shellRef.current?.getBoundingClientRect()
-    if (!box) return
-    const move = (moveEvent: PointerEvent) => {
-      const next = ((moveEvent.clientX - box.left) / box.width) * 100
-      onMiddlePct(Math.min(72, Math.max(36, Math.round(next))))
-    }
-    const stop = () => {
-      window.removeEventListener('pointermove', move)
-      window.removeEventListener('pointerup', stop)
-    }
-    window.addEventListener('pointermove', move)
-    window.addEventListener('pointerup', stop)
-    event.preventDefault()
-  }
-
-  const createCurrent = async () => {
-    if (isAIPlanningContext(activeSection)) {
-      onAIPlanningCreate(activeSection)
+  const createCurrent = (requestedSection: VolumeSection = activeSection) => {
+    if (isAIPlanningContext(requestedSection)) {
+      onAIPlanningCreate(requestedSection)
       return
     }
-    const title = window.prompt(zh ? `新建${section.title}` : `New ${section.enTitle}`)
-    if (!title?.trim()) return
-    if (activeSection === 'arcs') {
-      await onCreate('outline', {
-        title: title.trim(),
-        level: 'arc',
-        parent: volume.data.id,
-        order: arcs.length,
-        target_words: Math.max(project.chapter_words * 10, 1),
-        content: `## ${title.trim()}\n`
-      })
-      return
-    }
-    const input = createInputForOutlineSection(activeSection, title.trim(), docs, project)
-    await onCreate(input.kind, applyVolumeScope(input.data, volume))
+    setCreateSection(requestedSection)
   }
 
   return (
     <main
       className={`outline-home volume-home ${leftOpen ? '' : 'left-narrow'} ${rightOpen ? '' : 'right-narrow'}`}
+      style={
+        {
+          '--outline-navigation-width': `${leftOpen ? navigationWidth : 58}px`
+        } as CSSProperties
+      }
     >
       <aside className="outline-nav">
         <div className="outline-nav-head">
@@ -167,11 +167,21 @@ export function VolumeHome({
           >
             <ChevronDown size={16} />
           </button>
-          {leftOpen && <strong>{zh ? '卷纲' : 'Volume'}</strong>}
+          {leftOpen && <strong>{zh ? '卷' : 'Volume'}</strong>}
+          <button
+            className="planning-check-button"
+            type="button"
+            onClick={() => void onPlanningCheck()}
+            disabled={busy}
+            title={zh ? '用 AI 检查所有已启用的规划卡片' : 'Check all enabled planning cards with AI'}
+          >
+            <ShieldCheck size={15} />
+            {leftOpen && <span>{busy ? (zh ? '检查中…' : 'Checking…') : zh ? 'AI 检查' : 'AI check'}</span>}
+          </button>
         </div>
         {leftOpen && (
           <div className="volume-switcher">
-            <button onClick={onBackOutline}>{zh ? '返回大纲' : 'Back to outline'}</button>
+            <button onClick={onBackOutline}>{zh ? '返回规划' : 'Back to planning'}</button>
             <select
               value={volume.data.id}
               onChange={(event) => {
@@ -209,8 +219,8 @@ export function VolumeHome({
         </div>
         {leftOpen && (
           <div className="volume-quick-list">
-            <strong>{zh ? '段纲' : 'Arcs'}</strong>
-            {arcs.map((arc) => (
+            <strong>{zh ? '篇' : 'Parts'}</strong>
+            {parts.map((arc) => (
               <button
                 key={arc.data.id}
                 className={selectedTarget?.id === arc.data.id ? 'active' : ''}
@@ -219,28 +229,38 @@ export function VolumeHome({
                 {arc.data.title}
               </button>
             ))}
-            <button className="sidebar-create" onClick={() => void createCurrent()}>
-              <Plus size={14} /> {zh ? '新增段纲' : 'New arc'}
+            <button className="sidebar-create" onClick={() => createCurrent('parts')}>
+              <Plus size={14} /> {zh ? '新增篇' : 'New part'}
             </button>
           </div>
         )}
         <button
           className="outline-import"
           onClick={onImport}
-          title={zh ? '导入新的设定' : 'Import planning records'}
+          title={zh ? 'AI 辅助导入资料' : 'AI-assisted source import'}
         >
           <Upload size={17} />
           {leftOpen ? (
-            <span>{zh ? '导入新的设定' : 'Import records'}</span>
+            <span>{zh ? 'AI 辅助导入' : 'AI-assisted import'}</span>
           ) : (
             <span className="one-char">{zh ? '导' : 'I'}</span>
           )}
         </button>
       </aside>
+      {leftOpen && (
+        <SplitHandle
+          orientation="vertical"
+          className="outline-navigation-handle"
+          label={zh ? '调整左侧栏目宽度' : 'Resize section navigation'}
+          onResize={(delta) =>
+            setNavigationWidth((current) => clampPaneSize(current + delta, 190, window.innerWidth - 720))
+          }
+        />
+      )}
       <section
         ref={shellRef}
         className="outline-main"
-        style={{ gridTemplateColumns: rightOpen ? `${middlePct}% 8px 1fr` : '1fr 8px 44px' }}
+        style={{ gridTemplateColumns: rightOpen ? `${middlePct}% 10px 1fr` : '1fr 10px 44px' }}
       >
         <div className="outline-collection">
           <div className="outline-collection-head">
@@ -249,7 +269,7 @@ export function VolumeHome({
               <h2>{sectionHeading}</h2>
             </div>
             <div className="outline-actions">
-              <button onClick={createCurrent} disabled={busy}>
+              <button onClick={() => createCurrent()} disabled={busy}>
                 <Plus size={15} /> {zh ? '新增' : 'New'}
               </button>
               <button onClick={onDelete} disabled={!doc || busy}>
@@ -284,30 +304,54 @@ export function VolumeHome({
             </div>
           </div>
           {activeSection === 'timeline' ? (
-            <VolumeTimeline
-              docs={docs}
-              volume={volume}
-              arcs={arcs}
+            <TimelineChainView
               items={items}
-              onSelect={onSelect}
               selectedTarget={selectedTarget}
+              onSelect={onSelect}
+              language={language}
+            />
+          ) : activeSection === 'characters' ? (
+            <CharacterRelationView
+              items={items}
+              timelineNodes={docs.filter((item) => item.data.type === 'timeline_node')}
+              selectedTarget={selectedTarget}
+              onSelect={onSelect}
+              language={language}
+            />
+          ) : activeSection === 'locations' ? (
+            <LocationExplorerView
+              items={items}
+              selectedTarget={selectedTarget}
+              onSelect={onSelect}
+              language={language}
             />
           ) : (
             <div className={viewMode === 'tile' ? 'outline-tile-grid' : 'outline-list'}>
               {items.map((item) => (
                 <button
                   key={item.data.id}
-                  className={`outline-item ${selectedTarget?.id === item.data.id ? 'active' : ''}`}
+                  className={`outline-item ${item.data.enabled === false ? 'disabled-card' : ''} ${selectedTarget?.id === item.data.id ? 'active' : ''}`}
                   onClick={() => onSelect({ type: item.data.type, id: item.data.id })}
                 >
                   <span>
                     <b>{item.data.title}</b>
                     <small>
-                      {docTypeLabel(item)} · {String(item.data.status ?? 'draft')}
+                      {docTypeLabel(item, language)}
+                      {item.data.type === 'reference' ? (
+                        <> · {zh ? '材料来源' : 'Source material'}</>
+                      ) : (
+                        <>
+                          {' · '}
+                          {enumChoiceLabel('status', String(item.data.status ?? 'draft'), language, {
+                            documentType: String(item.data.type)
+                          })}
+                          {item.data.enabled === false ? (zh ? ' · 未启用' : ' · Disabled') : ''}
+                        </>
+                      )}
                     </small>
                   </span>
-                  {viewMode === 'list' && <em>{structuredLineForSection(item)}</em>}
-                  {viewMode === 'tile' && <StructuredTile doc={item} />}
+                  {viewMode === 'list' && <em>{structuredLineForSection(item, language)}</em>}
+                  {viewMode === 'tile' && <StructuredTile doc={item} language={language} />}
                 </button>
               ))}
               {!items.length && (
@@ -318,7 +362,15 @@ export function VolumeHome({
             </div>
           )}
         </div>
-        <div className="resize-handle" onPointerDown={startDrag} />
+        <SplitHandle
+          orientation="vertical"
+          className="outline-detail-handle"
+          label={zh ? '调整内容列表与详情宽度' : 'Resize collection and details'}
+          onResize={(delta) => {
+            const width = shellRef.current?.clientWidth ?? 1
+            onMiddlePct(clampPaneSize(middlePct + (delta / width) * 100, 32, rightOpen ? 78 : 92))
+          }}
+        />
         <aside className="outline-detail">
           {rightOpen ? (
             doc ? (
@@ -326,9 +378,13 @@ export function VolumeHome({
                 <div className="detail-head">
                   <div>
                     <span className="badge ok">
-                      {selected ? docTypeLabel(selected) : zh ? '文档' : 'Document'}
+                      {selected ? docTypeLabel(selected, language) : zh ? '文档' : 'Document'}
                     </span>
-                    <h2>{String(doc.data.title ?? (zh ? '未命名' : 'Untitled'))}</h2>
+                    <EditableDocumentTitle
+                      value={doc.data.title}
+                      language={language}
+                      onChange={(title) => onDocChange({ ...doc, data: { ...doc.data, title } })}
+                    />
                   </div>
                   <button
                     className="icon-button"
@@ -338,24 +394,67 @@ export function VolumeHome({
                     <ChevronDown size={16} />
                   </button>
                 </div>
-                <MetadataEditor
-                  data={doc.data}
-                  language={language}
-                  onChange={(data) => onDocChange({ ...doc, data })}
-                />
-                <MarkdownBodyEditor
-                  value={doc.content}
-                  onChange={(content) => onDocChange({ ...doc, content })}
-                  language={language}
-                />
+                <div
+                  ref={detailSplitRef}
+                  className="detail-split-region"
+                  style={{ gridTemplateRows: `${detailMetadataPct}% 10px minmax(0, 1fr)` }}
+                >
+                  <div className="detail-metadata-pane">
+                    <PlanningCardSupportPanel
+                      doc={{ path: doc.path, data: doc.data as DocEntry['data'], content: doc.content }}
+                      docs={docs}
+                      language={language}
+                      onSelect={onSelect}
+                      onAIEdit={onAIEditCard}
+                    />
+                    <MetadataEditor
+                      data={doc.data}
+                      docs={docs}
+                      language={language}
+                      onInspectTag={onInspectTag}
+                      onChange={(data) => onDocChange({ ...doc, data })}
+                    />
+                  </div>
+                  <SplitHandle
+                    orientation="horizontal"
+                    className="detail-body-handle"
+                    label={zh ? '调整属性与正文高度' : 'Resize metadata and Markdown body'}
+                    onResize={(delta) => {
+                      const height = detailSplitRef.current?.clientHeight ?? 1
+                      setDetailMetadataPct((current) =>
+                        clampPaneSize(current + (delta / height) * 100, 22, 72)
+                      )
+                    }}
+                  />
+                  <div className="detail-markdown-pane">
+                    <MarkdownBodyEditor
+                      value={doc.content}
+                      onChange={(content) => onDocChange({ ...doc, content })}
+                      language={language}
+                    />
+                  </div>
+                </div>
                 <div className="detail-actions">
+                  {AI_EDITABLE_CARD_TYPES.has(String(doc.data.type)) && (
+                    <button
+                      onClick={() =>
+                        onAIEditCard({
+                          path: doc.path,
+                          data: doc.data as DocEntry['data'],
+                          content: doc.content
+                        })
+                      }
+                    >
+                      <Bot size={15} /> {zh ? 'AI 协助调整' : 'Edit with AI'}
+                    </button>
+                  )}
                   <button onClick={onOpenExternal}>
                     <FileText size={15} /> {zh ? '编辑' : 'Edit'}
                   </button>
                   <button onClick={onReloadDoc}>
                     <RefreshCw size={15} /> {zh ? '同步' : 'Sync'}
                   </button>
-                  <button onClick={onSave} disabled={!dirty}>
+                  <button onClick={onSave} disabled={!dirty || !String(doc.data.title ?? '').trim()}>
                     <Save size={15} /> {dirty ? `${t(language, 'save')} *` : t(language, 'saved')}
                   </button>
                 </div>
@@ -381,6 +480,40 @@ export function VolumeHome({
           )}
         </aside>
       </section>
+      {createSection && (
+        <OutlineCreateDialog
+          label={
+            zh
+              ? (VOLUME_SECTIONS.find((item) => item.id === createSection)?.title ?? section.title)
+              : (VOLUME_SECTIONS.find((item) => item.id === createSection)?.enTitle ?? section.enTitle)
+          }
+          parentTitle={createSection === 'parts' ? volume.data.title : null}
+          language={language}
+          busy={creating}
+          onClose={() => setCreateSection(null)}
+          onConfirm={async (title) => {
+            setCreating(true)
+            try {
+              if (createSection === 'parts') {
+                await onCreate('outline', {
+                  title,
+                  level: 'part',
+                  parent: volume.data.id,
+                  order: parts.length,
+                  target_words: Math.max(project.chapter_words * 10, 1),
+                  content: `## ${title}\n`
+                })
+              } else {
+                const input = createInputForOutlineSection(createSection, title, docs, project)
+                await onCreate(input.kind, applyVolumeScope(input.data, volume))
+              }
+              setCreateSection(null)
+            } finally {
+              setCreating(false)
+            }
+          }}
+        />
+      )}
     </main>
   )
 }

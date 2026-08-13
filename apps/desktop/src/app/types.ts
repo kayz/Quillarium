@@ -10,17 +10,18 @@ export type ModuleName =
   | 'foreshadowing'
   | 'issues'
   | 'references'
-  | 'strategy'
-  | 'patterns'
+  | 'narrative'
   | 'locations'
   | 'runs'
 export type CenterTab = 'editor' | 'outline' | 'beats'
-export type WorkLevel = 'book' | 'volume' | 'arc' | 'chapter'
+export type WorkLevel = 'overview' | 'book' | 'volume' | 'part' | 'act' | 'chapter' | 'ai'
 export type ViewMode = 'list' | 'tile'
 export type LeftMode = 'write' | 'read'
 export type WorkspaceMode = 'planning' | 'writing'
 export type WorkspacePage = 'outline' | 'volume'
 export type OutlineHomeSection =
+  | 'overview'
+  | 'book'
   | 'volumes'
   | 'canon'
   | 'world'
@@ -28,23 +29,25 @@ export type OutlineHomeSection =
   | 'timeline'
   | 'locations'
   | 'foreshadowing'
-  | 'style'
-  | 'patterns'
+  | 'narrative'
   | 'issues'
   | 'references'
-export type VolumeSection = OutlineHomeSection | 'arcs'
+export type VolumeSection = OutlineHomeSection | 'parts'
 export type DensityName = 'compact' | 'comfortable'
 export type LanguageName = 'zh' | 'en'
 export type AIProfileName = 'prose' | 'background' | 'check'
 export type AIProviderName = 'openai-compatible' | 'openai' | 'claude' | 'gemini' | 'deepseek' | 'ollama'
 export type PlanningDocumentKind =
   | 'character'
+  | 'character_relation'
   | 'world_entry'
+  | 'timeline_node'
   | 'timeline_event'
   | 'location'
   | 'foreshadowing'
   | 'strategy'
   | 'pattern'
+  | 'narrative'
   | 'issue'
   | 'reference'
 
@@ -58,6 +61,21 @@ export interface PlanningDraft {
   title: string
   fields: Record<string, unknown>
   content: string
+}
+
+export interface PlanningSession {
+  schema_version: 1
+  id: string
+  module: string
+  created_at: string
+  updated_at: string
+  messages: PlanningChatMessage[]
+  proposal: PlanningDraft | null
+  document?: {
+    path: string
+    id: string
+    type: PlanningDocumentKind
+  }
 }
 
 export interface AIProfileForm {
@@ -100,7 +118,7 @@ export interface DocEntry {
     id: string
     type: string
     title: string
-    status: string
+    status?: string
     tags?: string[]
     [key: string]: unknown
   }
@@ -110,6 +128,7 @@ export interface DocEntry {
 export interface TargetSelection {
   type: string
   id: string
+  view?: 'ai' | 'prose'
 }
 
 export interface ContextPacketSummary {
@@ -117,6 +136,8 @@ export interface ContextPacketSummary {
   canon: DocEntry[]
   strategies: DocEntry[]
   patterns: DocEntry[]
+  narratives: DocEntry[]
+  timeline_nodes: DocEntry[]
   timeline: DocEntry[]
   characters: DocEntry[]
   character_states: DocEntry[]
@@ -124,7 +145,6 @@ export interface ContextPacketSummary {
   world_entries: DocEntry[]
   foreshadowing: DocEntry[]
   issues: DocEntry[]
-  references: DocEntry[]
   warnings: string[]
   included_ids: string[]
   excluded_ids: string[]

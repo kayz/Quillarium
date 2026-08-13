@@ -1,13 +1,17 @@
-import React, { useRef } from 'react'
+import React, { useRef, type CSSProperties } from 'react'
 import {
+  Bot,
+  CalendarPlus2,
   ChevronDown,
   FileText,
   LayoutGrid,
+  Link2,
   List,
   Plus,
   RefreshCw,
   Save,
   Search,
+  ShieldCheck,
   Trash2,
   Upload
 } from 'lucide-react'
@@ -29,9 +33,29 @@ import {
   outlineSectionDocs,
   structuredLineForSection
 } from './outline-model.js'
-import { MetadataEditor, StructuredTile } from './OutlineShared.js'
+import {
+  AI_EDITABLE_CARD_TYPES,
+  MetadataEditor,
+  PlanningCardSupportPanel,
+  StructuredTile
+} from './OutlineShared.js'
 import { MarkdownBodyEditor } from '../markdown/MarkdownBodyEditor.js'
 import { isAIPlanningContext } from '../planning/planning-model.js'
+import { clampPaneSize, SplitHandle } from '../layout/SplitHandle.js'
+import { OutlineCreateDialog } from './OutlineCreateDialog.js'
+import { EditableDocumentTitle } from './EditableDocumentTitle.js'
+import { enumChoiceLabel } from '../metadata/field-presentation.js'
+import {
+  CharacterRelationshipPanel,
+  CharacterRelationView,
+  LocationExplorerView,
+  TimelineChainView
+} from '../planning/PlanningViews.js'
+import { TimelineCoordinateDialog } from '../planning/TimelineCoordinateDialog.js'
+import {
+  CharacterRelationDialog,
+  type CharacterRelationDialogInitial
+} from '../planning/CharacterRelationDialog.js'
 
 export function OutlineHome({
   docs,
@@ -56,10 +80,13 @@ export function OutlineHome({
   onOpenVolume,
   onCreate,
   onAIPlanningCreate,
+  onAIEditCard,
+  onPlanningCheck,
   onDelete,
   onOpenExternal,
   onReloadDoc,
   onDocChange,
+  onInspectTag,
   onSave,
   onImport,
   language
@@ -86,15 +113,27 @@ export function OutlineHome({
   onOpenVolume: (volume: DocEntry) => void
   onCreate: (kind: string, input: Record<string, unknown>) => Promise<void>
   onAIPlanningCreate: (section: OutlineHomeSection) => void
+  onAIEditCard: (doc: DocEntry) => void
+  onPlanningCheck: () => Promise<void>
   onDelete: () => Promise<void>
   onOpenExternal: () => Promise<void>
   onReloadDoc: () => Promise<void>
   onDocChange: (doc: { data: Record<string, unknown>; content: string; path: string }) => void
+  onInspectTag: (tag: string, displayValue?: string) => void
   onSave: () => Promise<void>
   onImport: () => void
   language: LanguageName
 }) {
   const shellRef = useRef<HTMLDivElement | null>(null)
+  const detailSplitRef = useRef<HTMLDivElement | null>(null)
+  const [navigationWidth, setNavigationWidth] = React.useState(280)
+  const [detailMetadataPct, setDetailMetadataPct] = React.useState(38)
+  const [createOpen, setCreateOpen] = React.useState(false)
+  const [timelineCoordinate, setTimelineCoordinate] = React.useState<{
+    sourceEventId?: string
+  } | null>(null)
+  const [relationCreate, setRelationCreate] = React.useState<CharacterRelationDialogInitial | null>(null)
+  const [creating, setCreating] = React.useState(false)
   const zh = language === 'zh'
   const section = OUTLINE_HOME_SECTIONS.find((item) => item.id === activeSection) ?? OUTLINE_HOME_SECTIONS[0]
   const sectionTitle = zh ? section.title : section.enTitle
@@ -107,35 +146,23 @@ export function OutlineHome({
     .filter((item) => item.data.type === 'outline' && item.data.level === 'volume')
     .sort((a, b) => outlineSortKey(a).localeCompare(outlineSortKey(b)))
 
-  const startDrag = (event: React.PointerEvent<HTMLDivElement>) => {
-    const box = shellRef.current?.getBoundingClientRect()
-    if (!box) return
-    const move = (moveEvent: PointerEvent) => {
-      const next = ((moveEvent.clientX - box.left) / box.width) * 100
-      onMiddlePct(Math.min(72, Math.max(36, Math.round(next))))
-    }
-    const stop = () => {
-      window.removeEventListener('pointermove', move)
-      window.removeEventListener('pointerup', stop)
-    }
-    window.addEventListener('pointermove', move)
-    window.addEventListener('pointerup', stop)
-    event.preventDefault()
-  }
-
-  const createCurrent = async () => {
+  const createCurrent = () => {
     if (isAIPlanningContext(activeSection)) {
       onAIPlanningCreate(activeSection)
       return
     }
-    const title = window.prompt(zh ? `新建${section.title}` : `New ${section.enTitle}`)
-    if (!title?.trim()) return
-    const input = createInputForOutlineSection(activeSection, title.trim(), docs, project)
-    await onCreate(input.kind, input.data)
+    setCreateOpen(true)
   }
 
   return (
-    <main className={`outline-home ${leftOpen ? '' : 'left-narrow'} ${rightOpen ? '' : 'right-narrow'}`}>
+    <main
+      className={`outline-home ${leftOpen ? '' : 'left-narrow'} ${rightOpen ? '' : 'right-narrow'}`}
+      style={
+        {
+          '--outline-navigation-width': `${leftOpen ? navigationWidth : 58}px`
+        } as CSSProperties
+      }
+    >
       <aside className="outline-nav">
         <div className="outline-nav-head">
           <button
@@ -145,7 +172,17 @@ export function OutlineHome({
           >
             <ChevronDown size={16} />
           </button>
-          {leftOpen && <strong>{zh ? '大纲' : 'Outline'}</strong>}
+          {leftOpen && <strong>{zh ? '规划' : 'Planning'}</strong>}
+          <button
+            className="planning-check-button"
+            type="button"
+            onClick={() => void onPlanningCheck()}
+            disabled={busy}
+            title={zh ? '用 AI 检查所有已启用的规划卡片' : 'Check all enabled planning cards with AI'}
+          >
+            <ShieldCheck size={15} />
+            {leftOpen && <span>{busy ? (zh ? '检查中…' : 'Checking…') : zh ? 'AI 检查' : 'AI check'}</span>}
+          </button>
         </div>
         <div className="outline-nav-list">
           {OUTLINE_HOME_SECTIONS.map((item) => (
@@ -183,20 +220,30 @@ export function OutlineHome({
         <button
           className="outline-import"
           onClick={onImport}
-          title={zh ? '导入新的设定' : 'Import planning records'}
+          title={zh ? 'AI 辅助导入资料' : 'AI-assisted source import'}
         >
           <Upload size={17} />
           {leftOpen ? (
-            <span>{zh ? '导入新的设定' : 'Import records'}</span>
+            <span>{zh ? 'AI 辅助导入' : 'AI-assisted import'}</span>
           ) : (
             <span className="one-char">{zh ? '导' : 'I'}</span>
           )}
         </button>
       </aside>
+      {leftOpen && (
+        <SplitHandle
+          orientation="vertical"
+          className="outline-navigation-handle"
+          label={zh ? '调整左侧栏目宽度' : 'Resize section navigation'}
+          onResize={(delta) =>
+            setNavigationWidth((current) => clampPaneSize(current + delta, 190, window.innerWidth - 720))
+          }
+        />
+      )}
       <section
         ref={shellRef}
         className="outline-main"
-        style={{ gridTemplateColumns: rightOpen ? `${middlePct}% 8px 1fr` : '1fr 8px 44px' }}
+        style={{ gridTemplateColumns: rightOpen ? `${middlePct}% 10px 1fr` : '1fr 10px 44px' }}
       >
         <div className="outline-collection">
           <div className="outline-collection-head">
@@ -205,9 +252,41 @@ export function OutlineHome({
               <h2>{sectionHeading}</h2>
             </div>
             <div className="outline-actions">
-              <button onClick={createCurrent} disabled={busy}>
-                <Plus size={15} /> {zh ? '新增' : 'New'}
-              </button>
+              {activeSection === 'timeline' ? (
+                <>
+                  <button onClick={() => setTimelineCoordinate({})} disabled={busy}>
+                    <CalendarPlus2 size={15} /> {zh ? '时间坐标' : 'Time coordinate'}
+                  </button>
+                  <button onClick={createCurrent} disabled={busy}>
+                    <Plus size={15} /> {zh ? '新增事件' : 'New event'}
+                  </button>
+                </>
+              ) : activeSection === 'characters' ? (
+                <>
+                  <button onClick={createCurrent} disabled={busy}>
+                    <Plus size={15} /> {zh ? '新增人物' : 'New character'}
+                  </button>
+                  <button onClick={() => setRelationCreate({})} disabled={busy}>
+                    <Link2 size={15} /> {zh ? '新增关系' : 'New relationship'}
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={createCurrent}
+                  disabled={
+                    busy || ((activeSection === 'overview' || activeSection === 'book') && items.length > 0)
+                  }
+                  title={
+                    (activeSection === 'overview' || activeSection === 'book') && items.length > 0
+                      ? zh
+                        ? '每个项目只保留一份；请编辑现有文档。'
+                        : 'Only one is allowed; edit the existing document.'
+                      : undefined
+                  }
+                >
+                  <Plus size={15} /> {zh ? '新增' : 'New'}
+                </button>
+              )}
               <button onClick={onDelete} disabled={!doc || busy}>
                 <Trash2 size={15} /> {zh ? '删除' : 'Delete'}
               </button>
@@ -239,29 +318,76 @@ export function OutlineHome({
               </button>
             </div>
           </div>
-          <div className={viewMode === 'tile' ? 'outline-tile-grid' : 'outline-list'}>
-            {items.map((item) => (
-              <button
-                key={item.data.id}
-                className={`outline-item ${selectedTarget?.id === item.data.id ? 'active' : ''}`}
-                onClick={() => onSelect({ type: item.data.type, id: item.data.id })}
-              >
-                <span>
-                  <b>{item.data.title}</b>
-                  <small>
-                    {docTypeLabel(item)} · {String(item.data.status ?? 'draft')}
-                  </small>
-                </span>
-                {viewMode === 'list' && <em>{structuredLineForSection(item)}</em>}
-                {viewMode === 'tile' && <StructuredTile doc={item} />}
-              </button>
-            ))}
-            {!items.length && (
-              <p className="empty-row">{zh ? '当前栏目还没有内容。' : 'No records in this section yet.'}</p>
-            )}
-          </div>
+          {activeSection === 'timeline' ? (
+            <TimelineChainView
+              items={items}
+              selectedTarget={selectedTarget}
+              onSelect={onSelect}
+              onCreateCoordinate={() => setTimelineCoordinate({})}
+              onCreateCoordinateFromEvent={(event) => setTimelineCoordinate({ sourceEventId: event.data.id })}
+              language={language}
+            />
+          ) : activeSection === 'characters' ? (
+            <CharacterRelationView
+              items={items}
+              timelineNodes={docs.filter((item) => item.data.type === 'timeline_node')}
+              selectedTarget={selectedTarget}
+              onSelect={onSelect}
+              onCreateRelation={setRelationCreate}
+              onCreateTimelineNode={() => setTimelineCoordinate({})}
+              language={language}
+            />
+          ) : activeSection === 'locations' ? (
+            <LocationExplorerView
+              items={items}
+              selectedTarget={selectedTarget}
+              onSelect={onSelect}
+              language={language}
+            />
+          ) : (
+            <div className={viewMode === 'tile' ? 'outline-tile-grid' : 'outline-list'}>
+              {items.map((item) => (
+                <button
+                  key={item.data.id}
+                  className={`outline-item ${item.data.enabled === false ? 'disabled-card' : ''} ${selectedTarget?.id === item.data.id ? 'active' : ''}`}
+                  onClick={() => onSelect({ type: item.data.type, id: item.data.id })}
+                >
+                  <span>
+                    <b>{item.data.title}</b>
+                    <small>
+                      {docTypeLabel(item, language)}
+                      {item.data.type === 'reference' ? (
+                        <> · {zh ? '材料来源' : 'Source material'}</>
+                      ) : (
+                        <>
+                          {' · '}
+                          {enumChoiceLabel('status', String(item.data.status ?? 'draft'), language, {
+                            documentType: String(item.data.type)
+                          })}
+                          {item.data.enabled === false ? (zh ? ' · 未启用' : ' · Disabled') : ''}
+                        </>
+                      )}
+                    </small>
+                  </span>
+                  {viewMode === 'list' && <em>{structuredLineForSection(item, language)}</em>}
+                  {viewMode === 'tile' && <StructuredTile doc={item} language={language} />}
+                </button>
+              ))}
+              {!items.length && (
+                <p className="empty-row">{zh ? '当前栏目还没有内容。' : 'No records in this section yet.'}</p>
+              )}
+            </div>
+          )}
         </div>
-        <div className="resize-handle" onPointerDown={startDrag} />
+        <SplitHandle
+          orientation="vertical"
+          className="outline-detail-handle"
+          label={zh ? '调整内容列表与详情宽度' : 'Resize collection and details'}
+          onResize={(delta) => {
+            const width = shellRef.current?.clientWidth ?? 1
+            onMiddlePct(clampPaneSize(middlePct + (delta / width) * 100, 32, rightOpen ? 78 : 92))
+          }}
+        />
         <aside className="outline-detail">
           {rightOpen ? (
             doc ? (
@@ -269,9 +395,13 @@ export function OutlineHome({
                 <div className="detail-head">
                   <div>
                     <span className="badge ok">
-                      {selected ? docTypeLabel(selected) : zh ? '文档' : 'Document'}
+                      {selected ? docTypeLabel(selected, language) : zh ? '文档' : 'Document'}
                     </span>
-                    <h2>{String(doc.data.title ?? (zh ? '未命名' : 'Untitled'))}</h2>
+                    <EditableDocumentTitle
+                      value={doc.data.title}
+                      language={language}
+                      onChange={(title) => onDocChange({ ...doc, data: { ...doc.data, title } })}
+                    />
                   </div>
                   <button
                     className="icon-button"
@@ -281,24 +411,82 @@ export function OutlineHome({
                     <ChevronDown size={16} />
                   </button>
                 </div>
-                <MetadataEditor
-                  data={doc.data}
-                  language={language}
-                  onChange={(data) => onDocChange({ ...doc, data })}
-                />
-                <MarkdownBodyEditor
-                  value={doc.content}
-                  onChange={(content) => onDocChange({ ...doc, content })}
-                  language={language}
-                />
+                <div
+                  ref={detailSplitRef}
+                  className="detail-split-region"
+                  style={{ gridTemplateRows: `${detailMetadataPct}% 10px minmax(0, 1fr)` }}
+                >
+                  <div className="detail-metadata-pane">
+                    <PlanningCardSupportPanel
+                      doc={{ path: doc.path, data: doc.data as DocEntry['data'], content: doc.content }}
+                      docs={docs}
+                      language={language}
+                      onSelect={onSelect}
+                      onAIEdit={onAIEditCard}
+                    />
+                    {doc.data.type === 'character' && (
+                      <CharacterRelationshipPanel
+                        character={{
+                          path: doc.path,
+                          data: doc.data as DocEntry['data'],
+                          content: doc.content
+                        }}
+                        items={docs}
+                        selectedTarget={selectedTarget}
+                        onSelect={onSelect}
+                        onCreateRelation={setRelationCreate}
+                        language={language}
+                      />
+                    )}
+                    <MetadataEditor
+                      data={doc.data}
+                      docs={docs}
+                      language={language}
+                      onInspectTag={onInspectTag}
+                      excludeKeys={doc.data.type === 'character' ? ['relationships'] : []}
+                      onChange={(data) => onDocChange({ ...doc, data })}
+                    />
+                  </div>
+                  <SplitHandle
+                    orientation="horizontal"
+                    className="detail-body-handle"
+                    label={zh ? '调整属性与正文高度' : 'Resize metadata and Markdown body'}
+                    onResize={(delta) => {
+                      const height = detailSplitRef.current?.clientHeight ?? 1
+                      setDetailMetadataPct((current) =>
+                        clampPaneSize(current + (delta / height) * 100, 22, 72)
+                      )
+                    }}
+                  />
+                  <div className="detail-markdown-pane">
+                    <MarkdownBodyEditor
+                      value={doc.content}
+                      onChange={(content) => onDocChange({ ...doc, content })}
+                      language={language}
+                    />
+                  </div>
+                </div>
                 <div className="detail-actions">
+                  {AI_EDITABLE_CARD_TYPES.has(String(doc.data.type)) && (
+                    <button
+                      onClick={() =>
+                        onAIEditCard({
+                          path: doc.path,
+                          data: doc.data as DocEntry['data'],
+                          content: doc.content
+                        })
+                      }
+                    >
+                      <Bot size={15} /> {zh ? 'AI 协助调整' : 'Edit with AI'}
+                    </button>
+                  )}
                   <button onClick={onOpenExternal}>
                     <FileText size={15} /> {zh ? '编辑' : 'Edit'}
                   </button>
                   <button onClick={onReloadDoc}>
                     <RefreshCw size={15} /> {zh ? '同步' : 'Sync'}
                   </button>
-                  <button onClick={onSave} disabled={!dirty}>
+                  <button onClick={onSave} disabled={!dirty || !String(doc.data.title ?? '').trim()}>
                     <Save size={15} /> {dirty ? `${t(language, 'save')} *` : t(language, 'saved')}
                   </button>
                 </div>
@@ -324,6 +512,66 @@ export function OutlineHome({
           )}
         </aside>
       </section>
+      {timelineCoordinate && (
+        <TimelineCoordinateDialog
+          events={docs}
+          initialEventId={timelineCoordinate.sourceEventId}
+          language={language}
+          busy={creating}
+          onClose={() => setTimelineCoordinate(null)}
+          onConfirm={async ({ title, storyTime, sourceEventId }) => {
+            setCreating(true)
+            try {
+              await onCreate('timeline_node', {
+                title,
+                story_time: storyTime,
+                source_event_id: sourceEventId,
+                content: ''
+              })
+              setTimelineCoordinate(null)
+            } finally {
+              setCreating(false)
+            }
+          }}
+        />
+      )}
+      {relationCreate && (
+        <CharacterRelationDialog
+          characters={docs.filter((item) => item.data.type === 'character')}
+          timelineNodes={docs.filter((item) => item.data.type === 'timeline_node')}
+          initial={relationCreate}
+          language={language}
+          busy={creating}
+          onClose={() => setRelationCreate(null)}
+          onConfirm={async (input) => {
+            setCreating(true)
+            try {
+              await onCreate('character_relation', { ...input })
+              setRelationCreate(null)
+            } finally {
+              setCreating(false)
+            }
+          }}
+        />
+      )}
+      {createOpen && (
+        <OutlineCreateDialog
+          label={sectionTitle}
+          language={language}
+          busy={creating}
+          onClose={() => setCreateOpen(false)}
+          onConfirm={async (title) => {
+            setCreating(true)
+            try {
+              const input = createInputForOutlineSection(activeSection, title, docs, project)
+              await onCreate(input.kind, input.data)
+              setCreateOpen(false)
+            } finally {
+              setCreating(false)
+            }
+          }}
+        />
+      )}
     </main>
   )
 }

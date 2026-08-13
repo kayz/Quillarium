@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { CheckCircle2 } from 'lucide-react'
 import type {
   CheckReport,
   ContextPacketSummary,
@@ -8,9 +9,9 @@ import type {
 } from '../../app/types.js'
 import { t } from '../../app/i18n.js'
 import { bridge } from '../../app/bridge.js'
-import { outlineLevelLabel } from '../../shared/outline.js'
 import { buildSimpleDiff, runFileLabel } from '../../shared/text.js'
 import { formatDesktopError } from '../../shared/errors.js'
+import { enumChoiceLabel, outlineLevelDisplayLabel } from '../metadata/field-presentation.js'
 
 export function Inspector({
   docs,
@@ -19,6 +20,8 @@ export function Inspector({
   context,
   contextPacket,
   checkReport,
+  busy = false,
+  onCheck,
   language
 }: {
   docs: DocEntry[]
@@ -27,6 +30,8 @@ export function Inspector({
   context: string
   contextPacket: ContextPacketSummary | null
   checkReport: CheckReport | null
+  busy?: boolean
+  onCheck?: () => Promise<void>
   language: LanguageName
 }) {
   const find = (id?: unknown) => docs.find((doc) => doc.data.id === id)
@@ -46,8 +51,10 @@ export function Inspector({
         </p>
         {contextPacket && (
           <p>
-            {outlineLevelLabel(contextPacket.target.level)} · {contextPacket.included_ids.length} docs ·
-            excluded {contextPacket.excluded_ids.length}
+            {outlineLevelDisplayLabel(contextPacket.target.level, language)} ·{' '}
+            {language === 'zh'
+              ? `纳入 ${contextPacket.included_ids.length} 份文档 · 排除 ${contextPacket.excluded_ids.length} 份文档`
+              : `${contextPacket.included_ids.length} documents included · ${contextPacket.excluded_ids.length} excluded`}
           </p>
         )}
       </InspectorCard>
@@ -58,25 +65,53 @@ export function Inspector({
       </InspectorCard>
       {outline && (
         <InspectorCard
-          title={`${outlineLevelLabel(String(outline.data.level))}: ${outline.data.title}`}
+          title={`${outlineLevelDisplayLabel(String(outline.data.level), language)}: ${outline.data.title}`}
           ok
           language={language}
         >
-          <p>时间线：{contextPacket?.timeline.length ?? 0}</p>
-          <p>人物：{contextPacket?.characters.length ?? 0}</p>
-          <p>世界书：{contextPacket?.world_entries.length ?? 0}</p>
-          <p>伏笔：{contextPacket?.foreshadowing.length ?? 0}</p>
+          <p>
+            {language === 'zh' ? '时间线' : 'Timeline'}：{contextPacket?.timeline.length ?? 0}
+          </p>
+          {contextPacket?.timeline.slice(0, 6).map((item) => (
+            <p key={item.data.id}>• {item.data.title}</p>
+          ))}
+          <p>
+            {language === 'zh' ? '地点' : 'Locations'}：{contextPacket?.locations.length ?? 0}
+          </p>
+          {contextPacket?.locations.slice(0, 6).map((item) => (
+            <p key={item.data.id}>• {item.data.title}</p>
+          ))}
+          <p>
+            {language === 'zh' ? '人物' : 'Characters'}：{contextPacket?.characters.length ?? 0}
+          </p>
+          {contextPacket?.characters.slice(0, 6).map((item) => (
+            <p key={item.data.id}>• {item.data.title}</p>
+          ))}
+          <p>
+            {language === 'zh' ? '世界书' : 'World entries'}：{contextPacket?.world_entries.length ?? 0}
+          </p>
+          <p>
+            {language === 'zh' ? '伏笔' : 'Foreshadowing'}：{contextPacket?.foreshadowing.length ?? 0}
+          </p>
         </InspectorCard>
       )}
       {warnings.length > 0 && (
-        <InspectorCard title="缺项提示" ok={false} language={language}>
+        <InspectorCard
+          title={language === 'zh' ? '缺项提示' : 'Missing context'}
+          ok={false}
+          language={language}
+        >
           {warnings.slice(0, 8).map((warning) => (
             <p key={warning}>• {warning}</p>
           ))}
         </InspectorCard>
       )}
       {!!contextPacket?.character_states.length && (
-        <InspectorCard title="人物状态快照" ok language={language}>
+        <InspectorCard
+          title={language === 'zh' ? '人物状态快照' : 'Character snapshots'}
+          ok
+          language={language}
+        >
           {contextPacket.character_states.slice(0, 6).map((state) => (
             <p key={state.data.id}>
               • {state.data.title}: {String(state.data.emotion ?? '')}
@@ -85,10 +120,13 @@ export function Inspector({
         </InspectorCard>
       )}
       {!!contextPacket?.foreshadowing.length && (
-        <InspectorCard title="伏笔叠层" ok language={language}>
+        <InspectorCard title={language === 'zh' ? '伏笔叠层' : 'Foreshadowing layers'} ok language={language}>
           {contextPacket.foreshadowing.slice(0, 8).map((item) => (
             <p key={item.data.id}>
-              • {String(item.data.level ?? '')} {item.data.title}: {String(item.data.state ?? '')}
+              • {String(item.data.level ?? '')} {item.data.title}:{' '}
+              {enumChoiceLabel('state', String(item.data.state ?? 'planned'), language, {
+                documentType: 'foreshadowing'
+              })}
             </p>
           ))}
         </InspectorCard>
@@ -106,7 +144,8 @@ export function Inspector({
             <p>
               {t(language, 'emotion')}:
               {String(
-                (pov?.data.scene_state as Record<string, unknown> | undefined)?.emotional_state ?? '未记录'
+                (pov?.data.scene_state as Record<string, unknown> | undefined)?.emotional_state ??
+                  (language === 'zh' ? '未记录' : 'Not recorded')
               )}
             </p>
           </InspectorCard>
@@ -131,7 +170,25 @@ export function Inspector({
           </InspectorCard>
         </>
       )}
-      <InspectorCard title={t(language, 'consistencyResults')} ok={issues.length === 0} language={language}>
+      <InspectorCard
+        title={t(language, 'consistencyResults')}
+        ok={issues.length === 0}
+        language={language}
+        action={
+          scene && onCheck ? (
+            <button className="inspector-check-action" onClick={() => void onCheck()} disabled={busy}>
+              <CheckCircle2 size={14} />
+              {busy
+                ? language === 'zh'
+                  ? '检查中…'
+                  : 'Checking…'
+                : language === 'zh'
+                  ? '检查当前节'
+                  : 'Check scene'}
+            </button>
+          ) : null
+        }
+      >
         {!checkReport ? (
           <p>{t(language, 'noCheckReport')}</p>
         ) : issues.length ? (
@@ -158,6 +215,13 @@ export function Inspector({
         ) : (
           <p>{t(language, 'noIssuesFound')}</p>
         )}
+        {checkReport?.content_sha256 && (
+          <small className="check-report-version">
+            {language === 'zh'
+              ? `基于 ${checkReport.checked_characters ?? 0} 字 · ${new Date(checkReport.generated_at).toLocaleString('zh-CN')}`
+              : `Checked ${checkReport.checked_characters ?? 0} characters · ${new Date(checkReport.generated_at).toLocaleString('en')}`}
+          </small>
+        )}
       </InspectorCard>
     </div>
   )
@@ -167,18 +231,25 @@ export function InspectorCard({
   title,
   ok,
   children,
+  action,
   language
 }: {
   title: string
   ok?: boolean
   children: React.ReactNode
+  action?: React.ReactNode
   language: LanguageName
 }) {
   return (
     <article className="inspector-card">
       <div className="card-head">
         <strong>{title}</strong>
-        <span className={ok ? 'badge ok' : 'badge warn'}>{ok ? t(language, 'ok') : t(language, 'warn')}</span>
+        <span className="card-head-actions">
+          {action}
+          <span className={ok ? 'badge ok' : 'badge warn'}>
+            {ok ? t(language, 'ok') : t(language, 'warn')}
+          </span>
+        </span>
       </div>
       <div className="card-body">{children}</div>
     </article>
@@ -189,21 +260,28 @@ export function RunPanel({
   root,
   runs,
   sceneId,
+  sceneIds,
   onAccepted,
+  onCandidateChange,
   language
 }: {
   root: string
   runs: RunSummary[]
   sceneId: string | null
+  sceneIds?: string[]
   onAccepted: () => Promise<void>
+  onCandidateChange?: (value: string) => void
   language: LanguageName
 }) {
-  const filtered = runs.filter((run) => !sceneId || run.scene_id === sceneId)
+  const filtered = runs.filter((run) =>
+    sceneIds ? sceneIds.includes(run.scene_id) : !sceneId || run.scene_id === sceneId
+  )
   const [selectedRun, setSelectedRun] = useState<string | null>(null)
   const [activeFile, setActiveFile] = useState('metadata.yaml')
   const [preview, setPreview] = useState('')
   const [accepting, setAccepting] = useState(false)
   const [acceptError, setAcceptError] = useState('')
+  const [candidate, setCandidate] = useState('')
   const currentRun = filtered.some((run) => run.id === selectedRun) ? selectedRun : (filtered[0]?.id ?? null)
   const currentRunSummary = filtered.find((run) => run.id === currentRun) ?? null
 
@@ -221,24 +299,29 @@ export function RunPanel({
           ])
           setPreview(buildSimpleDiff(raw, accepted))
         } else {
-          setPreview(await bridge.readRunFile(root, currentRun, activeFile))
+          const value = await bridge.readRunFile(root, currentRun, activeFile)
+          setPreview(value)
+          if (activeFile === 'output-raw.md') {
+            setCandidate(value)
+            onCandidateChange?.(value)
+          }
         }
       } catch (err) {
-        setPreview(String(err))
+        setPreview(formatDesktopError(err, language))
       }
     }
     void loadPreview()
-  }, [root, currentRun, activeFile])
+  }, [root, currentRun, activeFile, language])
 
   const accept = async () => {
     if (!currentRun) return
     setAccepting(true)
     setAcceptError('')
     try {
-      await bridge.acceptRun(root, currentRun)
+      await bridge.acceptRun(root, currentRun, candidate)
       await onAccepted()
     } catch (error) {
-      setAcceptError(formatDesktopError(error))
+      setAcceptError(formatDesktopError(error, language))
     } finally {
       setAccepting(false)
     }
@@ -294,12 +377,29 @@ export function RunPanel({
                 <span>{run.id}</span>
                 <span>{run.model}</span>
                 <span>{run.created_at}</span>
-                <span>{run.status}</span>
+                <span>{enumChoiceLabel('run_status', run.status, language)}</span>
               </button>
             ))
           )}
         </div>
-        <pre className="run-preview">{preview}</pre>
+        {activeFile === 'output-raw.md' ? (
+          <label className="candidate-editor">
+            <span>
+              {language === 'zh' ? '节工作稿（接受前可人工修改）' : 'Scene working draft'}
+              <small>{[...candidate.replace(/\s/gu, '')].length} 字</small>
+            </span>
+            <textarea
+              value={candidate}
+              onChange={(event) => {
+                setCandidate(event.target.value)
+                onCandidateChange?.(event.target.value)
+              }}
+              spellCheck={false}
+            />
+          </label>
+        ) : (
+          <pre className="run-preview">{preview}</pre>
+        )}
       </div>
     </footer>
   )

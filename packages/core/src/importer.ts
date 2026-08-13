@@ -1,11 +1,13 @@
 import path from 'node:path'
-import { stat } from 'node:fs/promises'
+import os from 'node:os'
+import { mkdtemp, rm, stat } from 'node:fs/promises'
 import { readStoryCycleInput } from './compatibility.js'
 import {
   createCanon,
   createCharacter,
   createForeshadowing,
   createIssue,
+  createNarrative,
   createOutline,
   createPattern,
   createReference,
@@ -15,7 +17,15 @@ import {
   appendTimelineEvent,
   createWorldEntry
 } from './documents.js'
-import { listMarkdownFiles, readText } from './fs.js'
+import { listMarkdownFiles, readMarkdown, readText, writeMarkdown } from './fs.js'
+import {
+  DOCUMENT_ORIGIN_FIELD,
+  assertProjectPath,
+  attachDocumentOrigin,
+  refreshOriginSources,
+  type DocumentImportOrigin
+} from './provenance.js'
+import { createHash } from 'node:crypto'
 import {
   asStringArray,
   booleanOrUndefined,
@@ -87,11 +97,17 @@ export async function importMarkdownFile(
   const strategy = options.strategy ?? 'auto'
 
   if (isTimelineLedger(parsed.data, sourceFile)) {
-    return importTimelineLedger(projectRoot, sourceFile, parsed.content, parsed.parseError)
+    return attachImportOrigins(
+      await importTimelineLedger(projectRoot, sourceFile, parsed.content, parsed.parseError),
+      options
+    )
   }
 
   if (isIssueLedger(parsed.data, sourceFile)) {
-    return importIssueLedger(projectRoot, sourceFile, parsed.content, parsed.parseError)
+    return attachImportOrigins(
+      await importIssueLedger(projectRoot, sourceFile, parsed.content, parsed.parseError),
+      options
+    )
   }
 
   if (!hasFrontmatter && strategy === 'sections') {
@@ -109,13 +125,60 @@ export async function importMarkdownFile(
         if (parsed.parseError) result.notes.push(parsed.parseError)
         results.push(result)
       }
-      return results
+      return attachImportOrigins(results, options)
     }
   }
 
   const result = await createTypedImport(projectRoot, sourceFile, kind, title, parsed.data, parsed.content)
   if (parsed.parseError) result.notes.push(parsed.parseError)
-  return [result]
+  return attachImportOrigins([result], options)
+}
+
+export async function reimportMarkdownCard(
+  projectRoot: string,
+  targetPath: string,
+  origin: DocumentImportOrigin
+): Promise<{ path: string; document: { data: Record<string, unknown>; content: string } }> {
+  const target = assertProjectPath(projectRoot, targetPath)
+  const source = origin.sources[0]?.path
+  if (!source) throw new Error('The original source file is not recorded for this card.')
+  const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), 'quillarium-reimport-'))
+  try {
+    const results = await importMarkdownFile(temporaryRoot, source, {
+      strategy: origin.options?.strategy,
+      defaultType: origin.options?.default_type
+    })
+    const selected = selectDocumentImportResult(results, origin)
+    if (!selected) throw new Error('The selected card could not be found in the current source file.')
+    const generated = await readMarkdown<Record<string, unknown>>(selected.path)
+    const current = await readMarkdown<Record<string, unknown>>(target)
+    if (generated.data.type !== current.data.type) {
+      throw new Error(
+        `Re-import returned ${String(generated.data.type)}; expected ${String(current.data.type)}.`
+      )
+    }
+    const updatedOrigin: DocumentImportOrigin = {
+      ...origin,
+      sources: await refreshOriginSources(origin.sources),
+      item_index: results.indexOf(selected),
+      item_title: String(generated.data.title ?? selected.title),
+      updated_at: new Date().toISOString()
+    }
+    await writeMarkdown(
+      target,
+      {
+        ...generated.data,
+        id: current.data.id,
+        type: current.data.type,
+        schema_version: current.data.schema_version,
+        [DOCUMENT_ORIGIN_FIELD]: updatedOrigin
+      },
+      generated.content
+    )
+    return { path: target, document: await readMarkdown(target) }
+  } finally {
+    await rm(temporaryRoot, { recursive: true, force: true })
+  }
 }
 
 function shouldSkipImport(file: string): boolean {
@@ -278,6 +341,44 @@ async function createPlainImport(
   return createTypedImport(projectRoot, sourceFile, kind, title, {}, content)
 }
 
+async function attachImportOrigins(
+  results: MarkdownImportResult[],
+  options: MarkdownImportOptions
+): Promise<MarkdownImportResult[]> {
+  const now = new Date().toISOString()
+  for (const [itemIndex, result] of results.entries()) {
+    const source = path.resolve(result.source)
+    await attachDocumentOrigin(result.path, {
+      schema_version: 1,
+      kind: 'document-import',
+      sources: [{ path: source, sha256: await hashSource(source) }],
+      item_index: itemIndex,
+      item_title: result.title,
+      options: {
+        strategy: options.strategy ?? 'auto',
+        ...(options.defaultType ? { default_type: options.defaultType } : {})
+      },
+      created_at: now,
+      updated_at: now
+    })
+  }
+  return results
+}
+
+function selectDocumentImportResult(
+  results: MarkdownImportResult[],
+  origin: DocumentImportOrigin
+): MarkdownImportResult | null {
+  const byTitle = results.find((result) => result.title === origin.item_title)
+  return byTitle ?? results[origin.item_index] ?? null
+}
+
+async function hashSource(filePath: string): Promise<string> {
+  return createHash('sha256')
+    .update(await readText(filePath))
+    .digest('hex')
+}
+
 async function createTypedImport(
   projectRoot: string,
   sourceFile: string,
@@ -381,6 +482,22 @@ async function createTypedImport(
       content
     )
     importedType = 'issue'
+  } else if (kind === 'narrative') {
+    file = await createNarrative(
+      projectRoot,
+      firstString(data, ['title', '标题', '模式名']) ?? title,
+      {
+        category: normalizeNarrativeCategory(firstString(data, ['category', '分类', '模式类型'])),
+        scope: normalizeNarrativeScope(firstString(data, ['scope', '范围', '作用层级'])),
+        applies_to: asStringArray(data['applies_to'] ?? data['适用']),
+        principles: asStringArray(data['principles'] ?? data['原则']),
+        avoid: asStringArray(data['avoid'] ?? data['避免']),
+        source: normalizeNarrativeSource(firstString(data, ['source', '来源'])),
+        sample: firstString(data, ['sample', '样例', '文风样例']) ?? ''
+      },
+      content
+    )
+    importedType = 'narrative'
   } else if (kind === 'strategy') {
     file = await createStrategy(
       projectRoot,
@@ -491,7 +608,8 @@ async function createTypedImport(
         ),
         related_patterns: asStringArray(data['related_patterns'] ?? data['相关模式'])
       },
-      content
+      content,
+      { placement: 'legacy-import' }
     )
     importedType = 'outline'
   } else if (kind === 'scene_or_outline') {
@@ -533,9 +651,13 @@ async function createTypedImport(
       )
       importedType = 'scene'
     } else {
-      file = await createOutline(projectRoot, 'chapter', title, {}, content)
+      file = await createOutline(projectRoot, 'chapter', title, {}, content, {
+        placement: 'legacy-import'
+      })
       importedType = 'outline'
-      notes.push('Imported chapter-like Markdown as a chapter outline because scene bindings were missing.')
+      notes.push(
+        'Imported chapter-like Markdown as a legacy unstructured chapter outline because scene bindings and a parent were missing.'
+      )
     }
   } else {
     file = await createCanon(projectRoot, title, content, {
@@ -563,11 +685,13 @@ function inferKind(
     if (['world_entry', 'world-entry', 'lore', '词条'].includes(rawType)) return 'world_entry'
     if (['reference', '参考资料'].includes(rawType)) return 'reference'
     if (['issue', '待解决问题', '待解决问题台账', '问题'].includes(rawType)) return 'issue'
-    if (['strategy', '叙事策略', '策略'].includes(rawType)) return 'strategy'
-    if (['pattern', '模式', '故事模式', '写法模式', '提示词模式'].includes(rawType)) return 'pattern'
+    if (['narrative', '叙事', '叙事卡'].includes(rawType)) return 'narrative'
+    if (['strategy', '叙事策略', '策略'].includes(rawType)) return 'narrative'
+    if (['pattern', '模式', '故事模式', '写法模式', '提示词模式'].includes(rawType)) return 'narrative'
     if (['character_state', 'character-state', '人物状态'].includes(rawType)) return 'character_state'
     if (['timeline_event', 'timeline', '时间线'].includes(rawType)) return 'timeline_event'
-    if (['outline', '总纲', '卷纲', '幕纲', '章纲', '节纲'].includes(rawType)) return 'outline'
+    if (['outline', '总览', '总纲', '卷纲', '篇纲', '段纲', '幕纲', '章纲', '节纲'].includes(rawType))
+      return 'outline'
     if (['scene', '章节'].includes(rawType)) return 'scene_or_outline'
   }
 
@@ -577,15 +701,50 @@ function inferKind(
   if (/世界书|world|lore/i.test(normalizedPath)) return 'world_entry'
   if (/参考资料|references?/i.test(normalizedPath)) return 'reference'
   if (/待解决问题|issues?/i.test(normalizedPath)) return 'issue'
-  if (/叙事策略|策略|strategy/i.test(normalizedPath) || /叙事策略|文风|节奏|爽点/.test(text))
-    return 'strategy'
-  if (/模式|patterns?/i.test(normalizedPath) || /模式类型|作用层级/.test(text)) return 'pattern'
+  if (
+    /叙事|文风|模式|strateg(?:y|ies)|patterns?/i.test(normalizedPath) ||
+    /叙事策略|文风|节奏|爽点|模式类型|作用层级/.test(text)
+  )
+    return 'narrative'
   if (/人物状态|character[-_ ]?states?/i.test(normalizedPath)) return 'character_state'
   if (/时间线|timeline/i.test(normalizedPath)) return 'timeline_event'
   if (/人物|characters?/i.test(normalizedPath)) return 'character'
   if (/大纲|outlines?|创作蓝图|全书总览|第一卷|第二卷|第三卷|终卷/.test(text)) return 'outline'
   if (/设定集|canon|核心设定|世界观/.test(text)) return 'canon'
   return 'canon'
+}
+
+function normalizeNarrativeCategory(
+  value?: string
+): 'style' | 'structure' | 'pacing' | 'dialogue' | 'description' | 'genre_boundary' | 'other' {
+  const normalized = value?.toLocaleLowerCase().trim()
+  if (['structure', 'story', '结构', '故事'].includes(normalized ?? '')) return 'structure'
+  if (['pacing', '节奏'].includes(normalized ?? '')) return 'pacing'
+  if (['dialogue', '对话'].includes(normalized ?? '')) return 'dialogue'
+  if (['description', '描写', '写景'].includes(normalized ?? '')) return 'description'
+  if (['genre_boundary', 'genre boundary', '类型边界'].includes(normalized ?? '')) return 'genre_boundary'
+  if (['style', 'writing', '文风', '写法'].includes(normalized ?? '')) return 'style'
+  return 'other'
+}
+
+function normalizeNarrativeScope(
+  value?: string
+): 'book' | 'volume' | 'part' | 'act' | 'chapter' | 'scene' | 'project' {
+  const normalized = value?.toLocaleLowerCase().trim()
+  if (normalized === 'arc' || normalized === '篇') return 'part'
+  if (normalized === 'section' || normalized === '节') return 'scene'
+  if (['book', 'volume', 'part', 'act', 'chapter', 'scene', 'project'].includes(normalized ?? ''))
+    return normalized as 'book' | 'volume' | 'part' | 'act' | 'chapter' | 'scene' | 'project'
+  return 'project'
+}
+
+function normalizeNarrativeSource(value?: string): 'user' | 'ai' | 'accepted_prose' | 'imported' {
+  const normalized = value?.toLocaleLowerCase().trim()
+  if (normalized === 'ai') return 'ai'
+  if (normalized === 'accepted_prose' || normalized === 'accepted prose' || normalized === '已定稿正文')
+    return 'accepted_prose'
+  if (normalized === 'user' || normalized === '作者') return 'user'
+  return 'imported'
 }
 
 function inferOutlineLevel(
@@ -596,11 +755,12 @@ function inferOutlineLevel(
 ): OutlineDoc['level'] {
   const rawType = firstString(data, ['type', '类型'])
   const text = `${sourceFile}\n${title}\n${firstHeading(content) ?? ''}`
+  if (rawType === '总览' || /story overview|作品总览/i.test(text)) return 'overview'
   if (rawType === '节纲' || /section|节纲/i.test(text)) return 'section'
   if (rawType === '章纲' || /chapter|章纲|第.*章/.test(text)) return 'chapter'
   if (rawType === '幕纲' || /act|幕纲|第.*幕/.test(text)) return 'act'
   if (rawType === '卷纲' || /volume|卷纲|第.*卷/.test(text)) return 'volume'
-  if (rawType === '段纲' || /arc|段纲/i.test(text)) return 'arc'
+  if (rawType === '篇纲' || rawType === '段纲' || /part|arc|篇纲|段纲/i.test(text)) return 'part'
   return 'book'
 }
 

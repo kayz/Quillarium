@@ -9,9 +9,7 @@ describe('planning module mapping', () => {
     ['timeline', 'timeline_event'],
     ['locations', 'location'],
     ['foreshadowing', 'foreshadowing'],
-    ['strategy', 'strategy'],
-    ['style', 'strategy'],
-    ['patterns', 'pattern'],
+    ['narrative', 'narrative'],
     ['issues', 'issue'],
     ['references', 'reference']
   ] as const)('routes %s to the %s guided record type', (context, kind) => {
@@ -19,7 +17,7 @@ describe('planning module mapping', () => {
     expect(isAIPlanningContext(context)).toBe(true)
   })
 
-  it.each(['write', 'canon', 'runs', 'volumes', 'arcs'] as const)(
+  it.each(['write', 'canon', 'runs', 'volumes', 'parts'] as const)(
     'leaves %s on its existing non-planning workflow',
     (context) => {
       expect(planningKindForContext(context)).toBeNull()

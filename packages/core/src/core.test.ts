@@ -28,11 +28,17 @@ import {
   landImportSession,
   listDocs,
   loadImportSession,
+  readDocumentOrigin,
+  reimportAIImportCard,
+  reimportMarkdownCard,
+  resolveDocumentOrigin,
   pathExists,
   stableProjectId,
   type ForeshadowingDoc,
+  type AIImportOrigin,
+  type DocumentImportOrigin,
   type OutlineDoc,
-  type PatternDoc
+  type NarrativeDoc
 } from './index.js'
 
 async function createTestProject(base: string, title: string, genre: string) {
@@ -62,7 +68,20 @@ describe('core project flow', () => {
       const locFile = await createLocation(project.root, 'Old Palace')
       await createRoute(project.root, 'loc-old-palace', 'loc-old-road')
       const evtFile = await appendTimelineEvent(project.root, 'Opening Night', { location: 'loc-old-palace' })
-      const outlineFile = await createOutline(project.root, 'section', 'Opening Section')
+      const bookFile = await createOutline(project.root, 'book', 'Book', { id: 'book-opening' })
+      expect(bookFile).toContain('book-opening')
+      await createOutline(project.root, 'volume', 'Volume', {
+        id: 'volume-opening',
+        parent: 'book-opening'
+      })
+      await createOutline(project.root, 'part', 'Part', {
+        id: 'part-opening',
+        parent: 'volume-opening'
+      })
+      const outlineFile = await createOutline(project.root, 'chapter', 'Opening Chapter', {
+        id: 'chapter-opening',
+        parent: 'part-opening'
+      })
 
       const charId = path.basename(charFile).split('-Asha')[0]
       const locId = path.basename(locFile).split('-Old')[0]
@@ -105,6 +124,30 @@ describe('core project flow', () => {
       expect(foreshadowing[0].data.code).toBe('FB-L4-001')
       expect(foreshadowing[0].data.level).toBe('L4')
       expect(foreshadowing[0].data.expires_at).toBe('第二十章')
+      const origin = readDocumentOrigin(foreshadowing[0].data as unknown as Record<string, unknown>)
+      expect(origin).toMatchObject({
+        kind: 'document-import',
+        item_index: 0,
+        sources: [{ path: source }]
+      })
+      const stableId = foreshadowing[0].data.id
+      await writeFile(
+        source,
+        `---\n类型: 伏笔\nID: FB-L4-001\n级别: L4\n一句话: 星图已被篡改\n计划埋设章节: 第十二章\n安全失效期: 第二十二章\n状态: 待埋设\n关联人物:\n  - 林遥\n---\n\n## 说明\n\n源文件单卡更新。\n`,
+        'utf8'
+      )
+      const reimported = await reimportMarkdownCard(
+        project.root,
+        foreshadowing[0].path,
+        origin as DocumentImportOrigin
+      )
+      expect(reimported.path).toBe(foreshadowing[0].path)
+      expect(reimported.document.data).toMatchObject({
+        id: stableId,
+        title: 'FB-L4-001',
+        expires_at: '第二十二章'
+      })
+      expect(await listDocs(project.root, 'foreshadowing')).toHaveLength(1)
     } finally {
       await rm(tmp, { recursive: true, force: true })
     }
@@ -139,8 +182,16 @@ describe('core project flow', () => {
         related_characters: [charId]
       })
       const bookId = path.basename(bookFile).split('-Book')[0]
+      const volumeFile = await createOutline(project.root, 'volume', 'Volume One', {
+        parent: bookId
+      })
+      const volumeId = path.basename(volumeFile).split('-Volume')[0]
+      const partFile = await createOutline(project.root, 'part', 'Part One', {
+        parent: volumeId
+      })
+      const partId = path.basename(partFile).split('-Part')[0]
       const chapterFile = await createOutline(project.root, 'chapter', 'Chapter One', {
-        parent: bookId,
+        parent: partId,
         related_timeline: [eventId],
         related_characters: [charId],
         related_foreshadowing: [fbId]
@@ -154,7 +205,12 @@ describe('core project flow', () => {
       })
 
       const packet = await assembleContextPacket(project.root, { type: 'outline', id: chapterId })
-      expect(packet.outline_chain.map((item) => item.data.title)).toEqual(['Book Plan', 'Chapter One'])
+      expect(packet.outline_chain.map((item) => item.data.title)).toEqual([
+        'Book Plan',
+        'Volume One',
+        'Part One',
+        'Chapter One'
+      ])
       expect(packet.world_entries.map((item) => item.data.id)).toContain(worldId)
       expect(packet.timeline.map((item) => item.data.id)).toContain(eventId)
       expect(packet.character_states[0].data.emotion).toBe('watchful')
@@ -164,7 +220,7 @@ describe('core project flow', () => {
     }
   })
 
-  it('imports strategy Markdown separately from canon', async () => {
+  it('imports legacy strategy Markdown as a narrative card rather than canon', async () => {
     const tmp = await mkdtemp(path.join(os.tmpdir(), 'quillarium-strategy-'))
     try {
       const project = await createTestProject(tmp, 'Strategy Novel', 'test')
@@ -175,10 +231,12 @@ describe('core project flow', () => {
         'utf8'
       )
       const results = await importMarkdownPath(project.root, source)
-      expect(results[0].imported_type).toBe('strategy')
-      const strategies = await listDocs(project.root, 'strategy')
+      expect(results[0].imported_type).toBe('narrative')
+      const narratives = await listDocs<NarrativeDoc>(project.root, 'narrative')
       const canon = await listDocs(project.root, 'canon')
-      expect(strategies).toHaveLength(1)
+      expect(narratives).toHaveLength(1)
+      expect(narratives[0].data.category).toBe('pacing')
+      expect(narratives[0].data.principles).toEqual(['每章有推进'])
       expect(canon).toHaveLength(0)
     } finally {
       await rm(tmp, { recursive: true, force: true })
@@ -202,13 +260,16 @@ describe('core project flow', () => {
         'utf8'
       )
 
-      const results = await importMarkdownPath(project.root, tmp)
-      expect(results.some((item) => item.imported_type === 'pattern')).toBe(true)
+      const results = [
+        ...(await importMarkdownPath(project.root, patternSource)),
+        ...(await importMarkdownPath(project.root, outlineSource))
+      ]
+      expect(results.some((item) => item.imported_type === 'narrative')).toBe(true)
       expect(results.some((item) => item.imported_type === 'outline')).toBe(true)
-      const patterns = await listDocs<PatternDoc>(project.root, 'pattern')
-      expect(patterns[0].data.kind).toBe('story')
-      expect(patterns[0].data.scope).toBe('volume')
-      expect(patterns[0].data.source).toBe('ai')
+      const narratives = await listDocs<NarrativeDoc>(project.root, 'narrative')
+      expect(narratives[0].data.category).toBe('structure')
+      expect(narratives[0].data.scope).toBe('volume')
+      expect(narratives[0].data.source).toBe('ai')
       const outlines = await listDocs<OutlineDoc>(project.root, 'outline')
       const volume = outlines.find((item) => item.data.level === 'volume')
       expect(volume?.data.reader_benefit).toBe('主角完成第一次承担')
@@ -220,7 +281,7 @@ describe('core project flow', () => {
     }
   })
 
-  it('stores structured serialized-fiction four-level outlines and patterns', async () => {
+  it('stores structured serialized-fiction hierarchy and patterns', async () => {
     const tmp = await mkdtemp(path.join(os.tmpdir(), 'quillarium-agent-'))
     try {
       const project = await createTestProject(tmp, 'The Amber Archive', 'speculative')
@@ -353,7 +414,44 @@ describe('core project flow', () => {
       const landed = await landImportSession(project.root, session.id)
       expect(landed.landed[0].type).toBe('location')
       const locations = await listDocs(project.root, 'location')
-      expect(locations.some((doc) => doc.data.title === '玉河桥')).toBe(true)
+      const location = locations.find((doc) => doc.data.title === '玉河桥')
+      expect(location).toBeDefined()
+      const origin = readDocumentOrigin(location!.data as unknown as Record<string, unknown>)
+      expect(origin).toMatchObject({
+        kind: 'ai-import',
+        session_id: session.id,
+        candidate_index: 0
+      })
+      expect((await resolveDocumentOrigin(project.root, location!.path))?.sources[0]).toMatchObject({
+        path: source,
+        exists: true,
+        changed: false
+      })
+
+      const stableId = location!.data.id
+      const reimported = await reimportAIImportCard(
+        project.root,
+        location!.path,
+        origin as AIImportOrigin,
+        JSON.stringify({
+          summary: '只重提取一张地点卡',
+          items: [
+            {
+              type: 'location',
+              title: '玉河桥新档案',
+              confidence: 0.96,
+              frontmatter: { description: '雨季时桥面封闭。', tags: ['地标', '交通'] },
+              content: '## 地点\n\n只更新这一张卡片。',
+              reason: '源文件更新',
+              questions: []
+            }
+          ],
+          issues: []
+        })
+      )
+      expect(reimported.path).toBe(location!.path)
+      expect(reimported.document.data).toMatchObject({ id: stableId, title: '玉河桥新档案' })
+      expect(await listDocs(project.root, 'location')).toHaveLength(locations.length)
     } finally {
       await rm(tmp, { recursive: true, force: true })
     }
@@ -373,8 +471,18 @@ describe('core project flow', () => {
         characters: [charId]
       })
       const eventId = path.basename(eventFile).split('-')[0]
+      await createOutline(project.root, 'book', '总纲', { id: 'book-main' })
+      await createOutline(project.root, 'volume', '第一卷', {
+        id: 'volume-01',
+        parent: 'book-main'
+      })
+      await createOutline(project.root, 'part', '第一篇', {
+        id: 'part-01',
+        parent: 'volume-01'
+      })
       await createOutline(project.root, 'chapter', '第一章 夜谈', {
         id: 'chapter-001',
+        parent: 'part-01',
         chapter_goal: '让沈青接下任务。'
       })
       const chapterId = 'chapter-001'

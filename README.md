@@ -10,9 +10,9 @@ an independent Obsidian vault and a Quillarium project root.
 
 ## What Works Now
 
-- A file-backed project model for Canon, characters and states, timelines, locations and routes,
-  world entries, foreshadowing, references, issues, strategies, patterns, hierarchical outlines,
-  scenes, imports, reviews, and generation runs.
+- A file-backed project model for Canon, characters and time-scoped relationships, linked timelines,
+  spatial locations and layouts, world entries, foreshadowing, references, issues, narrative cards, seven-level story
+  structure, independent chapter prose, scenes, imports, reviews, and generation runs.
 - A working source-run CLI for creating and editing those records, importing Markdown, assembling
   context, generating drafts, running deterministic or opt-in semantic checks, accepting runs, and
   exporting manuscripts.
@@ -20,10 +20,20 @@ an independent Obsidian vault and a Quillarium project root.
   creates direct project-vaults. Planning records can be created through a multi-turn background-AI
   conversation, reviewed as structured fields plus Markdown, and written only after confirmation.
 - Safe source/preview switching for Markdown-backed planning documents, including GFM tables,
-  nested lists, quotes, links, and fenced code. Raw HTML is not executed, and unknown nested
-  frontmatter remains editable as reversible JSON.
-- Markdown and plain-text manuscript export from accepted outputs or final scenes, with explicit gap
-  reporting and optional volume filtering.
+  nested lists, quotes, links, and fenced code. Raw HTML is not executed. Frontmatter is edited
+  through direct controls: tags, trigger words, categories and similar index fields are chips;
+  lists and nested records use add/remove rows; and only the Markdown body exposes syntax.
+- Clickable project tags open a right-side cross-type index, while collapsible metadata groups and
+  draggable column/row separators keep dense records and long Markdown bodies usable.
+- A visual planning workbench for a deterministic timeline chain, draggable time-filtered character
+  relationships, six-scale location exploration, reference reverse indexes, and issue-card repair.
+- Manual project AI checks exclude source material and disabled cards, then persist stable findings as
+  issue cards. World keywords and foreshadowing conditions activate explainable prompt sources.
+- Markdown and plain-text manuscript export from finalized/published chapter prose, accepted outputs,
+  or final scenes, with explicit gap reporting and optional volume filtering.
+- A seven-level workflow: overview and book outline at the top, then volume, part, optional act,
+  chapter, and scene. Scenes generate plain-text candidates; accepted scenes append to chapter prose.
+  Chapter prose progresses from draft to final to immutable published state.
 - An optional retained SillyTavern interchange package for CCv2/CCv3 JSON or PNG import, CCv2 JSON
   export, and Canon/world-entry export as World Info JSON. This package is not a supported
   compatibility target or roadmap commitment.
@@ -65,12 +75,20 @@ pnpm desktop:dev
 ```
 
 Then register a GitHub writing library, open or create a project-vault, build its outline and
-supporting modules, select a scene, and edit or generate prose. Legacy layouts remain compatible in
+supporting modules, select a chapter, prepare a scene, and edit or generate prose. The AI page shows
+removable prompt-source cards beside the exact editable prompt, plus a large resizable chapter-prose
+editor with word-count feedback. Legacy layouts remain compatible in
 the runtime and migration services, but they are not an active welcome-screen choice. Migration is
 always an explicit dry-run, backup, apply, verify, and report operation and never moves or deletes
 the source. The context/check inspector and recorded runs make inputs and outputs reviewable.
 Theme, density, language, GitHub credentials, and each AI profile have independent save actions in
 desktop settings.
+
+Planning details are presented as record cards rather than serialized frontmatter. Click a tag chip
+to pull in every exactly matching project record from the right; each result shows its document
+type. Drag the visible dividers to resize navigation, collection, detail, writing, and lower-run
+areas. Dividers are keyboard-focusable and respond to arrow keys. These sizes are session UI state
+and never enter project files.
 
 Use `pnpm desktop:build` to verify the desktop source build. The existing `electron-builder`
 configuration retains Windows and macOS packaging commands:
@@ -120,12 +138,15 @@ Writing Workspace/
       canon/               characters/       character-states/
       timeline/            locations/        world/
       foreshadowing/       references/       issues/
-      strategy/            patterns/         resources/
-      causality/           outlines/         scenes/
+      narrative/           strategy/         patterns/         resources/
+      causality/           outlines/         chapters/         scenes/
       prompts/             runs/             imports/
       reviews/             style/            exports/
       sillytavern/         .quillarium/
 ```
+
+`strategy/` and `patterns/` are retained for legacy compatibility. New style, structure, pacing, and
+genre guidance is created in `narrative/`.
 
 Workspace manifests contain only relative, contained paths and non-secret metadata. Machine-local
 paths and credentials stay in the user configuration outside the workspace.

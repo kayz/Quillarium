@@ -40,7 +40,10 @@ export function MarkdownBodyEditor({
       </div>
       {mode === 'source' ? (
         <label className="detail-editor markdown-source-editor">
-          <span>{zh ? 'Markdown 正文' : 'Markdown body'}</span>
+          <span className="markdown-editor-label">
+            <span>{zh ? 'Markdown 正文' : 'Markdown body'}</span>
+            <small>{zh ? `${value.length} 字符` : `${value.length} characters`}</small>
+          </span>
           <textarea
             value={value}
             onChange={(event) => onChange(event.target.value)}

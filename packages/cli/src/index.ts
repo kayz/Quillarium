@@ -525,7 +525,7 @@ export function buildProgram(): Command {
   projectOption(
     outline
       .command('add')
-      .argument('<level>', 'book | volume | arc | chapter | section')
+      .argument('<level>', 'overview | book | volume | part | act | chapter')
       .argument('<title>', 'Outline title')
       .option('--parent <id>', 'Parent outline id')
       .option('--order <number>', 'Order', (v) => Number(v), 0)

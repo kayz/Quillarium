@@ -124,12 +124,24 @@ async function seedScene(root: string): Promise<{
   await run('character', 'add', `Hero ${suffix}`, '--role', 'protagonist', '--project', root)
   await run('location', 'add', `Hall ${suffix}`, '--project', root)
   await run('timeline', 'append', `Opening ${suffix}`, '--date', '1449-08', '--project', root)
-  await run('outline', 'add', 'section', `Opening Section ${suffix}`, '--project', root)
+  const bookId = `book-opening-${suffix}`
+  const volumeId = `volume-opening-${suffix}`
+  const partId = `part-opening-${suffix}`
+  await createOutline(root, 'book', `Opening Book ${suffix}`, { id: bookId })
+  await createOutline(root, 'volume', `Opening Volume ${suffix}`, {
+    id: volumeId,
+    parent: bookId
+  })
+  await createOutline(root, 'part', `Opening Part ${suffix}`, {
+    id: partId,
+    parent: volumeId
+  })
+  await run('outline', 'add', 'chapter', `Opening Chapter ${suffix}`, '--parent', partId, '--project', root)
 
   const [character] = await listDocs<CharacterDoc>(root, 'character')
   const [location] = await listDocs(root, 'location')
   const [event] = await listDocs<TimelineEventDoc>(root, 'timeline_event')
-  const [section] = await listDocs<OutlineDoc>(root, 'outline')
+  const section = (await listDocs<OutlineDoc>(root, 'outline')).find((item) => item.data.level === 'chapter')!
 
   await run(
     'scene',
@@ -162,24 +174,34 @@ async function seedExportProject(root: string): Promise<{ volumeOneId: string; v
   const bookId = 'book-export'
   const volumeOneId = 'volume-export-one'
   const volumeTwoId = 'volume-export-two'
+  const partOneId = 'part-export-one'
+  const partTwoId = 'part-export-two'
   await createOutline(root, 'book', 'Export Book', { id: bookId })
   await createOutline(root, 'volume', 'Volume One', {
     id: volumeOneId,
     parent: bookId,
     order: 0
   })
+  await createOutline(root, 'part', 'Part One', {
+    id: partOneId,
+    parent: volumeOneId
+  })
   await createOutline(root, 'chapter', 'Chapter One', {
     id: 'chapter-export-one',
-    parent: volumeOneId
+    parent: partOneId
   })
   await createOutline(root, 'volume', 'Volume Two', {
     id: volumeTwoId,
     parent: bookId,
     order: 1
   })
+  await createOutline(root, 'part', 'Part Two', {
+    id: partTwoId,
+    parent: volumeTwoId
+  })
   await createOutline(root, 'chapter', 'Chapter Two', {
     id: 'chapter-export-two',
-    parent: volumeTwoId
+    parent: partTwoId
   })
   await createScene(
     root,

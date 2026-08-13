@@ -36,6 +36,21 @@ async function project(): Promise<string> {
   ).root
 }
 
+async function createChapterHierarchy(
+  root: string,
+  chapterId: string,
+  title: string,
+  partial: Parameters<typeof createOutline>[3] = {}
+): Promise<void> {
+  const bookId = `${chapterId}-book`
+  const volumeId = `${chapterId}-volume`
+  const partId = `${chapterId}-part`
+  await createOutline(root, 'book', 'Book', { id: bookId })
+  await createOutline(root, 'volume', 'Volume', { id: volumeId, parent: bookId })
+  await createOutline(root, 'part', 'Part', { id: partId, parent: volumeId })
+  await createOutline(root, 'chapter', title, { ...partial, id: chapterId, parent: partId })
+}
+
 describe('context selection', () => {
   it('combines inherited pins and explicit relations while exclusions always win', async () => {
     const root = await project()
@@ -73,9 +88,17 @@ describe('context selection', () => {
       context_pins: ['world-pinned'],
       context_exclusions: ['character-excluded']
     })
+    await createOutline(root, 'volume', 'Volume', {
+      id: 'volume-main',
+      parent: 'book-main'
+    })
+    await createOutline(root, 'part', 'Part', {
+      id: 'part-main',
+      parent: 'volume-main'
+    })
     await createOutline(root, 'chapter', 'Chapter', {
       id: 'chapter-main',
-      parent: 'book-main',
+      parent: 'part-main',
       related_timeline: ['event-selected'],
       related_characters: ['character-included', 'character-excluded'],
       related_foreshadowing: ['foreshadowing-selected']
@@ -101,7 +124,12 @@ describe('context selection', () => {
 
     const packet = await assembleContextPacket(root, { type: 'scene', id: 'scene-target' })
 
-    expect(packet.outline_chain.map((item) => item.data.id)).toEqual(['book-main', 'chapter-main'])
+    expect(packet.outline_chain.map((item) => item.data.id)).toEqual([
+      'book-main',
+      'volume-main',
+      'part-main',
+      'chapter-main'
+    ])
     expect(packet.canon.map((item) => item.data.id)).toEqual(['canon-active'])
     expect(packet.strategies.map((item) => item.data.id)).toEqual(['strategy-kept'])
     expect(packet.patterns.map((item) => item.data.id)).toContain('pattern-pinned')
@@ -117,7 +145,7 @@ describe('context selection', () => {
     expect(packet.world_entries.map((item) => item.data.id)).not.toContain('world-excluded')
     expect(packet.foreshadowing.map((item) => item.data.id)).toContain('foreshadowing-selected')
     expect(packet.issues.map((item) => item.data.id)).toContain('issue-related')
-    expect(packet.references.map((item) => item.data.id)).toContain('reference-pinned')
+    expect(packet.included_ids).not.toContain('reference-pinned')
     expect(packet.excluded_ids).toEqual(
       expect.arrayContaining(['character-excluded', 'strategy-excluded', 'world-excluded'])
     )
@@ -128,7 +156,7 @@ describe('context selection', () => {
 
   it('infers relevant documents from focus tokens, timeline cast, and character links', async () => {
     const root = await project()
-    await createOutline(root, 'section', 'Meteor Arrival', { id: 'section-meteor' })
+    await createChapterHierarchy(root, 'chapter-meteor', 'Meteor Arrival')
     await createLocation(root, 'Observatory', { id: 'location-main' })
     await createCharacter(root, 'Observer', { id: 'character-main' })
     await createCharacter(root, 'Hidden Witness', { id: 'character-witness' })
@@ -155,7 +183,7 @@ describe('context selection', () => {
       'Meteor Scene',
       {
         id: 'scene-meteor',
-        section: 'section-meteor',
+        section: 'chapter-meteor',
         timeline_node: 'event-main',
         location: 'location-main',
         pov: 'character-main'
@@ -172,13 +200,53 @@ describe('context selection', () => {
     expect(packet.world_entries.map((item) => item.data.id)).toContain('world-meteor')
     expect(packet.foreshadowing.map((item) => item.data.id)).toContain('foreshadowing-witness')
     expect(packet.issues.map((item) => item.data.id)).toContain('issue-meteor')
-    expect(packet.references.map((item) => item.data.id)).toContain('reference-meteor')
+    expect(packet.included_ids).not.toContain('reference-meteor')
+  })
+
+  it('activates world knowledge and author reminders from the current prose keywords', async () => {
+    const root = await project()
+    await createChapterHierarchy(root, 'chapter-seal', 'The sealed dispatch')
+    await createLocation(root, 'Archive', { id: 'location-archive' })
+    await createCharacter(root, 'Clerk', { id: 'character-clerk' })
+    await appendTimelineEvent(root, 'Autumn archive shift', {
+      id: 'event-autumn',
+      location: 'location-archive',
+      characters: ['character-clerk']
+    })
+    await createWorldEntry(
+      root,
+      'Black ribbon protocol',
+      { id: 'world-black-ribbon', triggers: ['black ribbon'], enabled: true },
+      'A black ribbon marks a dispatch that may not be opened in public.'
+    )
+    await createForeshadowing(root, 'Broken wax', {
+      id: 'foreshadow-broken-wax',
+      trigger_conditions: [{ kind: 'keyword', target_id: '', keyword: 'black ribbon' }],
+      reminder_window: 'before the archive closes'
+    })
+    await createScene(
+      root,
+      'The dispatch arrives',
+      {
+        id: 'scene-seal',
+        section: 'chapter-seal',
+        timeline_node: 'event-autumn',
+        location: 'location-archive',
+        pov: 'character-clerk'
+      },
+      'The clerk notices a black ribbon tied around the dispatch.'
+    )
+
+    const packet = await assembleContextPacket(root, { type: 'scene', id: 'scene-seal' })
+
+    expect(packet.world_entries.map((item) => item.data.id)).toContain('world-black-ribbon')
+    expect(packet.foreshadowing.map((item) => item.data.id)).toContain('foreshadow-broken-wax')
+    expect(packet.warnings).toContain('伏笔提醒：Broken wax（建议处理窗口：before the archive closes）。')
   })
 
   it('caps inferred scene-level patterns while retaining pins and explicit ids', async () => {
     const root = await project()
-    await createOutline(root, 'section', 'Meteor Section', {
-      id: 'section-main',
+    await createChapterHierarchy(root, 'chapter-main', 'Meteor Chapter', {
       context_pins: ['pattern-pinned'],
       context_exclusions: ['pattern-excluded']
     })
@@ -203,7 +271,7 @@ describe('context selection', () => {
       'Meteor Target',
       {
         id: 'scene-main',
-        section: 'section-main',
+        section: 'chapter-main',
         timeline_node: 'event-main',
         location: 'location-main',
         pov: 'character-main',
@@ -226,12 +294,57 @@ describe('context selection', () => {
 })
 
 describe('context rendering and warnings', () => {
+  it('uses a timeline event whose Markdown chapter range covers the target chapter', async () => {
+    const root = await project()
+    await createCharacter(root, 'Opening POV', { id: 'character-opening' })
+    await createCharacter(root, 'Later POV', { id: 'character-later' })
+    await createLocation(root, 'Opening Room', { id: 'location-opening' })
+    await appendTimelineEvent(
+      root,
+      'Opening Event',
+      {
+        id: 'event-opening',
+        characters: ['Opening POV'],
+        location: 'Opening Room',
+        previous: null
+      },
+      '## Event\n关联章节: 1-3\n备注: 开篇'
+    )
+    await appendTimelineEvent(
+      root,
+      '第一章之后的事件',
+      { id: 'event-later', characters: ['Later POV'], previous: null },
+      '## Event\n关联章节: 4-6'
+    )
+    await createChapterHierarchy(root, 'chapter-opening', '第一章 初临', {
+      order: 0,
+      related_timeline: []
+    })
+
+    const packet = await assembleContextPacket(root, { type: 'outline', id: 'chapter-opening' })
+    const rendered = renderContextPacket(packet)
+
+    expect(packet.timeline.map((item) => item.data.id)).toEqual(['event-opening'])
+    expect(packet.characters.map((item) => item.data.id)).toEqual(['character-opening'])
+    expect(packet.locations.map((item) => item.data.id)).toEqual(['location-opening'])
+    expect(packet.warnings).not.toContain('章缺少时间线绑定。')
+    expect(rendered).toContain('### Opening Event')
+    expect(rendered).toContain('关联章节: 1-3')
+  })
+
   it('renders an outline target, terminates cyclic parent chains, and reports missing context', async () => {
     const root = await project()
-    await createOutline(root, 'volume', 'Cyclic Volume', {
-      id: 'volume-cycle',
-      parent: 'chapter-cycle'
-    })
+    await createOutline(
+      root,
+      'volume',
+      'Cyclic Volume',
+      {
+        id: 'volume-cycle',
+        parent: 'chapter-cycle'
+      },
+      '',
+      { placement: 'legacy-import' }
+    )
     await createOutline(
       root,
       'chapter',
@@ -240,7 +353,8 @@ describe('context rendering and warnings', () => {
         id: 'chapter-cycle',
         parent: 'volume-cycle'
       },
-      'Hand-written chapter outline.'
+      'Hand-written chapter outline.',
+      { placement: 'legacy-import' }
     )
 
     const packet = await assembleContextPacket(root, { type: 'outline', id: 'chapter-cycle' })
@@ -253,14 +367,14 @@ describe('context rendering and warnings', () => {
         '缺地点：当前项目没有 location 文档，生成前需要从世界书或时间线补齐地点。',
         '缺场景/正文段落：当前项目还没有 scene 文档。',
         '人物状态不足：还没有 character_state 快照。',
-        '缺叙事策略：建议将文风、节奏、爽点等从 Canon 中拆为 strategy。',
-        '章纲缺少时间线绑定。',
-        '章纲缺少相关人物绑定。'
+        '缺叙事卡片：建议将文风、节奏、结构等规则整理为启用的叙事卡片。',
+        '章缺少时间线绑定。',
+        '章缺少相关人物绑定。'
       ])
     )
     expect(rendered).toContain('# Quillarium Context Packet: Cyclic Chapter')
-    expect(rendered).toContain('### 卷纲: Cyclic Volume')
-    expect(rendered).toContain('### 章纲: Cyclic Chapter')
+    expect(rendered).toContain('### 卷: Cyclic Volume')
+    expect(rendered).toContain('### 章: Cyclic Chapter')
     expect(rendered).toContain('Write the current chapter draft only.')
     expect(rendered).not.toContain('(empty draft)')
   })

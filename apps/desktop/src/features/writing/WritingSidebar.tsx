@@ -78,7 +78,7 @@ export function WritingSidebar({
                 </button>
               </>
             ) : (
-              <p className="muted">选择章纲后，在底部写作流程生成和定稿正文。</p>
+              <p className="muted">选择章后，可新增节进行 AI 编写，也可直接手写章正文。</p>
             )}
           </section>
           <section className="sidebar-section">

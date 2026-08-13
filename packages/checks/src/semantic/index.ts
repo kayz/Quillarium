@@ -141,10 +141,11 @@ export async function loadSemanticPromptTemplate(
 export async function runSemanticChecks(
   projectRoot: string,
   sceneId: string,
-  aiInvoke: SemanticAIInvoke
+  aiInvoke: SemanticAIInvoke,
+  contentOverride?: string
 ): Promise<CheckIssue[]> {
   try {
-    const input = await buildBoundedInput(projectRoot, sceneId)
+    const input = await buildBoundedInput(projectRoot, sceneId, contentOverride)
     const kinds: SemanticCheckKind[] = ['ooc', 'state-drift', 'canon-conflict']
     const prompts = await Promise.all(
       kinds.map(async (kind) => buildPrompt(kind, await loadSemanticPromptTemplate(kind), input))
@@ -166,8 +167,13 @@ export function semanticStatusFromIssues(issues: CheckIssue[]): 'completed' | 'p
   return failures >= 3 ? 'unavailable' : 'partial'
 }
 
-async function buildBoundedInput(projectRoot: string, sceneId: string): Promise<BoundedSemanticInput> {
-  const scene = await requireDoc<SceneDoc>(projectRoot, sceneId)
+async function buildBoundedInput(
+  projectRoot: string,
+  sceneId: string,
+  contentOverride?: string
+): Promise<BoundedSemanticInput> {
+  const storedScene = await requireDoc<SceneDoc>(projectRoot, sceneId)
+  const scene = contentOverride === undefined ? storedScene : { ...storedScene, content: contentOverride }
   const [characters, states, canon] = await Promise.all([
     listDocs<CharacterDoc>(projectRoot, 'character'),
     listDocs<CharacterStateDoc>(projectRoot, 'character_state'),

@@ -1,6 +1,10 @@
 import { findDoc, listDocs, requireDoc } from './documents.js'
 import { loadProject } from './project.js'
 import { loadSharedGuidance } from './workspace.js'
+import { timelineIdsForOutline } from './chapter-relations.js'
+import { evaluateForeshadowingReminders } from './foreshadowing.js'
+import { isEnabledPlanningCard } from './planning-cards.js'
+import { sortTimelineEvents, validateTimelineChain } from './timeline.js'
 import type {
   BaseDoc,
   CanonDoc,
@@ -10,15 +14,16 @@ import type {
   ForeshadowingDoc,
   IssueDoc,
   LocationDoc,
+  NarrativeDoc,
   OutlineDoc,
   PatternDoc,
   ProjectConfig,
-  ReferenceDoc,
   SceneDoc,
   SharedGuidanceContent,
   SharedGuidanceScope,
   StrategyDoc,
   TimelineEventDoc,
+  TimelineNodeDoc,
   WorldEntryDoc
 } from './types.js'
 
@@ -40,6 +45,8 @@ export interface ContextPacket {
   canon: Array<{ data: CanonDoc; content: string }>
   strategies: Array<{ data: StrategyDoc; content: string }>
   patterns: Array<{ data: PatternDoc; content: string }>
+  narratives: Array<{ data: NarrativeDoc; content: string }>
+  timeline_nodes: Array<{ data: TimelineNodeDoc; content: string }>
   timeline: Array<{ data: TimelineEventDoc; content: string }>
   characters: Array<{ data: CharacterDoc; content: string }>
   character_states: Array<{ data: CharacterStateDoc; content: string }>
@@ -47,7 +54,6 @@ export interface ContextPacket {
   world_entries: Array<{ data: WorldEntryDoc; content: string }>
   foreshadowing: Array<{ data: ForeshadowingDoc; content: string }>
   issues: Array<{ data: IssueDoc; content: string }>
-  references: Array<{ data: ReferenceDoc; content: string }>
   shared_guidance: SharedGuidanceContent[]
   context_trace: ContextTraceEntry[]
   warnings: string[]
@@ -71,17 +77,42 @@ export async function assembleContextPacket(
 ): Promise<ContextPacket> {
   const project = await loadProject(projectRoot)
   const all = {
-    canon: await listDocs<CanonDoc>(projectRoot, 'canon'),
-    strategy: await listDocs<StrategyDoc>(projectRoot, 'strategy'),
-    pattern: await listDocs<PatternDoc>(projectRoot, 'pattern'),
-    timeline: await listDocs<TimelineEventDoc>(projectRoot, 'timeline_event'),
-    character: await listDocs<CharacterDoc>(projectRoot, 'character'),
-    character_state: await listDocs<CharacterStateDoc>(projectRoot, 'character_state'),
-    location: await listDocs<LocationDoc>(projectRoot, 'location'),
-    world_entry: await listDocs<WorldEntryDoc>(projectRoot, 'world_entry'),
-    foreshadowing: await listDocs<ForeshadowingDoc>(projectRoot, 'foreshadowing'),
-    issue: await listDocs<IssueDoc>(projectRoot, 'issue'),
-    reference: await listDocs<ReferenceDoc>(projectRoot, 'reference'),
+    canon: (await listDocs<CanonDoc>(projectRoot, 'canon')).filter((item) =>
+      isEnabledPlanningCard(item.data)
+    ),
+    strategy: (await listDocs<StrategyDoc>(projectRoot, 'strategy')).filter((item) =>
+      isEnabledPlanningCard(item.data)
+    ),
+    pattern: (await listDocs<PatternDoc>(projectRoot, 'pattern')).filter((item) =>
+      isEnabledPlanningCard(item.data)
+    ),
+    narrative: (await listDocs<NarrativeDoc>(projectRoot, 'narrative')).filter((item) =>
+      isEnabledPlanningCard(item.data)
+    ),
+    timeline_node: (await listDocs<TimelineNodeDoc>(projectRoot, 'timeline_node')).filter((item) =>
+      isEnabledPlanningCard(item.data)
+    ),
+    timeline: (await listDocs<TimelineEventDoc>(projectRoot, 'timeline_event')).filter((item) =>
+      isEnabledPlanningCard(item.data)
+    ),
+    character: (await listDocs<CharacterDoc>(projectRoot, 'character')).filter((item) =>
+      isEnabledPlanningCard(item.data)
+    ),
+    character_state: (await listDocs<CharacterStateDoc>(projectRoot, 'character_state')).filter((item) =>
+      isEnabledPlanningCard(item.data)
+    ),
+    location: (await listDocs<LocationDoc>(projectRoot, 'location')).filter((item) =>
+      isEnabledPlanningCard(item.data)
+    ),
+    world_entry: (await listDocs<WorldEntryDoc>(projectRoot, 'world_entry')).filter((item) =>
+      isEnabledPlanningCard(item.data)
+    ),
+    foreshadowing: (await listDocs<ForeshadowingDoc>(projectRoot, 'foreshadowing')).filter((item) =>
+      isEnabledPlanningCard(item.data)
+    ),
+    issue: (await listDocs<IssueDoc>(projectRoot, 'issue')).filter((item) =>
+      isEnabledPlanningCard(item.data)
+    ),
     outline: await listDocs<OutlineDoc>(projectRoot, 'outline'),
     scene: await listDocs<SceneDoc>(projectRoot, 'scene')
   }
@@ -109,7 +140,16 @@ export async function assembleContextPacket(
   }
 
   const explicitTimeline = new Set(outlineChain.flatMap((item) => item.data.related_timeline ?? []))
+  if (targetOutline) {
+    for (const id of timelineIdsForOutline(targetOutline.data, all.timeline)) explicitTimeline.add(id)
+  }
   const explicitCharacters = new Set(outlineChain.flatMap((item) => item.data.related_characters ?? []))
+  for (const event of all.timeline.filter((item) => explicitTimeline.has(item.data.id))) {
+    for (const value of event.data.characters) {
+      const character = all.character.find((item) => item.data.id === value || item.data.title === value)
+      if (character) explicitCharacters.add(character.data.id)
+    }
+  }
   const explicitForeshadowing = new Set([
     ...outlineChain.flatMap((item) => item.data.related_foreshadowing ?? []),
     ...outlineChain.flatMap((item) => item.data.foreshadowing_planted ?? []),
@@ -131,19 +171,58 @@ export async function assembleContextPacket(
 
   const focusText = [
     project.title,
-    ...outlineChain.map((item) => item.data.title),
+    ...outlineChain.flatMap((item) => [item.data.title, item.content]),
     scene?.data.title,
     scene?.content
   ]
     .filter(Boolean)
     .join('\n')
   const focusTokens = tokensFrom(focusText)
+  const enabledCardIds = Object.values(all)
+    .flat()
+    .filter((item) => 'enabled' in item.data && item.data.enabled !== false)
+    .map((item) => item.data.id)
+  const activeForeshadowingReminders = evaluateForeshadowingReminders(
+    all.foreshadowing.map((item) => item.data),
+    {
+      outline_ids: chainIds,
+      timeline_ids: explicitTimeline,
+      enabled_card_ids: enabledCardIds,
+      text: focusText
+    }
+  )
+  for (const reminder of activeForeshadowingReminders) explicitForeshadowing.add(reminder.card_id)
   const broad = level === 'book'
   const mid = level === 'volume' || level === 'act'
+  const narrow = target.type === 'scene' || level === 'chapter' || level === 'section'
 
-  const timeline = chooseDocs(all.timeline, explicitTimeline, exclusions, pins, broad, mid ? 30 : 12, (doc) =>
-    matchesFocus(doc, focusTokens, chainIds)
+  const explicitTimelineEvents = new Set(
+    all.timeline
+      .filter(
+        (event) =>
+          explicitTimeline.has(event.data.id) ||
+          Boolean(event.data.timeline_node && explicitTimeline.has(event.data.timeline_node))
+      )
+      .map((event) => event.data.id)
   )
+  const chosenTimeline = chooseDocs(
+    all.timeline,
+    explicitTimelineEvents,
+    exclusions,
+    pins,
+    broad,
+    mid ? 30 : 12,
+    (doc) => (!narrow || explicitTimeline.size === 0) && matchesFocus(doc, focusTokens, chainIds)
+  )
+  const timeline = sortTimelineEvents(
+    chosenTimeline.map((item) => item.data),
+    all.timeline_node.map((item) => item.data)
+  ).map((event) => chosenTimeline.find((item) => item.data.id === event.id)!)
+  const selectedTimelineNodeIds = new Set([
+    ...Array.from(explicitTimeline).filter((id) => all.timeline_node.some((node) => node.data.id === id)),
+    ...timeline.flatMap((event) => (event.data.timeline_node ? [event.data.timeline_node] : []))
+  ])
+  const timelineNodes = all.timeline_node.filter((node) => selectedTimelineNodeIds.has(node.data.id))
   const characters = chooseDocs(
     all.character,
     explicitCharacters,
@@ -152,7 +231,7 @@ export async function assembleContextPacket(
     broad,
     mid ? 18 : 10,
     (doc) =>
-      matchesFocus(doc, focusTokens, chainIds) ||
+      ((!narrow || explicitCharacters.size === 0) && matchesFocus(doc, focusTokens, chainIds)) ||
       timeline.some((event) => event.data.characters.includes(doc.data.id))
   )
   const characterIds = new Set(characters.map((doc) => doc.data.id))
@@ -179,10 +258,19 @@ export async function assembleContextPacket(
     pins,
     broad,
     mid ? 30 : 14,
-    (doc) => matchesWorldEntry(doc, focusTokens, timeline, characters)
+    (doc) => matchesWorldEntry(doc, focusTokens, timeline, characters, focusText)
   )
   const patterns = chooseDocs(all.pattern, explicitPatterns, exclusions, pins, broad, mid ? 16 : 8, (doc) =>
     matchesFocus(doc, focusTokens, chainIds)
+  )
+  const narratives = chooseDocs(
+    all.narrative,
+    explicitPatterns,
+    exclusions,
+    pins,
+    broad,
+    mid ? 16 : 8,
+    (doc) => matchesFocus(doc, focusTokens, chainIds)
   )
   const foreshadowing = chooseDocs(
     all.foreshadowing,
@@ -196,9 +284,18 @@ export async function assembleContextPacket(
       doc.data.related_characters.some((id) => characterIds.has(id)) ||
       chainIds.includes(doc.data.related_arc)
   )
+  const explicitLocations = new Set<string>()
+  for (const event of timeline) {
+    if (!event.data.location) continue
+    const location = all.location.find(
+      (item) => item.data.id === event.data.location || item.data.title === event.data.location
+    )
+    if (location) explicitLocations.add(location.data.id)
+  }
+  if (scene?.data.location) explicitLocations.add(scene.data.location)
   const locations = chooseDocs(
     all.location,
-    new Set(timeline.map((event) => event.data.location).filter(Boolean) as string[]),
+    explicitLocations,
     exclusions,
     pins,
     broad,
@@ -216,39 +313,45 @@ export async function assembleContextPacket(
       doc.data.related_docs.some((id) => chainIds.includes(id) || pins.has(id)) ||
       matchesFocus(doc, focusTokens, chainIds)
   )
-  const references = chooseDocs(all.reference, new Set(), exclusions, pins, broad, 8, (doc) =>
-    matchesFocus(doc, focusTokens, chainIds)
-  )
-
   const warnings = buildPacketWarnings({
     level,
     outlines: all.outline,
     scenes: all.scene,
     locations: all.location,
+    timelineNodes: all.timeline_node,
     timeline: all.timeline,
     foreshadowing: all.foreshadowing,
     characterStates: all.character_state,
     canon: all.canon,
     strategy: all.strategy,
+    narratives: all.narrative,
     outlineChain,
     scene
   })
   warnings.push(
     ...detectSharedGuidanceConflicts(sharedGuidance, all.canon, all.strategy, outlineChain, scene)
   )
+  warnings.push(
+    ...activeForeshadowingReminders.map((reminder) =>
+      reminder.reminder_window
+        ? `伏笔提醒：${reminder.title}（建议处理窗口：${reminder.reminder_window}）。`
+        : `伏笔提醒：${reminder.title} 的触发条件已满足。`
+    )
+  )
 
   const included = [
     ...all.canon.filter((item) => item.data.status !== 'deprecated').map((item) => item.data.id),
     ...all.strategy.filter((item) => item.data.status !== 'deprecated').map((item) => item.data.id),
+    ...narratives.map((item) => item.data.id),
     ...patterns.map((item) => item.data.id),
+    ...timelineNodes.map((item) => item.data.id),
     ...timeline.map((item) => item.data.id),
     ...characters.map((item) => item.data.id),
     ...characterStates.map((item) => item.data.id),
     ...locations.map((item) => item.data.id),
     ...worldEntries.map((item) => item.data.id),
     ...foreshadowing.map((item) => item.data.id),
-    ...openIssues.map((item) => item.data.id),
-    ...references.map((item) => item.data.id)
+    ...openIssues.map((item) => item.data.id)
   ].filter((id) => !exclusions.has(id))
 
   const contextTrace = buildContextTrace({
@@ -257,6 +360,7 @@ export async function assembleContextPacket(
     strategies: all.strategy.filter(
       (item) => item.data.status !== 'deprecated' && !exclusions.has(item.data.id)
     ),
+    narratives: narratives.filter((item) => !exclusions.has(item.data.id)),
     outlineChain,
     sharedGuidance,
     exclusions
@@ -277,6 +381,8 @@ export async function assembleContextPacket(
       (item) => item.data.status !== 'deprecated' && !exclusions.has(item.data.id)
     ),
     patterns,
+    narratives,
+    timeline_nodes: timelineNodes,
     timeline,
     characters,
     character_states: characterStates,
@@ -284,7 +390,6 @@ export async function assembleContextPacket(
     world_entries: worldEntries,
     foreshadowing,
     issues: openIssues,
-    references,
     shared_guidance: sharedGuidance,
     context_trace: contextTrace,
     warnings: [...new Set(warnings)],
@@ -324,25 +429,27 @@ export function renderContextPacket(packet: ContextPacket): string {
       renderDocs(packet.canon, (doc) => `strength: ${doc.data.strength}\nsource: ${doc.data.source}`)
     ),
     section(
-      'Strategy',
+      'Legacy Strategy',
       renderDocs(packet.strategies, (doc) => `category: ${doc.data.category}\nscope: ${doc.data.scope}`)
     ),
     section(
-      'Patterns',
+      'Legacy Patterns',
       renderDocs(
         packet.patterns,
         (doc) =>
           `kind: ${doc.data.kind}\nscope: ${doc.data.scope}\napplies_to: ${doc.data.applies_to.join(', ')}\nsource: ${doc.data.source}`
       )
     ),
-    section('Outline Chain', [outlineText, sceneText].filter(Boolean).join('\n\n')),
     section(
-      'Timeline',
+      'Narrative Cards',
       renderDocs(
-        packet.timeline,
-        (doc) => `date: ${doc.data.date}\nduration: ${doc.data.duration}\nlocation: ${doc.data.location}`
+        packet.narratives,
+        (doc) =>
+          `category: ${doc.data.category}\nscope: ${doc.data.scope}\napplies_to: ${doc.data.applies_to.join(', ')}\nsource: ${doc.data.source}\nprinciples: ${doc.data.principles.join(' | ')}\navoid: ${doc.data.avoid.join(' | ')}`
       )
     ),
+    section('Outline Chain', [outlineText, sceneText].filter(Boolean).join('\n\n')),
+    section('Timeline', renderTimeline(packet.timeline_nodes, packet.timeline)),
     section(
       'Characters',
       renderDocs(
@@ -404,13 +511,15 @@ export function renderContextPacket(packet: ContextPacket): string {
 
 export function outlineLevelLabel(level: OutlineDoc['level'] | 'scene'): string {
   const labels: Record<OutlineDoc['level'] | 'scene', string> = {
+    overview: '总览',
     book: '总纲',
-    volume: '卷纲',
-    act: '幕纲',
-    arc: '段纲',
-    chapter: '章纲',
-    section: '场景',
-    scene: '正文段落'
+    volume: '卷',
+    part: '篇',
+    act: '幕',
+    arc: '篇（旧）',
+    chapter: '章',
+    section: '节',
+    scene: '节正文'
   }
   return labels[level]
 }
@@ -422,6 +531,39 @@ function renderDocs<T extends BaseDoc>(
   return docs
     .map((doc) => `### ${doc.data.title}\n\n${meta(doc)}\n\n${doc.content.trim()}`.trim())
     .join('\n\n')
+}
+
+function renderTimeline(
+  nodes: Array<{ data: TimelineNodeDoc; content: string }>,
+  events: Array<{ data: TimelineEventDoc; content: string }>
+): string {
+  const renderedNodeIds = new Set(nodes.map((node) => node.data.id))
+  const grouped = nodes
+    .map((node) => {
+      const concurrent = events.filter((event) => event.data.timeline_node === node.data.id)
+      return [
+        `### ${node.data.display_time || node.data.title}`,
+        `timeline_node: ${node.data.id}`,
+        `precision: ${node.data.precision}`,
+        node.data.fuzzy ? `month_range: ${node.data.month}-${node.data.month_end ?? node.data.month}` : '',
+        ...concurrent.map(
+          (event) =>
+            `#### ${event.data.title}\n\nduration: ${event.data.duration}\nlocation: ${event.data.location}\ncharacters: ${event.data.characters.join(', ')}\n\n${event.content.trim()}`
+        )
+      ]
+        .filter(Boolean)
+        .join('\n\n')
+    })
+    .join('\n\n')
+  const legacy = events.filter(
+    (event) => !event.data.timeline_node || !renderedNodeIds.has(event.data.timeline_node)
+  )
+  const legacyText = renderDocs(
+    legacy,
+    (event) =>
+      `legacy_date: ${event.data.date}\nduration: ${event.data.duration}\nlocation: ${event.data.location}`
+  )
+  return [grouped, legacyText].filter(Boolean).join('\n\n')
 }
 
 function collectOutlineChain(
@@ -500,9 +642,11 @@ function matchesWorldEntry(
   doc: DocWithContent<WorldEntryDoc>,
   tokens: string[],
   timeline: Array<{ data: TimelineEventDoc; content: string }>,
-  characters: Array<{ data: CharacterDoc; content: string }>
+  characters: Array<{ data: CharacterDoc; content: string }>,
+  rawFocus: string
 ): boolean {
   const focus = [
+    rawFocus,
     ...tokens,
     ...timeline.flatMap((event) => [event.data.title, event.content]),
     ...characters.map((char) => char.data.title)
@@ -523,11 +667,13 @@ function buildPacketWarnings(input: {
   outlines: Array<DocWithContent<OutlineDoc>>
   scenes: Array<DocWithContent<SceneDoc>>
   locations: Array<DocWithContent<LocationDoc>>
+  timelineNodes: Array<DocWithContent<TimelineNodeDoc>>
   timeline: Array<DocWithContent<TimelineEventDoc>>
   foreshadowing: Array<DocWithContent<ForeshadowingDoc>>
   characterStates: Array<DocWithContent<CharacterStateDoc>>
   canon: Array<DocWithContent<CanonDoc>>
   strategy: Array<DocWithContent<StrategyDoc>>
+  narratives: Array<DocWithContent<NarrativeDoc>>
   outlineChain: Array<{ data: OutlineDoc; content: string }>
   scene: { data: SceneDoc; content: string } | null
 }): string[] {
@@ -537,23 +683,38 @@ function buildPacketWarnings(input: {
   if (!input.locations.length)
     warnings.push('缺地点：当前项目没有 location 文档，生成前需要从世界书或时间线补齐地点。')
   if (!input.outlines.some((doc) => doc.data.level === 'chapter'))
-    warnings.push('缺章纲：当前项目还没有 chapter outline。')
+    warnings.push('缺章：当前项目还没有 chapter outline。')
   if (!input.scenes.length) warnings.push('缺场景/正文段落：当前项目还没有 scene 文档。')
   if (!input.characterStates.length) warnings.push('人物状态不足：还没有 character_state 快照。')
-  if (!input.strategy.length) warnings.push('缺叙事策略：建议将文风、节奏、爽点等从 Canon 中拆为 strategy。')
+  if (!input.strategy.length && !input.narratives.length)
+    warnings.push('缺叙事卡片：建议将文风、节奏、结构等规则整理为启用的叙事卡片。')
   if (input.canon.some((doc) => /叙事策略|文风|节奏|爽点/.test(`${doc.data.title}\n${doc.content}`))) {
-    warnings.push('叙事策略仍混在 Canon 中：建议迁移为 strategy 文档。')
+    warnings.push('叙事规则仍混在 Canon 中：建议迁移为叙事卡片。')
   }
-  if (input.timeline.some((doc) => !doc.data.previous && !doc.data.next) && input.timeline.length > 1) {
+  if (input.timelineNodes.length) {
+    warnings.push(
+      ...validateTimelineChain(input.timelineNodes.map((document) => document.data)).map(
+        (issue) => issue.message
+      )
+    )
+  } else if (
+    input.timeline.some((doc) => !doc.data.previous && !doc.data.next) &&
+    input.timeline.length > 1
+  ) {
     warnings.push('时间线主链可能未完整连接：存在既无 previous 也无 next 的事件。')
   }
   if (target && target.data.level !== 'book') {
     const hasTimeline =
       input.timeline.some((doc) => chainIds.includes(String(doc.data.id))) ||
-      (target.data.related_timeline ?? []).length > 0
-    if (!hasTimeline && target.data.level !== 'arc')
+      (target.data.related_timeline ?? []).length > 0 ||
+      timelineIdsForOutline(target.data, input.timeline).length > 0
+    if (!hasTimeline && target.data.level !== 'arc' && target.data.level !== 'part')
       warnings.push(`${outlineLevelLabel(target.data.level)}缺少时间线绑定。`)
-    if (!(target.data.related_characters ?? []).length) {
+    const inferredTimelineIds = new Set(timelineIdsForOutline(target.data, input.timeline))
+    const hasTimelineCharacters = input.timeline.some(
+      (event) => inferredTimelineIds.has(event.data.id) && event.data.characters.length > 0
+    )
+    if (!(target.data.related_characters ?? []).length && !hasTimelineCharacters) {
       warnings.push(`${outlineLevelLabel(target.data.level)}缺少相关人物绑定。`)
     }
   }
@@ -572,7 +733,7 @@ function buildPacketWarnings(input: {
 }
 
 function guidanceScopeForLevel(level: OutlineDoc['level'] | 'scene'): SharedGuidanceScope {
-  if (level === 'act') return 'arc'
+  if (level === 'arc') return 'part'
   if (level === 'section') return 'scene'
   return level
 }
@@ -581,6 +742,7 @@ function buildContextTrace(input: {
   scene: { data: SceneDoc; content: string } | null
   canon: Array<DocWithContent<CanonDoc>>
   strategies: Array<DocWithContent<StrategyDoc>>
+  narratives: Array<{ data: NarrativeDoc; content: string }>
   outlineChain: Array<{ data: OutlineDoc; content: string }>
   sharedGuidance: SharedGuidanceContent[]
   exclusions: Set<string>
@@ -610,6 +772,13 @@ function buildContextTrace(input: {
       priority: 300,
       selected: true,
       reason: 'active project strategy'
+    })),
+    ...input.narratives.map((item) => ({
+      source_type: 'project_guidance' as const,
+      source_id: item.data.id,
+      priority: 300,
+      selected: true,
+      reason: 'enabled narrative card'
     })),
     ...input.outlineChain.map((item) => ({
       source_type: 'project_guidance' as const,

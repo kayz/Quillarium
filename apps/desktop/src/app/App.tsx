@@ -5,6 +5,7 @@ import { t } from './i18n.js'
 import { bridge } from './bridge.js'
 import { TopChrome } from '../features/settings/TopChrome.js'
 import { Workspace } from '../features/workspace/Workspace.js'
+import { formatDesktopError } from '../shared/errors.js'
 
 export function App() {
   const [theme, setTheme] = useState<ThemeName>('paper')
@@ -30,21 +31,29 @@ export function App() {
   }, [density])
 
   const refresh = async () => {
+    let selectedLanguage = language
     try {
       if (!bridge) {
-        setError('Quillarium desktop bridge is not available. Please reload the Electron window.')
+        setError(
+          selectedLanguage === 'zh'
+            ? 'Quillarium 桌面接口不可用，请重新启动客户端。'
+            : 'The Quillarium desktop bridge is unavailable. Restart the client.'
+        )
         return
       }
       const config = await bridge.getConfig()
       if (config.theme) setTheme(config.theme as ThemeName)
       if (config.density) setDensity(config.density as DensityName)
-      if (config.language) setLanguage(config.language as LanguageName)
+      if (config.language) {
+        selectedLanguage = config.language as LanguageName
+        setLanguage(selectedLanguage)
+      }
       setWritingWorkspace(await bridge.getWorkspace())
       setProjects(await bridge.listProjects())
       setAiStatus(await bridge.aiStatus())
       setError(null)
     } catch (err) {
-      setError(String(err))
+      setError(formatDesktopError(err, selectedLanguage))
     }
   }
 
@@ -73,7 +82,7 @@ export function App() {
   }
 
   return (
-    <ErrorBoundary>
+    <ErrorBoundary language={language}>
       <Workspace
         root={workspaceRoot}
         theme={theme}
@@ -90,15 +99,22 @@ export function App() {
   )
 }
 
-class ErrorBoundary extends Component<{ children: React.ReactNode }, { error: string | null }> {
-  state = { error: null }
+class ErrorBoundary extends Component<
+  { children: React.ReactNode; language: LanguageName },
+  { error: unknown | null }
+> {
+  state: { error: unknown | null } = { error: null }
 
   static getDerivedStateFromError(error: unknown) {
-    return { error: error instanceof Error ? error.message : String(error) }
+    return { error }
   }
 
   render() {
-    if (this.state.error) return <div className="loading error-box">{this.state.error}</div>
+    if (this.state.error) {
+      return (
+        <div className="loading error-box">{formatDesktopError(this.state.error, this.props.language)}</div>
+      )
+    }
     return this.props.children
   }
 }

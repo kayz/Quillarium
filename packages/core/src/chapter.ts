@@ -1,6 +1,7 @@
 import path from 'node:path'
 import { assembleContextPacket, renderContextPacket } from './context.js'
 import { listDocs, requireDoc } from './documents.js'
+import { assertChapterAllowsAI, sceneChapterId } from './chapter-lifecycle.js'
 import { readPrompt } from './prompts.js'
 import type { OutlineDoc, SceneDoc } from './types.js'
 
@@ -24,6 +25,34 @@ export interface ScenePromptPlan {
   prompt: string
 }
 
+export interface PromptSourceBlock {
+  id: string
+  kind:
+    | 'instruction'
+    | 'outline'
+    | 'scene-outline'
+    | 'guidance'
+    | 'canon'
+    | 'timeline'
+    | 'location'
+    | 'character'
+    | 'world'
+    | 'foreshadowing'
+    | 'narrative'
+    | 'context'
+    | 'finalized-prose'
+    | 'continuation'
+  title: string
+  content: string
+  required: boolean
+  source_id?: string
+  source_type?: string
+}
+
+export interface EditableScenePromptPlan extends ScenePromptPlan {
+  sources: PromptSourceBlock[]
+}
+
 export interface ChapterPromptPlan {
   chapter_id: string
   scene_prompts: ScenePromptPlan[]
@@ -39,7 +68,9 @@ export async function buildSceneWritingPrompt(
   input: ScenePromptInput
 ): Promise<ScenePromptPlan> {
   const scene = await requireDoc<SceneDoc>(projectRoot, input.sceneId)
-  const chapter = await requireDoc<OutlineDoc>(projectRoot, scene.data.section)
+  const chapterId = sceneChapterId(scene.data)
+  await assertChapterAllowsAI(projectRoot, chapterId)
+  const chapter = await requireDoc<OutlineDoc>(projectRoot, chapterId)
   const packet = await assembleContextPacket(projectRoot, { type: 'scene', id: scene.data.id })
   const systemPrompt = await readPrompt(projectRoot, 'prose-scene-draft')
   const style = await latestFinalSceneStyle(projectRoot, scene.data.id)
@@ -47,17 +78,17 @@ export async function buildSceneWritingPrompt(
   const prompt = [
     systemPrompt,
     '',
-    '# 章纲',
+    '# 本章规划',
     `title: ${chapter.data.title}`,
     chapter.content,
     '',
-    '# 当前 scene / 节纲',
+    '# 当前节规划',
     `title: ${scene.data.title}`,
     `goal: ${scene.data.scene_goal}`,
     `conflict: ${scene.data.scene_conflict}`,
     `change: ${scene.data.scene_change}`,
     `environment: ${scene.data.writing_environment}`,
-    scene.content,
+    `writing_focus: ${scene.data.writing_focus}`,
     '',
     '# 用户选择要素',
     renderSelectedElements(selected),
@@ -66,11 +97,11 @@ export async function buildSceneWritingPrompt(
     renderContextPacket(packet),
     style
       ? ['# 文风参考：最后一个定稿 scene', `title: ${style.title}`, style.excerpt].join('\n')
-      : '# 文风参考\n暂无定稿 scene，请以作者章纲和项目策略为准。',
+      : '# 文风参考\n暂无定稿 scene，请以作者的本章规划和项目策略为准。',
     input.previousOutput ? ['# 前一 scene 输出', input.previousOutput].join('\n') : '',
     '',
     '# 输出要求',
-    '只输出当前 scene 正文。'
+    '只输出当前节的纯文字正文，不得使用 Markdown 标题、列表、引用、链接、代码块或强调语法。'
   ]
     .filter(Boolean)
     .join('\n\n')
@@ -82,13 +113,142 @@ export async function buildSceneWritingPrompt(
   }
 }
 
+export async function buildEditableScenePromptPlan(
+  projectRoot: string,
+  input: ScenePromptInput
+): Promise<EditableScenePromptPlan> {
+  const scene = await requireDoc<SceneDoc>(projectRoot, input.sceneId)
+  const chapterId = sceneChapterId(scene.data)
+  await assertChapterAllowsAI(projectRoot, chapterId)
+  const chapter = await requireDoc<OutlineDoc>(projectRoot, chapterId)
+  const packet = await assembleContextPacket(projectRoot, { type: 'scene', id: scene.data.id })
+  const sameBranchProse = await finalizedProseInBranch(projectRoot, chapter.data)
+  const currentChapterProse = (
+    await listDocs<import('./types.js').ChapterProseDoc>(projectRoot, 'chapter_prose')
+  ).find((item) => item.data.chapter_id === chapterId)
+  const sources: PromptSourceBlock[] = [
+    {
+      id: 'instruction',
+      kind: 'instruction',
+      title: '正文输出规则',
+      content: await readPrompt(projectRoot, 'prose-scene-draft'),
+      required: true
+    },
+    {
+      id: `outline:${chapter.data.id}`,
+      kind: 'outline',
+      title: `章 · ${chapter.data.title}`,
+      content: renderStructuredOutline(chapter.data, chapter.content),
+      required: true
+    },
+    {
+      id: `scene:${scene.data.id}`,
+      kind: 'scene-outline',
+      title: `节 · ${scene.data.title}`,
+      content: renderSceneOutline(scene.data),
+      required: true
+    },
+    ...contextPromptSourceBlocks(packet),
+    ...sameBranchProse.map((item) => ({
+      id: `prose:${item.data.id}`,
+      kind: 'finalized-prose' as const,
+      title: `同篇/幕已定稿正文 · ${item.data.title}`,
+      content: item.content,
+      required: false
+    })),
+    ...(currentChapterProse?.content.trim()
+      ? [
+          {
+            id: `continuation:${currentChapterProse.data.id}`,
+            kind: 'continuation' as const,
+            title: '本章已接受正文',
+            content: currentChapterProse.content,
+            required: true
+          }
+        ]
+      : [])
+  ]
+  if (input.previousOutput?.trim()) {
+    sources.push({
+      id: 'continuation',
+      kind: 'continuation',
+      title: '本章前文',
+      content: input.previousOutput.trim(),
+      required: false
+    })
+  }
+  const prompt = [
+    ...sources.map((source) => `【${source.title}】\n${source.content.trim()}`),
+    '【输出要求】\n只输出当前节的纯文字正文，不得输出标题、解释或任何 Markdown 语法。'
+  ].join('\n\n')
+  return { scene_id: scene.data.id, chapter_id: chapterId, title: scene.data.title, sources, prompt }
+}
+
+export function contextPromptSourceBlocks(
+  packet: Awaited<ReturnType<typeof assembleContextPacket>>
+): PromptSourceBlock[] {
+  const blocks: PromptSourceBlock[] = []
+  const addDocument = (
+    kind: PromptSourceBlock['kind'],
+    sourceType: string,
+    item: { data: { id: string; title: string }; content: string },
+    required = false
+  ) => {
+    blocks.push({
+      id: `document:${sourceType}:${item.data.id}`,
+      kind,
+      title: item.data.title,
+      content: item.content.trim() || `title: ${item.data.title}`,
+      required,
+      source_id: item.data.id,
+      source_type: sourceType
+    })
+  }
+
+  for (const item of packet.outline_chain.slice(0, -1)) addDocument('outline', 'outline', item, true)
+  for (const item of packet.canon) addDocument('canon', 'canon', item, item.data.strength === 'hard')
+  for (const item of packet.strategies) addDocument('narrative', 'strategy', item)
+  for (const item of packet.patterns) addDocument('narrative', 'pattern', item)
+  for (const item of packet.narratives) addDocument('narrative', 'narrative', item)
+  for (const item of packet.timeline_nodes) addDocument('timeline', 'timeline_node', item)
+  for (const item of packet.timeline) addDocument('timeline', 'timeline_event', item)
+  for (const item of packet.characters) addDocument('character', 'character', item)
+  for (const item of packet.character_states) addDocument('character', 'character_state', item)
+  for (const item of packet.locations) addDocument('location', 'location', item)
+  for (const item of packet.world_entries) addDocument('world', 'world_entry', item)
+  for (const item of packet.foreshadowing) addDocument('foreshadowing', 'foreshadowing', item)
+  for (const item of packet.issues) addDocument('context', 'issue', item)
+  for (const guidance of packet.shared_guidance) {
+    blocks.push({
+      id: `guidance:${guidance.id}`,
+      kind: 'guidance',
+      title: guidance.id,
+      content: guidance.content,
+      required: false,
+      source_id: guidance.id,
+      source_type: 'shared_guidance'
+    })
+  }
+  if (packet.warnings.length) {
+    blocks.push({
+      id: 'context:warnings',
+      kind: 'context',
+      title: '上下文提醒',
+      content: packet.warnings.map((warning) => `- ${warning}`).join('\n'),
+      required: false,
+      source_type: 'context_warning'
+    })
+  }
+  return blocks
+}
+
 export async function buildChapterWritingPlan(
   projectRoot: string,
   chapterId: string,
   selectedByScene: Record<string, ScenePromptInput['selectedElements']> = {}
 ): Promise<ChapterPromptPlan> {
   const scenes = (await listDocs<SceneDoc>(projectRoot, 'scene'))
-    .filter((scene) => scene.data.section === chapterId)
+    .filter((scene) => sceneChapterId(scene.data) === chapterId)
     .sort((a, b) => sceneSortKey(a).localeCompare(sceneSortKey(b)))
   const scene_prompts: ScenePromptPlan[] = []
   let previousOutput = ''
@@ -109,6 +269,75 @@ export async function buildChapterWritingPlan(
   }
 }
 
+async function finalizedProseInBranch(projectRoot: string, chapter: OutlineDoc) {
+  const outlines = await listDocs<OutlineDoc>(projectRoot, 'outline')
+  const ancestorChain = ancestorIds(
+    outlines.map((item) => item.data),
+    chapter
+  )
+  const branchRoot = ancestorChain.find((id) => {
+    const level = outlines.find((item) => item.data.id === id)?.data.level
+    return level === 'part' || level === 'act' || level === 'arc'
+  })
+  if (!branchRoot) return []
+  const siblingChapters = outlines
+    .filter((item) => item.data.level === 'chapter' && item.data.id !== chapter.id)
+    .filter((item) =>
+      ancestorIds(
+        outlines.map((entry) => entry.data),
+        item.data
+      ).includes(branchRoot)
+    )
+  const ids = new Set(siblingChapters.map((item) => item.data.id))
+  const prose = await listDocs<import('./types.js').ChapterProseDoc>(projectRoot, 'chapter_prose')
+  return prose
+    .filter(
+      (item) =>
+        (item.data.status === 'final' || item.data.status === 'published') && ids.has(item.data.chapter_id)
+    )
+    .sort((a, b) => a.data.finalized_at?.localeCompare(b.data.finalized_at ?? '') ?? 0)
+    .slice(-3)
+}
+
+function ancestorIds(outlines: OutlineDoc[], start: OutlineDoc): string[] {
+  const ids: string[] = []
+  let parent = start.parent
+  const seen = new Set<string>()
+  while (parent && !seen.has(parent)) {
+    seen.add(parent)
+    ids.push(parent)
+    parent = outlines.find((item) => item.id === parent)?.parent ?? null
+  }
+  return ids
+}
+
+function renderStructuredOutline(data: OutlineDoc, content: string): string {
+  return [
+    `标题：${data.title}`,
+    `目标：${data.chapter_goal}`,
+    `冲突：${data.chapter_conflict}`,
+    `变化：${data.chapter_change}`,
+    `章末钩子：${data.ending_hook}`,
+    content.trim()
+  ]
+    .filter(Boolean)
+    .join('\n')
+}
+
+function renderSceneOutline(data: SceneDoc): string {
+  return [
+    `标题：${data.title}`,
+    `写作重点：${data.writing_focus}`,
+    `目标：${data.scene_goal}`,
+    `冲突：${data.scene_conflict}`,
+    `变化：${data.scene_change}`,
+    `地点：${data.location}`,
+    `视角人物：${data.pov}`,
+    `时间线：${data.timeline_node}`,
+    data.outline_content.trim()
+  ].join('\n')
+}
+
 export async function latestFinalSceneStyle(
   projectRoot: string,
   excludeSceneId?: string
@@ -116,12 +345,27 @@ export async function latestFinalSceneStyle(
   const scenes = (await listDocs<SceneDoc>(projectRoot, 'scene'))
     .filter((scene) => scene.data.status === 'final' && scene.data.id !== excludeSceneId)
     .sort((a, b) => path.basename(b.path).localeCompare(path.basename(a.path)))
-  const scene = scenes[0]
-  if (!scene) return undefined
+  const acceptedSceneIds = new Set(
+    scenes.filter((scene) => scene.data.accepted_at).map((scene) => scene.data.id)
+  )
+  const prose = (await listDocs<import('./types.js').ChapterProseDoc>(projectRoot, 'chapter_prose'))
+    .filter((item) => item.data.status === 'final' || item.data.status === 'published')
+    .filter((item) => item.data.scene_ids.some((id) => acceptedSceneIds.has(id)))
+    .sort((a, b) => (b.data.finalized_at ?? '').localeCompare(a.data.finalized_at ?? ''))[0]
+  if (!prose) {
+    const legacyScene = scenes.find((scene) => scene.content.trim())
+    if (!legacyScene) return undefined
+    return {
+      scene_id: legacyScene.data.id,
+      title: legacyScene.data.title,
+      excerpt: legacyScene.content.slice(-2400)
+    }
+  }
+  const sceneId = prose.data.scene_ids.find((id) => acceptedSceneIds.has(id)) ?? prose.data.scene_ids[0]
   return {
-    scene_id: scene.data.id,
-    title: scene.data.title,
-    excerpt: scene.content.slice(-2400)
+    scene_id: sceneId,
+    title: prose.data.title,
+    excerpt: prose.content.slice(-2400)
   }
 }
 

@@ -3,6 +3,12 @@ import { MessageSquareText, Search } from 'lucide-react'
 import type { DocEntry, LanguageName } from '../../app/types.js'
 import { t } from '../../app/i18n.js'
 import { bridge } from '../../app/bridge.js'
+import { formatDesktopError } from '../../shared/errors.js'
+import {
+  enumChoiceLabel,
+  fieldPresentation,
+  type FieldPresentationContext
+} from '../metadata/field-presentation.js'
 
 export function CanonWorkspace({
   root,
@@ -179,11 +185,17 @@ export function CanonWorkspace({
                 <div className="canon-card-title">
                   <strong>{doc.data.title}</strong>
                   <span className={`badge ${doc.data.status === 'confirmed' ? 'ok' : 'warn'}`}>
-                    {doc.data.status}
+                    {enumChoiceLabel('status', String(doc.data.status ?? 'draft'), language)}
                   </span>
                 </div>
                 <small>
-                  {String(doc.data.strength ?? 'hard')} · {String(doc.data.source ?? 'user')}
+                  {enumChoiceLabel('strength', String(doc.data.strength ?? 'hard'), language, {
+                    documentType: 'canon'
+                  })}{' '}
+                  ·{' '}
+                  {enumChoiceLabel('source', String(doc.data.source ?? 'user'), language, {
+                    documentType: 'canon'
+                  })}
                 </small>
                 <p>{doc.content.slice(0, 140) || t(language, 'emptyBody')}</p>
               </button>
@@ -196,36 +208,42 @@ export function CanonWorkspace({
             <>
               <div className="canon-form-grid">
                 <label>
-                  {t(language, 'title')}
+                  <CanonFieldCopy name="title" language={language} />
                   <input value={title} onChange={(e) => setTitle(e.target.value)} />
                 </label>
                 <label>
-                  {t(language, 'status')}
+                  <CanonFieldCopy name="status" language={language} />
                   <select value={status} onChange={(e) => setStatus(e.target.value)}>
-                    <option value="draft">draft</option>
-                    <option value="confirmed">confirmed</option>
-                    <option value="deprecated">deprecated</option>
+                    {['draft', 'confirmed', 'deprecated'].map((value) => (
+                      <option key={value} value={value}>
+                        {enumChoiceLabel('status', value, language)}
+                      </option>
+                    ))}
                   </select>
                 </label>
                 <label>
-                  {t(language, 'strength')}
+                  <CanonFieldCopy name="strength" language={language} />
                   <select value={strength} onChange={(e) => setStrength(e.target.value)}>
-                    <option value="hard">hard</option>
-                    <option value="soft">soft</option>
+                    {['hard', 'soft'].map((value) => (
+                      <option key={value} value={value}>
+                        {enumChoiceLabel('strength', value, language)}
+                      </option>
+                    ))}
                   </select>
                 </label>
                 <label>
-                  {t(language, 'source')}
+                  <CanonFieldCopy name="source" language={language} context={{ documentType: 'canon' }} />
                   <select value={source} onChange={(e) => setSource(e.target.value)}>
-                    <option value="user">user</option>
-                    <option value="ai">ai</option>
-                    <option value="imported">imported</option>
-                    <option value="historical">historical</option>
+                    {['user', 'ai', 'imported', 'historical'].map((value) => (
+                      <option key={value} value={value}>
+                        {enumChoiceLabel('source', value, language, { documentType: 'canon' })}
+                      </option>
+                    ))}
                   </select>
                 </label>
               </div>
               <label className="canon-body">
-                {t(language, 'canonContent')}
+                <CanonFieldCopy name="canon_content" language={language} />
                 <textarea value={content} onChange={(e) => setContent(e.target.value)} />
               </label>
               <div className="canon-actions">
@@ -273,6 +291,24 @@ export function CanonWorkspace({
   )
 }
 
+function CanonFieldCopy({
+  name,
+  language,
+  context = {}
+}: {
+  name: string
+  language: LanguageName
+  context?: FieldPresentationContext
+}) {
+  const presentation = fieldPresentation(name, language, context)
+  return (
+    <span className="localized-field-copy">
+      <strong>{presentation.label}</strong>
+      <small>{presentation.description}</small>
+    </span>
+  )
+}
+
 function parseCanonSummary(text: string): {
   content: string
   status?: string
@@ -306,5 +342,5 @@ function formatCanonAIError(err: unknown, language: LanguageName): string {
       ? 'AI 请求过大：请先点“归纳为 Canon”，或删掉部分讨论记录后继续。'
       : 'AI request is too large. Summarize to Canon or remove part of the transcript before continuing.'
   }
-  return message
+  return formatDesktopError(message, language)
 }

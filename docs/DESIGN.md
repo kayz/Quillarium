@@ -7,11 +7,12 @@ its design, but they are neither runtime dependencies nor parallel sources of pr
 
 ## Implementation Status
 
-As of 2026-08-12, the work-neutral workspace foundation described below is implemented: contained
-workspace manifests, direct project-vault roots, ProjectConfig v2 identity and aliases, explicit
-legacy migration, shared-guidance snapshots, and server-scoped workspace Git operations. The active
-next phase is the explainable chapter-production work in the root [ROADMAP](../ROADMAP.md), including
-real token budgeting, typed prompt blocks, multiple candidates, branches, and versioned presets.
+As of 2026-08-13, the work-neutral workspace foundation and the first planning-card workbench are
+implemented. The workbench includes typed relations and material provenance, a linked timeline,
+spatial and time-aware character views, keyword-triggered world knowledge, foreshadowing reminders,
+manual AI checks that persist issue cards, and card-by-card prompt composition. The next phase in the
+root [ROADMAP](../ROADMAP.md) completes real token budgeting, multiple candidates, branches, and
+versioned presets.
 
 The desktop planning baseline also uses a deliberately small surface: the unselected-project screen
 has one active library-management entry, while display, GitHub, and the three AI profiles live in
@@ -22,13 +23,29 @@ open module -> discuss with background AI -> inspect/edit proposal -> confirm ->
 ```
 
 Discussion and cancellation have no project-file side effects. The AI may select among character,
-world, timeline, location, foreshadowing, strategy, pattern, issue, and reference schemas, but it
-cannot use this flow to edit existing documents, Canon, outlines, scenes, or accepted prose.
+character-relation, world, timeline-node, timeline-event, location, foreshadowing, narrative, issue,
+and reference schemas. An explicit “edit with AI” action can seed the same reviewed conversation from
+one existing planning card and updates only that card; Canon, outlines, scenes, and accepted prose
+remain outside this flow.
 
 Planning documents expose separate Markdown source and read-only preview modes over one unsaved
 buffer. CommonMark plus GFM tables are supported; raw HTML and unsafe URLs are not rendered.
 Known structured fields use typed controls where practical, while nested and unknown frontmatter is
-shown as reversible JSON and saved through the same YAML serializer.
+shown as recursive direct controls and saved through the same YAML serializer. Authors do not edit
+serialization syntax outside the Markdown body. Array fields use chips or repeatable rows, nested
+objects use named subfields, and dense groups are collapsible without dropping unknown values.
+
+Tag-bearing fields form one exact-match project index. This includes ordinary tags, world-entry
+triggers and category tags, topic tags, and schema-defined categorical fields such as narrative
+category and scope. The UI renders them as flat chips. Clicking one opens a right-side drawer containing all
+matching documents, visibly separated by document type. Markdown prose is not scanned as implicit
+tags, so results remain deterministic and explainable.
+
+The desktop layout treats working space as author-controlled session state. Visible, accessible
+separators resize the planning navigation/collection/detail columns, the writing navigation and
+overview/detail columns, the metadata/Markdown detail rows, the main writing/lower-run rows, and the
+chapter brief/run columns. The same separators support arrow-key adjustment. Pane sizes are local UI
+state only and do not pollute Markdown, project configuration, or shared workspace manifests.
 
 ## Product and Storage Shape
 
@@ -47,6 +64,7 @@ writing-workspace/
       project.yaml
       canon/
       outlines/
+      chapters/
       scenes/
       runs/
       ...
@@ -66,7 +84,7 @@ reported; loading a legacy project never silently rewrites it.
 Project files are the durable truth. Context assembly and checks use a fixed authority order:
 
 1. accepted prose and confirmed hard Canon;
-2. project strategies, outlines, continuity ledgers, and explicit pins;
+2. enabled narrative cards, legacy project guidance, outlines, continuity ledgers, and explicit pins;
 3. workspace shared guidance;
 4. archived imports and optional research references.
 
@@ -76,18 +94,23 @@ project document explicitly links or pins them.
 
 ## Chapter-Centered Workflow
 
-The planning hierarchy is:
+The writing hierarchy has seven conceptual levels. Overview and book outline are parallel top-level
+documents; the remaining levels form the delivery tree:
 
 ```text
-book
+overview (总览: one-sentence purpose, core people, central conflict, final direction)
+book (总纲: worldline and character-destiny axes, causal stages, final state)
   volume
-    arc / segment
-      chapter
-        scene
-          prose candidates
+    part
+      act (optional)
+        chapter
+          scene
+      chapter (may belong directly to the part)
 ```
 
-The chapter is the minimum delivery unit; the scene is the minimum generation unit. The lifecycle is:
+Each chapter has a chapter outline, an independent chapter-prose document, and ordered scenes. A
+chapter has exactly one parent (`part` or `act`); an act belongs to one part. The chapter is the
+minimum serial-delivery unit, while the scene is the minimum AI-generation unit. The lifecycle is:
 
 ```text
 prepare -> generate candidates -> accept scenes -> check chapter
@@ -97,6 +120,27 @@ prepare -> generate candidates -> accept scenes -> check chapter
 Selecting a candidate does not accept prose. Accepting a scene does not finalize a chapter.
 Finalization first produces a reviewable change set; applying it is atomic and records the affected
 files, source chapter, before/after hashes, and recovery information.
+
+Chapter prose has three states:
+
+- `draft`: the author may edit freely and accepted scene prose is appended in scene order;
+- `final`: AI generation and all scene edits are rejected, while the author may make small direct
+  changes to the chapter prose;
+- `published`: the prose is immutable. Publication requires two author confirmations, deletes that
+  chapter's scene prompts and AI run outputs, clears scene working prose, and preserves scene
+  outlines plus the published chapter prose.
+
+The chapter prose and its ordered scenes are sibling children in the story tree. A chapter may have
+no scenes at all: the author can write its prose directly. Accepting a scene writes its plain-text
+result into the chapter prose in scene order without headings or separator characters. Before
+publication, a volume, part, act, chapter, or scene may be deleted; deleting an outline recursively
+removes its unpublished descendants, chapter-prose files, and related runs. Any published chapter in
+the affected subtree blocks deletion.
+
+The `chapters/` directory stores the authoritative chapter prose independently from `scenes/`.
+Pre-0.2 `arc` and scene `section` fields remain read-compatible: `arc` is normalized to `part` in
+memory, and scene `section` is mapped to `chapter_id`. Loading never rewrites a legacy file; new
+writes use the current hierarchy.
 
 ## Core Modules
 
@@ -118,25 +162,56 @@ Character profiles record identity, voice, relationships, arcs, motivation ancho
 guards, and OOC constraints. Time-scoped state records knowledge, injury, clothing, inventory,
 relationships, and other continuity facts without overwriting the base profile.
 
-### Timeline, Locations, Resources, and Causality
+The authoritative relationship model is a set of independent `character_relation` phase cards, not
+the legacy `CharacterDoc.relationships` map. Each phase connects two character IDs and uses a
+half-open timeline interval `[starts_at, ends_at)`: it becomes active at `starts_at` and is no longer
+active when `ends_at` is reached. A pair may therefore move from one named relationship to another
+without overwriting history. The legacy map remains readable as import-compatible notes and is never
+silently migrated or treated as graph state.
 
-The timeline is a forward event chain. Locations form a graph whose edges record distance, route,
-travel time, access, cost, and risk. Resource records model genre-specific budgets such as money,
-supplies, influence, energy, or time. Causality records connect prerequisites, actions, and
-consequences so checks can explain infeasible transitions.
+### Timeline, Locations, Characters, Resources, and Causality
+
+Timeline nodes form one deterministic forward chain and are precise to at least a month. A node may
+carry several concurrent events; fuzzy seasons are represented as month ranges rather than unordered
+labels. Location cards distinguish positioning from layouts across global, regional, city, district,
+estate, and interior scales. The desktop uses a scale strip, breadcrumbs, coordinate diagrams, and a
+compass fallback. Character and relationship cards bind birth, death, introduction, exit, relationship
+start, and relationship end to timeline nodes; the relationship graph filters itself at the selected
+time. Active relationships are drawn as labeled edges; directed phases use an arrow and mutual phases
+use an undirected line. Resource records model genre-specific budgets, while causality connects
+prerequisites, actions, and consequences.
 
 ### Outlines and Scenes
 
-Book, volume, arc, chapter, and scene outlines store level-appropriate constraints. Chapter plans
-hold promise, conflict, payoff, hook, foreshadowing, and continuity obligations. Scenes bind POV,
-time, location, participants, intended state changes, and the chapter obligation they serve.
+Overview, book, volume, part, optional act, chapter, and scene outlines store level-appropriate
+constraints. Chapter plans hold promise, conflict, payoff, hook, foreshadowing, and continuity
+obligations. Scenes bind writing focus, order, POV, time, location, participants, intended state
+changes, and the chapter obligation they serve.
+
+Before scene generation, the author sees a two-column prompt composer. The left column contains
+individually removable source cards for Canon, parent outlines, time, place, people, activated world
+knowledge, due foreshadowing, enabled narrative rules, shared guidance, and continuity warnings (with
+chapter and scene plans present by default). The right column contains the exact editable prompt saved
+with the run. Finalized or published prose from the current part or act, plus accepted prose from the
+current chapter, can be included as style and continuation sources.
+Generation output is validated as plain prose and rejects Markdown syntax.
 
 ### Foreshadowing, World, References, and Issues
 
 Foreshadowing is a ledger of planned plants, actual plants, reinforcement, resolution, expiry, and
-state. World entries are atomic lore records with triggers, validity windows, links, and provenance.
-References preserve research without becoming Canon. Issues keep unresolved decisions out of
-ephemeral AI exchanges.
+state. Its timeline, outline, keyword, and enabled-card conditions are evaluated deterministically for
+the current writing scope and produce author reminders without silently mutating the ledger. World
+entries are atomic lore records selected by exact textual triggers, explicit pins, and typed links.
+References preserve research without becoming Canon or entering prompts; their editor derives a live
+reverse index from every card's `source_refs`. Issues keep findings out of ephemeral AI exchanges and
+link to the cards that can be inspected, manually repaired, or discussed with AI.
+
+### Narrative Cards
+
+New style, pacing, dialogue, description, literary structure, and genre-boundary guidance is stored
+in one `narrative` card family. A narrative card affects prompts and AI checks only when enabled.
+Legacy `strategy` and `pattern` files remain readable as compatibility inputs and appear in the same
+Narrative collection, but new UI and AI/import proposals create `narrative` cards only.
 
 ### Runs and Candidates
 
@@ -202,10 +277,12 @@ notes nor summaries replace accepted prose.
 
 ## Consistency Checks
 
-Deterministic checks cover Canon conflict, timeline continuity, location reachability, character
-state and OOC guards, foreshadowing, world-entry validity, open issues, resources, causality, genre
-constraints, and chapter obligations. Semantic checks are additive and clearly labeled; their
-failure never erases deterministic findings.
+Deterministic checks cover planning-card graph integrity, timeline continuity, spatial hierarchy,
+time-scoped character relationships, foreshadowing reminder configuration, world-entry triggers,
+narrative-card completeness, Canon conflict, open issues, resources, causality, genre constraints,
+and chapter obligations. The project-level AI check is manual-only, omits references and disabled
+cards, and persists stable fingerprinted issue cards. Semantic checks are additive and clearly
+labeled; their failure never erases deterministic findings.
 
 ## Integration Boundary
 

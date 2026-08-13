@@ -10,7 +10,27 @@ export function normalizeLegacyOutlineCycleFields(value: unknown): unknown {
   if (!(CURRENT_CYCLE_KEY in normalized) && LEGACY_CYCLE_KEY in normalized) {
     normalized[CURRENT_CYCLE_KEY] = normalized[LEGACY_CYCLE_KEY]
   }
+  if (normalized['level'] === 'arc') normalized['level'] = 'part'
+  if (
+    normalized['level'] === 'book' &&
+    typeof normalized['title'] === 'string' &&
+    /(?:总览|overview)/iu.test(normalized['title'])
+  ) {
+    normalized['level'] = 'overview'
+  }
   delete normalized[LEGACY_CYCLE_KEY]
+  return normalized
+}
+
+export function normalizeLegacySceneFields(value: unknown): unknown {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return value
+  const normalized = { ...(value as Record<string, unknown>) }
+  if (!normalized['chapter_id'] && typeof normalized['section'] === 'string') {
+    normalized['chapter_id'] = normalized['section']
+  }
+  if (!normalized['section'] && typeof normalized['chapter_id'] === 'string') {
+    normalized['section'] = normalized['chapter_id']
+  }
   return normalized
 }
 

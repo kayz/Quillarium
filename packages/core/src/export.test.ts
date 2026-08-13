@@ -39,21 +39,20 @@ describe('manuscript export', () => {
         parent: 'book-main',
         order: 0
       })
-      await createOutline(project.root, 'act', 'Hidden Act', {
-        id: 'act-main',
-        parent: 'volume-main',
-        order: 0
-      })
-
-      // Create the lexically later arc first. Equal order must still resolve by stable ID.
+      // Create the lexically later part first. Equal order must still resolve by stable ID.
       await createOutline(project.root, 'arc', 'Hidden Arc Z', {
         id: 'arc-z',
-        parent: 'act-main',
+        parent: 'volume-main',
         order: 7
+      })
+      await createOutline(project.root, 'act', 'Hidden Act Z', {
+        id: 'act-z',
+        parent: 'arc-z',
+        order: 0
       })
       await createOutline(project.root, 'chapter', 'Chapter Z', {
         id: 'chapter-z',
-        parent: 'arc-z',
+        parent: 'act-z',
         order: 0
       })
       await createOutline(project.root, 'section', 'Section Z', {
@@ -63,7 +62,7 @@ describe('manuscript export', () => {
       })
       await createOutline(project.root, 'arc', 'Hidden Arc A', {
         id: 'arc-a',
-        parent: 'act-main',
+        parent: 'volume-main',
         order: 7
       })
       await createOutline(project.root, 'chapter', 'Chapter A', {
@@ -217,11 +216,12 @@ describe('manuscript export', () => {
       expect(markdown.indexOf('Legacy CLI scene')).toBeLessThan(markdown.indexOf('Final scene'))
       expect(markdown).toContain('# The Book')
       expect(markdown).toContain('## Volume One')
-      expect(markdown).toContain('### Chapter A')
-      expect(markdown).toContain('#### Section A')
+      expect(markdown).toContain('### Hidden Arc A')
+      expect(markdown).toContain('##### Chapter A')
+      expect(markdown).toContain('###### Section A')
       expect(markdown).toContain('##### Alpha accepted scene')
-      expect(markdown).not.toContain('Hidden Act')
-      expect(markdown).not.toContain('Hidden Arc')
+      expect(markdown).toContain('#### Hidden Act Z')
+      expect(markdown).toContain('### Hidden Arc Z')
       expect(markdown).not.toContain('FINAL FALLBACK MUST NOT LEAK')
       expect(markdown).not.toContain('NEWER LEGACY MUST NOT WIN')
       expect(markdown).not.toContain('DRAFT MUST NOT LEAK')
@@ -265,18 +265,26 @@ describe('manuscript export', () => {
         parent: 'book-filter',
         order: 0
       })
+      await createOutline(project.root, 'part', 'First Part', {
+        id: 'part-one',
+        parent: 'volume-one'
+      })
       await createOutline(project.root, 'chapter', 'Chapter One', {
         id: 'chapter-one',
-        parent: 'volume-one'
+        parent: 'part-one'
       })
       await createOutline(project.root, 'volume', 'Volume Two ../危局:*?', {
         id: 'volume-two',
         parent: 'book-filter',
         order: 1
       })
+      await createOutline(project.root, 'part', 'Second Part', {
+        id: 'part-two',
+        parent: 'volume-two'
+      })
       await createOutline(project.root, 'act', 'Second Act', {
         id: 'act-two',
-        parent: 'volume-two'
+        parent: 'part-two'
       })
       await createOutline(project.root, 'chapter', 'Chapter Two', {
         id: 'chapter-two',
@@ -344,9 +352,16 @@ describe('manuscript export', () => {
     const tmp = await mkdtemp(path.join(os.tmpdir(), 'quillarium-project-heading-export-'))
     try {
       const project = await createTestProject(tmp, 'outline-light-story', 'Outline-light Story')
-      await createOutline(project.root, 'chapter', 'Standalone Chapter', {
-        id: 'standalone-chapter'
-      })
+      await createOutline(
+        project.root,
+        'chapter',
+        'Standalone Chapter',
+        {
+          id: 'standalone-chapter'
+        },
+        '',
+        { placement: 'legacy-import' }
+      )
       await createTestScene(
         project.root,
         'Standalone final scene',
@@ -361,7 +376,7 @@ describe('manuscript export', () => {
       const result = await exportManuscript(project.root)
       const markdown = await readText(result.markdown_path)
 
-      expect(markdown).toMatch(/^# Outline-light Story\n\n### Standalone Chapter/m)
+      expect(markdown).toMatch(/^# Outline-light Story\n\n##### Standalone Chapter/m)
       expect(result.exported_scenes.map((item) => item.scene_id)).toEqual(['standalone-scene'])
       expect(result.gaps).toEqual([])
     } finally {

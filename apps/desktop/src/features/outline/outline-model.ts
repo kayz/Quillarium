@@ -6,10 +6,8 @@ import {
   FileText,
   Library,
   MapPin,
-  PenLine,
   Sparkles,
-  UserRound,
-  WandSparkles
+  UserRound
 } from 'lucide-react'
 import type {
   DocEntry,
@@ -26,6 +24,13 @@ import {
   outlineLevelLabel,
   outlineSortKey
 } from '../../shared/outline.js'
+import {
+  documentTypeLabel,
+  enumChoiceLabel,
+  enumOptionsForField,
+  fieldLabel as localizedFieldLabel,
+  outlineLevelDisplayLabel
+} from '../metadata/field-presentation.js'
 
 export interface OutlineSectionDefinition<T extends string> {
   id: T
@@ -40,10 +45,30 @@ export interface OutlineSectionDefinition<T extends string> {
 
 export const OUTLINE_HOME_SECTIONS: Array<OutlineSectionDefinition<OutlineHomeSection>> = [
   {
+    id: 'overview',
+    title: '总览',
+    short: '览',
+    heading: '作品总览',
+    enTitle: 'Overview',
+    enShort: 'O',
+    enHeading: 'Story overview',
+    icon: Sparkles
+  },
+  {
+    id: 'book',
+    title: '总纲',
+    short: '纲',
+    heading: '全书总纲',
+    enTitle: 'Book outline',
+    enShort: 'B',
+    enHeading: 'Book outline',
+    icon: BookOpen
+  },
+  {
     id: 'volumes',
-    title: '卷纲',
+    title: '卷',
     short: '卷',
-    heading: '全书卷纲',
+    heading: '全书各卷',
     enTitle: 'Volumes',
     enShort: 'V',
     enHeading: 'Volume outlines',
@@ -110,24 +135,14 @@ export const OUTLINE_HOME_SECTIONS: Array<OutlineSectionDefinition<OutlineHomeSe
     icon: Sparkles
   },
   {
-    id: 'style',
-    title: '文风',
-    short: '文',
-    heading: '文笔与文风',
-    enTitle: 'Style',
-    enShort: 'S',
-    enHeading: 'Prose and style',
-    icon: PenLine
-  },
-  {
-    id: 'patterns',
-    title: '模式',
-    short: '模',
-    heading: '故事与提示词模式',
-    enTitle: 'Patterns',
-    enShort: 'P',
-    enHeading: 'Story and prompt patterns',
-    icon: WandSparkles
+    id: 'narrative',
+    title: '叙事',
+    short: '叙',
+    heading: '叙事风格与结构',
+    enTitle: 'Narrative',
+    enShort: 'N',
+    enHeading: 'Narrative style and structure',
+    icon: Sparkles
   },
   {
     id: 'issues',
@@ -153,13 +168,13 @@ export const OUTLINE_HOME_SECTIONS: Array<OutlineSectionDefinition<OutlineHomeSe
 
 export const VOLUME_SECTIONS: Array<OutlineSectionDefinition<VolumeSection>> = [
   {
-    id: 'arcs',
-    title: '段纲',
-    short: '段',
-    heading: '本卷段纲',
-    enTitle: 'Arcs',
-    enShort: 'A',
-    enHeading: 'Volume arcs',
+    id: 'parts',
+    title: '篇',
+    short: '篇',
+    heading: '本卷各篇',
+    enTitle: 'Parts',
+    enShort: 'P',
+    enHeading: 'Volume parts',
     icon: BookOpen
   },
   {
@@ -223,24 +238,14 @@ export const VOLUME_SECTIONS: Array<OutlineSectionDefinition<VolumeSection>> = [
     icon: Sparkles
   },
   {
-    id: 'style',
-    title: '文风',
-    short: '文',
-    heading: '本卷文笔与文风',
-    enTitle: 'Style',
-    enShort: 'S',
-    enHeading: 'Volume prose and style',
-    icon: PenLine
-  },
-  {
-    id: 'patterns',
-    title: '模式',
-    short: '模',
-    heading: '本卷故事与提示词模式',
-    enTitle: 'Patterns',
-    enShort: 'P',
-    enHeading: 'Volume story and prompt patterns',
-    icon: WandSparkles
+    id: 'narrative',
+    title: '叙事',
+    short: '叙',
+    heading: '本卷叙事风格与结构',
+    enTitle: 'Narrative',
+    enShort: 'N',
+    enHeading: 'Volume narrative style and structure',
+    icon: Sparkles
   },
   {
     id: 'issues',
@@ -281,35 +286,51 @@ export function outlineSectionDocs(docs: DocEntry[], section: OutlineHomeSection
     timeline: 'timeline_event',
     locations: 'location',
     foreshadowing: 'foreshadowing',
-    patterns: 'pattern',
+    narrative: 'narrative',
     issues: 'issue',
     references: 'reference'
+  }
+  if (section === 'overview' || section === 'book') {
+    return docs.filter((doc) => doc.data.type === 'outline' && doc.data.level === section)
   }
   if (section === 'volumes') {
     return docs
       .filter((doc) => doc.data.type === 'outline' && doc.data.level === 'volume')
       .sort((a, b) => outlineSortKey(a).localeCompare(outlineSortKey(b)))
   }
-  if (section === 'style') {
+  if (section === 'narrative') {
     return docs.filter(
       (doc) =>
+        doc.data.type === 'narrative' ||
         (doc.data.type === 'pattern' && doc.data.kind === 'writing') ||
-        (doc.data.type === 'strategy' && doc.data.category === 'style')
+        doc.data.type === 'pattern' ||
+        doc.data.type === 'strategy'
     )
+  }
+  if (section === 'timeline') {
+    return docs.filter((doc) => doc.data.type === 'timeline_node' || doc.data.type === 'timeline_event')
+  }
+  if (section === 'characters') {
+    return docs.filter((doc) => doc.data.type === 'character' || doc.data.type === 'character_relation')
   }
   const type = typeMap[section]
   return docs.filter((doc) => doc.data.type === type)
 }
 
 export function volumeSectionDocs(docs: DocEntry[], volume: DocEntry, section: VolumeSection): DocEntry[] {
-  if (section === 'arcs') {
+  if (section === 'parts') {
     return docs
       .filter(
-        (doc) => doc.data.type === 'outline' && doc.data.level === 'arc' && doc.data.parent === volume.data.id
+        (doc) =>
+          doc.data.type === 'outline' &&
+          (doc.data.level === 'part' || doc.data.level === 'arc') &&
+          doc.data.parent === volume.data.id
       )
       .sort((a, b) => outlineSortKey(a).localeCompare(outlineSortKey(b)))
   }
-  return outlineSectionDocs(docs, section).filter((doc) => isDocUsedByVolume(docs, volume, doc))
+  return outlineSectionDocs(docs, section as OutlineHomeSection).filter((doc) =>
+    isDocUsedByVolume(docs, volume, doc)
+  )
 }
 
 export function countVolumeSection(docs: DocEntry[], volume: DocEntry, section: VolumeSection): number {
@@ -408,9 +429,13 @@ export function createInputForOutlineSection(
   project: ProjectListItem
 ): { kind: string; data: Record<string, unknown> } {
   const content = `## ${title}\n`
+  if (section === 'overview' || section === 'book') {
+    return { kind: 'outline', data: { title, level: section, parent: null, order: 0, content } }
+  }
   if (section === 'volumes') {
     const siblings = docs.filter((doc) => doc.data.type === 'outline' && doc.data.level === 'volume')
-    const book = docs.find((doc) => doc.data.type === 'outline' && doc.data.level === 'book')
+    const books = docs.filter((doc) => doc.data.type === 'outline' && doc.data.level === 'book')
+    const book = books.find((doc) => String(doc.data.title).includes(outlineLevelLabel('book'))) ?? books[0]
     return {
       kind: 'outline',
       data: {
@@ -430,94 +455,55 @@ export function createInputForOutlineSection(
   if (section === 'timeline') return { kind: 'timeline_event', data: { title, content } }
   if (section === 'locations') return { kind: 'location', data: { title, content } }
   if (section === 'foreshadowing') return { kind: 'foreshadowing', data: { title, content } }
-  if (section === 'style') {
+  if (section === 'narrative') {
     return {
-      kind: 'pattern',
-      data: { title, content, kind: 'writing', scope: 'project', source: 'user', applies_to: ['style'] }
+      kind: 'narrative',
+      data: { title, content, category: 'style', scope: 'project', source: 'user', enabled: false }
     }
   }
-  if (section === 'patterns') return { kind: 'pattern', data: { title, content, kind: 'story' } }
   if (section === 'issues') return { kind: 'issue', data: { title, content, priority: 'medium' } }
   return { kind: 'reference', data: { title, content } }
 }
 
-export function docTypeLabel(doc: DocEntry): string {
-  if (doc.data.type === 'outline') return outlineLevelLabel(String(doc.data.level))
-  const labels: Record<string, string> = {
-    canon: '正设',
-    world_entry: '世界书',
-    character: '人物',
-    timeline_event: '时间线',
-    location: '地点',
-    foreshadowing: '伏笔',
-    pattern: doc.data.kind === 'writing' ? '文风' : '模式',
-    strategy: '策略',
-    issue: '问题',
-    reference: '参考',
-    scene: '正文'
-  }
-  return labels[String(doc.data.type)] ?? String(doc.data.type)
+export function docTypeLabel(doc: DocEntry, language: LanguageName = 'zh'): string {
+  if (doc.data.type === 'outline')
+    return outlineLevelDisplayLabel(String(doc.data.level ?? 'outline'), language)
+  return documentTypeLabel(String(doc.data.type), language)
 }
 
-export function structuredLineForSection(doc: DocEntry): string {
+export function structuredLineForSection(doc: DocEntry, language: LanguageName = 'zh'): string {
   const keysByType: Record<string, string[]> = {
     canon: ['strength', 'source'],
     world_entry: ['triggers', 'role', 'valid_from', 'importance'],
     character: ['role', 'desire', 'fear'],
+    character_relation: ['relation_type', 'starts_at', 'ends_at'],
+    timeline_node: ['display_time', 'precision', 'fuzzy'],
     timeline_event: ['date', 'location', 'characters'],
-    location: ['parent_location', 'description'],
+    location: ['kind', 'scale', 'parent_location'],
     foreshadowing: ['level', 'state', 'planned_plant', 'planned_resolve'],
     pattern: ['kind', 'scope', 'source', 'applies_to'],
     strategy: ['category', 'scope', 'principles'],
+    narrative: ['category', 'scope', 'source'],
     issue: ['priority', 'state', 'decision_needed'],
     reference: ['material_type', 'reading_status', 'location'],
     outline: ['volume_goal', 'reader_payoff', 'event_chain']
   }
   const keys = keysByType[String(doc.data.type)] ?? ['status']
+  const context = { documentType: String(doc.data.type) }
   return keys
     .map((key) => {
-      const value = formatFieldValue(doc.data[key])
-      return value ? `${fieldLabel(key)}: ${value}` : ''
+      const raw = doc.data[key]
+      const value =
+        typeof raw === 'string' && enumOptionsForField(key, context)
+          ? enumChoiceLabel(key, raw, language, context)
+          : formatFieldValue(raw)
+      return value ? `${localizedFieldLabel(key, language, context)}: ${value}` : ''
     })
     .filter(Boolean)
     .slice(0, 3)
     .join(' · ')
 }
 
-export function fieldLabel(key: string): string {
-  const labels: Record<string, string> = {
-    title: '标题',
-    status: '状态',
-    tags: '标签',
-    strength: '强度',
-    source: '来源',
-    triggers: '触发词',
-    role: '作用',
-    valid_from: '起',
-    importance: '重要度',
-    desire: '欲望',
-    fear: '恐惧',
-    date: '日期',
-    location: '地点',
-    characters: '人物',
-    parent_location: '上级地点',
-    description: '描述',
-    level: '级别',
-    state: '状态',
-    planned_plant: '计划埋设',
-    planned_resolve: '计划回收',
-    kind: '类型',
-    scope: '范围',
-    applies_to: '适用',
-    category: '分类',
-    principles: '原则',
-    priority: '优先级',
-    decision_needed: '待确认',
-    material_type: '资料类型',
-    reading_status: '阅读状态',
-    volume_goal: '本卷目标',
-    reader_payoff: '兑现',
-    event_chain: '事件链'
-  }
-  return labels[key] ?? key
+export function fieldLabel(key: string, language: LanguageName = 'zh'): string {
+  return localizedFieldLabel(key, language)
 }

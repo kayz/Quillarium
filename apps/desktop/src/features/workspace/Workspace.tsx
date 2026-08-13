@@ -23,16 +23,16 @@ import { formatDesktopError } from '../../shared/errors.js'
 import { bridge } from '../../app/bridge.js'
 import {
   buildOutlinePath,
+  buildOutlineHierarchy,
   buildScenePath,
   filterDocs,
   findAncestor,
   firstSelectableForLevel,
   isWorkLevel,
+  nextWorkLevel,
   outlineItemsForLevel,
-  outlineLevelLabel,
   outlineSortKey
 } from '../../shared/outline.js'
-import { formatImportResult } from '../../shared/text.js'
 import { WorkspaceView } from './WorkspaceView.js'
 
 export function Workspace({
@@ -76,19 +76,17 @@ export function Workspace({
   const [middlePct, setMiddlePct] = useState(58)
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>('planning')
   const [workspacePage, setWorkspacePage] = useState<WorkspacePage>('outline')
-  const [outlineSection, setOutlineSection] = useState<OutlineHomeSection>('volumes')
-  const [volumeSection, setVolumeSection] = useState<VolumeSection>('arcs')
+  const [outlineSection, setOutlineSection] = useState<OutlineHomeSection>('overview')
+  const [volumeSection, setVolumeSection] = useState<VolumeSection>('parts')
   const [activeVolumeId, setActiveVolumeId] = useState<string | null>(null)
   const [workLevel, setWorkLevel] = useState<WorkLevel>('book')
   const [viewMode, setViewMode] = useState<ViewMode>('list')
   const [leftMode, setLeftMode] = useState<LeftMode>('write')
   const [search, setSearch] = useState('')
   const [importOpen, setImportOpen] = useState(false)
-  const [importTitle, setImportTitle] = useState('')
-  const [importText, setImportText] = useState('')
-  const [importMessage, setImportMessage] = useState('')
   const [gitMessage, setGitMessage] = useState('')
   const [actionError, setActionError] = useState('')
+  const [assembledPrompt, setAssembledPrompt] = useState('')
 
   const load = async () => {
     const loaded = await bridge.loadProject(root)
@@ -97,8 +95,15 @@ export function Workspace({
     setGit(await bridge.gitStatus(root))
     const scenes = loaded.docs.filter((item: DocEntry) => item.data.type === 'scene')
     const outlines = loaded.docs.filter((item: DocEntry) => item.data.type === 'outline')
-    if (!selectedTarget && outlines[0]) setSelectedTarget({ type: 'outline', id: outlines[0].data.id })
-    else if (!selectedTarget && scenes[0]) setSelectedTarget({ type: 'scene', id: scenes[0].data.id })
+    const initialOutline =
+      outlines.find((item: DocEntry) => item.data.level === 'overview') ??
+      outlines.find((item: DocEntry) => item.data.level === 'book') ??
+      outlines[0]
+    if (!selectedTarget && initialOutline) {
+      setSelectedTarget({ type: 'outline', id: initialOutline.data.id })
+      const level = String(initialOutline.data.level)
+      if (isWorkLevel(level)) setWorkLevel(level)
+    } else if (!selectedTarget && scenes[0]) setSelectedTarget({ type: 'scene', id: scenes[0].data.id })
   }
 
   useEffect(() => {
@@ -121,6 +126,15 @@ export function Workspace({
         : null,
     [data, selectedTarget?.type, selectedTarget?.id]
   )
+  const selectedProse = useMemo(
+    () =>
+      selectedTarget?.type === 'chapter_prose'
+        ? (data?.docs.find(
+            (item) => item.data.id === selectedTarget.id && item.data.type === 'chapter_prose'
+          ) ?? null)
+        : null,
+    [data, selectedTarget?.type, selectedTarget?.id]
+  )
   const selectedEntry = useMemo(
     () =>
       data?.docs.find(
@@ -138,7 +152,7 @@ export function Workspace({
       }
       if (event.key.toLowerCase() === 'g') {
         event.preventDefault()
-        void generate()
+        if (workLevel === 'ai' && assembledPrompt.trim()) void generateFromPrompt(assembledPrompt)
       }
       if (event.key.toLowerCase() === 'k') {
         event.preventDefault()
@@ -147,7 +161,7 @@ export function Workspace({
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [doc, selectedScene?.data.id, selectedOutline?.data.id])
+  }, [doc, selectedScene?.data.id, selectedOutline?.data.id, workLevel, assembledPrompt])
 
   useEffect(() => {
     async function openTarget() {
@@ -191,18 +205,43 @@ export function Workspace({
         : null) ??
     volumes[0] ??
     null
+  const proseChapter = selectedProse
+    ? (docs.find((item) => item.data.type === 'outline' && item.data.id === selectedProse.data.chapter_id) ??
+      null)
+    : null
   const projectPath = selectedScene
     ? buildScenePath(docs, selectedScene, language)
-    : selectedOutline
-      ? buildOutlinePath(docs, selectedOutline)
-      : '大纲'
+    : proseChapter
+      ? `${buildOutlinePath(docs, proseChapter)} / ${language === 'zh' ? '章正文' : 'Chapter prose'}`
+      : selectedOutline
+        ? buildOutlinePath(docs, selectedOutline)
+        : language === 'zh'
+          ? '规划'
+          : 'Planning'
   const writingOutline =
     selectedOutline ??
     (selectedScene
-      ? (docs.find((item) => item.data.type === 'outline' && item.data.id === selectedScene.data.section) ??
-        null)
-      : null)
-  const visibleItems = outlineItemsForLevel(docs, workLevel, selectedOutline, selectedTarget)
+      ? (docs.find(
+          (item) =>
+            item.data.type === 'outline' &&
+            item.data.id === (selectedScene.data.chapter_id ?? selectedScene.data.section)
+        ) ?? null)
+      : null) ??
+    proseChapter
+  const hierarchy = buildOutlineHierarchy(docs)
+  const childLevel = nextWorkLevel(workLevel)
+  const visibleItems =
+    selectedOutline && workLevel === 'part'
+      ? (hierarchy.children.get(selectedOutline.data.id) ?? []).filter((item) =>
+          ['act', 'chapter'].includes(String(item.data.level))
+        )
+      : selectedOutline && childLevel && childLevel !== 'ai'
+        ? (hierarchy.children.get(selectedOutline.data.id) ?? []).filter(
+            (item) => item.data.level === childLevel || (childLevel === 'part' && item.data.level === 'arc')
+          )
+        : (workLevel === 'overview' || workLevel === 'book') && !selectedOutline
+          ? outlineItemsForLevel(docs, workLevel, null, null)
+          : []
   const filteredItems = filterDocs(visibleItems, search)
   const finalizedScenes = docs.filter((item) => item.data.type === 'scene' && item.data.status === 'final')
 
@@ -212,59 +251,97 @@ export function Workspace({
     try {
       await action()
     } catch (error) {
-      setActionError(formatDesktopError(error))
+      setActionError(formatDesktopError(error, language))
     } finally {
       setBusy(false)
     }
   }
 
-  const save = async () => {
+  const persistCurrentDoc = async () => {
     if (!doc) return
+    if (!String(doc.data.title ?? '').trim()) {
+      throw new Error(language === 'zh' ? '名称不能为空。' : 'Name cannot be empty.')
+    }
+    const nextData = { ...doc.data, title: String(doc.data.title).trim() }
+    await bridge.saveDocBody(doc.path, nextData, doc.content)
+    setDoc({ ...doc, data: nextData })
+    setDirty(false)
+  }
+
+  const reloadCurrentDoc = async () => {
+    if (!doc) return
+    const parsed = await bridge.readDoc(doc.path)
+    setDoc({ ...parsed, path: doc.path })
+    setDirty(false)
+  }
+
+  const save = async () => {
     await runWorkspaceAction(async () => {
-      await bridge.saveDocBody(doc.path, doc.data, doc.content)
-      setDirty(false)
+      await persistCurrentDoc()
       await load()
     })
   }
 
-  const runCheck = async () => {
+  const finalizeChapterProse = async (chapterId: string) => {
+    await runWorkspaceAction(async () => {
+      await persistCurrentDoc()
+      await bridge.finalizeChapter(root, chapterId)
+      await load()
+      await reloadCurrentDoc()
+    })
+  }
+
+  const publishChapterProse = async (chapterId: string, confirmation: string) => {
+    await runWorkspaceAction(async () => {
+      await persistCurrentDoc()
+      await bridge.publishChapter(root, chapterId, confirmation)
+      await load()
+      await reloadCurrentDoc()
+    })
+  }
+
+  const runCheck = async (contentOverride?: string) => {
     if (!selectedTarget) return
     await runWorkspaceAction(async () => {
+      if (selectedTarget.type === 'scene' && contentOverride === undefined && dirty) {
+        await persistCurrentDoc()
+      }
       const result =
         selectedTarget.type === 'scene'
-          ? await bridge.checkSceneIntoRun(root, selectedTarget.id)
+          ? await bridge.checkSceneIntoRun(root, selectedTarget.id, contentOverride)
           : await bridge.checkTarget(root, selectedTarget)
       setCheckReport(result.report)
       await load()
     })
   }
 
-  const runSemanticCheck = async () => {
-    if (!selectedScene) return
+  const runProjectPlanningCheck = async () => {
     await runWorkspaceAction(async () => {
-      setCheckReport(await bridge.semanticCheckScene(root, selectedScene.data.id))
+      if (dirty) await persistCurrentDoc()
+      const summary = await bridge.checkPlanningCards(root, language)
+      await load()
+      setWorkspaceMode('planning')
+      setWorkspacePage('outline')
+      setOutlineSection('issues')
+      setDoc(null)
+      const issueId = summary.created_issue_ids[0] ?? summary.updated_issue_ids[0]
+      setSelectedTarget(issueId ? { type: 'issue', id: issueId } : null)
+      setRightOpen(Boolean(issueId))
+      const findings = summary.rule_findings + summary.ai_findings
+      setGitMessage(
+        language === 'zh'
+          ? `AI 检查完成：检查 ${summary.checked_cards} 项，发现 ${findings} 个问题；新建 ${summary.created_issue_ids.length} 张问题卡，更新 ${summary.updated_issue_ids.length} 张，跳过 ${summary.skipped_disabled} 张未启用卡片。`
+          : `AI check complete: checked ${summary.checked_cards}, found ${findings}; created ${summary.created_issue_ids.length} issue cards, updated ${summary.updated_issue_ids.length}, and skipped ${summary.skipped_disabled} disabled cards.`
+      )
     })
   }
 
-  const dryRun = async () => {
-    if (!selectedScene) return
+  const generateFromPrompt = async (prompt: string) => {
+    if (!writingOutline || writingOutline.data.level !== 'chapter' || !prompt.trim()) return
     await runWorkspaceAction(async () => {
-      await bridge.generateDryRun(root, selectedScene.data.id)
+      await bridge.generateOutline(root, writingOutline.data.id, prompt, selectedScene?.data.id)
       await load()
     })
-  }
-
-  const generate = async () => {
-    if (!selectedTarget) return
-    await runWorkspaceAction(async () => {
-      if (selectedTarget.type === 'outline') await bridge.generateOutline(root, selectedTarget.id)
-      else await bridge.generate(root, selectedTarget.id)
-      await load()
-    })
-  }
-
-  const rewrite = async () => {
-    await generate()
   }
 
   const createGitHubRepo = async () => {
@@ -274,7 +351,7 @@ export function Workspace({
       setGit(await bridge.githubCreateRepoForProject(root))
       setGitMessage('已创建私有 GitHub 仓库，并完成初次同步。')
     } catch (err) {
-      setGitMessage(formatDesktopError(err))
+      setGitMessage(formatDesktopError(err, language))
       setGit(await bridge.gitStatus(root))
     } finally {
       setGitBusy(false)
@@ -288,7 +365,7 @@ export function Workspace({
       setGit(await bridge.gitSync(root, `Update ${data.project.title}`))
       setGitMessage('GitHub 同步完成。')
     } catch (err) {
-      setGitMessage(formatDesktopError(err))
+      setGitMessage(formatDesktopError(err, language))
       setGit(await bridge.gitStatus(root))
     } finally {
       setGitBusy(false)
@@ -304,26 +381,59 @@ export function Workspace({
   const selectWorkLevel = (level: WorkLevel) => {
     setWorkLevel(level)
     setLeftMode('write')
-    const next = firstSelectableForLevel(docs, level, selectedOutline)
+    const next = firstSelectableForLevel(docs, level === 'ai' ? 'chapter' : level, selectedOutline)
     if (next) setSelectedTarget({ type: 'outline', id: next.data.id })
+    else setSelectedTarget(null)
   }
 
   const selectWritingTarget = (target: TargetSelection) => {
-    setSelectedTarget(target)
     setActiveModule('write')
-    if (target.type === 'scene') {
+    if (target.view === 'prose') {
+      setSelectedTarget(target)
       setWorkLevel('chapter')
+      const existing = data.docs.find(
+        (item) => item.data.type === 'chapter_prose' && item.data.chapter_id === target.id
+      )
+      if (existing) {
+        setSelectedTarget({ type: 'chapter_prose', id: existing.data.id })
+        return
+      }
+      void (async () => {
+        setBusy(true)
+        setActionError('')
+        try {
+          const lifecycle = await bridge.loadChapterLifecycle(root, target.id)
+          const loaded = await bridge.loadProject(root)
+          setData({ ...loaded, project: { ...loaded.project, root } })
+          setDoc({
+            path: lifecycle.prose.path,
+            data: lifecycle.prose.data as unknown as Record<string, unknown>,
+            content: lifecycle.prose.content
+          })
+          setSelectedTarget({ type: 'chapter_prose', id: lifecycle.prose.data.id })
+          setDirty(false)
+        } catch (error) {
+          setActionError(formatDesktopError(error, language))
+        } finally {
+          setBusy(false)
+        }
+      })()
+      return
+    }
+    setSelectedTarget(target)
+    if (target.view === 'ai' || target.type === 'scene') {
+      setWorkLevel('ai')
       return
     }
     const targetOutline = docs.find((item) => item.data.type === 'outline' && item.data.id === target.id)
     const level = String(targetOutline?.data.level ?? '')
     if (level === 'section') setWorkLevel('chapter')
+    else if (level === 'arc') setWorkLevel('part')
     else if (isWorkLevel(level)) setWorkLevel(level)
   }
 
-  const createOutlineAtLevel = async (level: WorkLevel, parent?: string | null) => {
-    const title = window.prompt(`新建${outlineLevelLabel(level)}名称`)
-    if (!title?.trim()) return
+  const createOutlineAtLevel = async (level: WorkLevel, title: string, parent?: string | null) => {
+    if (level === 'ai' || !title.trim()) return
     const siblings = docs.filter(
       (item) =>
         item.data.type === 'outline' && item.data.level === level && item.data.parent === (parent ?? null)
@@ -342,30 +452,38 @@ export function Workspace({
     setWorkLevel(level)
   }
 
-  const importMarkdownFromText = async () => {
-    if (!importText.trim()) return
-    setBusy(true)
-    try {
-      const result = await bridge.importMarkdownText(root, importText, importTitle)
-      setImportMessage(formatImportResult(result))
-      setImportText('')
-      setImportTitle('')
-      setImportOpen(false)
-      await load()
-    } finally {
-      setBusy(false)
-    }
-  }
-
   const deleteSelectedDoc = async () => {
     if (!doc) return
-    const ok = window.confirm(`删除「${String(doc.data.title ?? '当前文档')}」？此操作会删除 Markdown 文件。`)
+    const type = String(doc.data.type ?? '')
+    const level = String(doc.data.level ?? '')
+    const isBranch =
+      type === 'outline' && ['volume', 'part', 'arc', 'act', 'chapter', 'section'].includes(level)
+    const acceptedScene = type === 'scene' && Boolean(doc.data.accepted_at)
+    const title = String(doc.data.title ?? '当前文档')
+    const ok = window.confirm(
+      isBranch
+        ? `删除「${title}」及其全部下级内容？只要其中没有已发布正文，卷、篇、幕、章、节及相关运行记录都会一并删除。`
+        : acceptedScene
+          ? `删除节「${title}」？它的节文件和运行记录会删除；已经写入章正文的文字会保留，供你在章正文中手工调整。`
+          : `删除「${title}」？此操作会删除对应文件和相关运行记录。`
+    )
     if (!ok) return
-    await bridge.deleteDoc(doc.path)
-    setDoc(null)
-    setSelectedTarget(null)
-    setRightOpen(false)
-    await load()
+    const parentId =
+      type === 'scene'
+        ? String(doc.data.chapter_id ?? doc.data.section ?? '')
+        : typeof doc.data.parent === 'string'
+          ? doc.data.parent
+          : ''
+    const parent = docs.find((item) => item.data.type === 'outline' && item.data.id === parentId)
+    await runWorkspaceAction(async () => {
+      await bridge.deleteDoc(doc.path)
+      setDoc(null)
+      setSelectedTarget(parent ? { type: 'outline', id: parent.data.id } : null)
+      const parentLevel = String(parent?.data.level ?? '')
+      if (isWorkLevel(parentLevel)) setWorkLevel(parentLevel)
+      setRightOpen(false)
+      await load()
+    })
   }
 
   return (
@@ -403,11 +521,9 @@ export function Workspace({
         middlePct,
         outlineSection,
         importOpen,
-        importTitle,
-        importText,
-        importMessage,
         gitMessage,
-        actionError
+        actionError,
+        assembledPrompt
       }}
       actions={{
         createGitHubRepo,
@@ -423,11 +539,12 @@ export function Workspace({
         setDoc,
         setDirty,
         save,
+        finalizeChapterProse,
+        publishChapterProse,
         runCheck,
-        runSemanticCheck,
-        generate,
-        dryRun,
-        rewrite,
+        runProjectPlanningCheck,
+        setAssembledPrompt,
+        generateFromPrompt,
         setImportOpen,
         createDoc,
         load,
@@ -439,9 +556,10 @@ export function Workspace({
         setRightOpen,
         setMiddlePct,
         deleteSelectedDoc,
-        setImportTitle,
-        setImportText,
-        importMarkdownFromText
+        clearNotice: () => {
+          setActionError('')
+          setGitMessage('')
+        }
       }}
     />
   )

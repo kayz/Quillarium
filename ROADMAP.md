@@ -25,19 +25,52 @@ tests.
 
 ## Completed Gate: Desktop Planning Baseline
 
-Completed on 2026-08-12 for the `0.2.0-alpha.2` milestone.
+Completed on 2026-08-12 on the `0.2.0-alpha.1` adjustment line.
 
 - Reduce the welcome surface to GitHub writing-library registration and direct project selection;
   keep legacy layout support in compatibility services rather than the primary onboarding UI.
 - Move theme, density, and language into settings, with independent save actions for display,
   GitHub, prose AI, background AI, and check AI configuration.
 - Replace blank planning-record creation with a background-AI conversation, schema-validated
-  editable proposal, and explicit atomic confirmation for nine planning document families.
+  editable proposal, and explicit atomic confirmation for ten planning document families.
 - Provide safe Markdown source/preview switching and reversible editing for nested or unknown
   frontmatter without executing raw HTML.
-- Keep Canon, outline, scene, accepted prose, and existing documents outside the AI creation flow.
+- Keep Canon, outline, scene, and accepted prose outside the AI planning flow; existing planning cards
+  require a separate explicit in-place edit action.
 
 ## Current Focus: P0 Explainable Chapter Production
+
+### Completed foundation: planning-card workbench
+
+Completed locally on 2026-08-13 for the active `0.2.0-alpha.1` adjustment line.
+
+- Treat planning records as typed cards with enablement, source-material references, and validated
+  card-to-card relations; keep reference bodies outside generation context.
+- Provide a linked time chain with concurrent events, a six-scale spatial explorer, and a draggable
+  time-filtered character relationship graph.
+- Activate world knowledge by keywords and explicit links, and evaluate foreshadowing reminder
+  conditions for the current writing scope.
+- Merge new style and pattern guidance into enabled narrative cards while retaining legacy readers.
+- Split scene prompts into independently removable source cards for Canon, outline, time, place,
+  people, world knowledge, foreshadowing, narrative rules, and accepted/final prose.
+- Run project AI checks only on explicit author action; skip disabled cards and source material, and
+  persist deduplicated findings as issue cards linked to repairable project records.
+- Keep every structured field localized with an explanation and preserve a restrained, resizable
+  editorial layout whose flexible space belongs to prose, diagrams, and relationship views.
+
+### Completed foundation: seven-level story lifecycle
+
+Completed locally on 2026-08-13 for the active `0.2.0-alpha.1` adjustment line.
+
+- Separate story overview from the book outline; use volume → part → optional act → chapter → scene.
+- Keep legacy `arc`/scene `section` readable without silent file rewrites.
+- Store authoritative chapter prose independently with draft/final/published state enforcement.
+- Generate and accept one ordered scene at a time; validate AI output as plain prose.
+- Compose prompts from removable source cards and include current-chapter continuation plus finalized
+  prose from the current part or act.
+- Require double confirmation for publication, then preserve scene outlines while deleting prompt
+  and AI run artifacts.
+- Provide large serif editors, character counts, and resizable prompt/prose panes.
 
 ### Context compiler
 

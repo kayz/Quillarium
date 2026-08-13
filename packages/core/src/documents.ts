@@ -1,14 +1,19 @@
 import path from 'node:path'
+import { rm } from 'node:fs/promises'
 import { ensureDir, listMarkdownFiles, pathExists, readMarkdown, readText, writeMarkdown } from './fs.js'
 import { makeId, slugify } from './ids.js'
+import { assertOutlinePlacementAgainst, normalizeOutlineLevel } from './outline-rules.js'
 import {
   baseDocSchema,
   canonSchema,
+  chapterProseSchema,
+  characterRelationSchema,
   characterStateSchema,
   characterSchema,
   foreshadowingSchema,
   issueSchema,
   locationSchema,
+  narrativeSchema,
   outlineSchema,
   patternSchema,
   referenceSchema,
@@ -16,19 +21,26 @@ import {
   sceneSchema,
   strategySchema,
   timelineEventSchema,
+  timelineNodeSchema,
   worldEntrySchema
 } from './schema.js'
 import type {
   BaseDoc,
   CanonDoc,
+  CharacterRelationDoc,
+  ChapterProseDoc,
   CharacterStateDoc,
   CharacterDoc,
   DocType,
+  DocumentIdentity,
   ForeshadowingDoc,
   IssueDoc,
   LocationDoc,
+  NarrativeDoc,
   OutlineDoc,
+  OutlineLevelInput,
   PatternDoc,
+  PlanningCardDoc,
   ProjectIndex,
   ProjectIndexEntry,
   ReferenceDoc,
@@ -36,14 +48,24 @@ import type {
   SceneDoc,
   StrategyDoc,
   TimelineEventDoc,
+  TimelineNodeDoc,
   WorldEntryDoc
 } from './types.js'
 import { loadProject, projectPaths } from './project.js'
 import { writeText } from './fs.js'
+import {
+  compareTimelineNodes,
+  parseStoryTime,
+  timelineNodeKey,
+  validateStoryTime,
+  validateTimelineChain
+} from './timeline.js'
 
 const TYPE_DIR: Record<DocType, string> = {
   canon: 'canon',
   character: 'characters',
+  character_relation: 'characters/relations',
+  timeline_node: 'timeline/nodes',
   timeline_event: 'timeline',
   location: 'locations',
   route: 'locations/routes',
@@ -53,10 +75,12 @@ const TYPE_DIR: Record<DocType, string> = {
   issue: 'issues',
   strategy: 'strategy',
   pattern: 'patterns',
+  narrative: 'narrative',
   character_state: 'character-states',
   resource: 'resources',
   causality: 'causality',
   outline: 'outlines',
+  chapter_prose: 'chapters',
   scene: 'scenes',
   prompt: 'prompts'
 }
@@ -64,6 +88,8 @@ const TYPE_DIR: Record<DocType, string> = {
 const DOC_SCHEMAS = {
   canon: canonSchema.passthrough(),
   character: characterSchema.passthrough(),
+  character_relation: characterRelationSchema.passthrough(),
+  timeline_node: timelineNodeSchema.passthrough(),
   timeline_event: timelineEventSchema.passthrough(),
   location: locationSchema.passthrough(),
   route: routeSchema.passthrough(),
@@ -73,15 +99,25 @@ const DOC_SCHEMAS = {
   issue: issueSchema.passthrough(),
   strategy: strategySchema.passthrough(),
   pattern: patternSchema.passthrough(),
+  narrative: narrativeSchema.passthrough(),
   character_state: characterStateSchema.passthrough(),
   resource: baseDocSchema.passthrough(),
   causality: baseDocSchema.passthrough(),
   outline: outlineSchema,
-  scene: sceneSchema.passthrough(),
+  chapter_prose: chapterProseSchema,
+  scene: sceneSchema,
   prompt: baseDocSchema.passthrough()
 }
 
 const reservedAutoIds = new Map<string, Set<string>>()
+
+function planningCardFields(partial: Partial<PlanningCardDoc>) {
+  return {
+    enabled: partial.enabled ?? true,
+    source_refs: partial.source_refs ?? [],
+    relations: partial.relations ?? []
+  }
+}
 
 export function dirForType(projectRoot: string, type: DocType): string {
   return path.join(projectRoot, TYPE_DIR[type])
@@ -133,6 +169,7 @@ export async function createCanon(
     title,
     status: partial.status ?? 'confirmed',
     tags: partial.tags ?? [],
+    ...planningCardFields(partial),
     strength: partial.strength ?? 'hard',
     source: partial.source ?? 'user'
   }) as CanonDoc
@@ -178,6 +215,7 @@ export async function createCharacter(
     title: name,
     status: partial.status ?? 'active',
     tags: partial.tags ?? [],
+    ...planningCardFields(partial),
     aliases: partial.aliases ?? [],
     role: partial.role ?? 'supporting',
     speech_style: partial.speech_style ?? '',
@@ -190,10 +228,69 @@ export async function createCharacter(
     ooc_guardrails: partial.ooc_guardrails ?? [],
     active_flags: partial.active_flags ?? [],
     disclosure: partial.disclosure ?? [],
+    born_at: partial.born_at ?? null,
+    died_at: partial.died_at ?? null,
+    introduced_at: partial.introduced_at ?? null,
+    exited_at: partial.exited_at ?? null,
     scene_state: partial.scene_state ?? {}
   }) as CharacterDoc
   const file = fileForDoc(projectRoot, 'character', doc.id, name)
   await writeMarkdown(file, doc as unknown as Record<string, unknown>, content || `## Profile\n\n## Notes\n`)
+  return file
+}
+
+export async function createCharacterRelation(
+  projectRoot: string,
+  title: string,
+  partial: Partial<CharacterRelationDoc> &
+    Pick<CharacterRelationDoc, 'from_character' | 'to_character' | 'relation_type'>,
+  content = ''
+): Promise<string> {
+  const characters = await listDocs<CharacterDoc>(projectRoot, 'character')
+  const characterIds = new Set(characters.map((document) => document.data.id))
+  if (!characterIds.has(partial.from_character)) {
+    throw new Error(`Relationship source character not found: ${partial.from_character}`)
+  }
+  if (!characterIds.has(partial.to_character)) {
+    throw new Error(`Relationship target character not found: ${partial.to_character}`)
+  }
+  if (partial.from_character === partial.to_character) {
+    throw new Error('A character relationship must connect two different characters.')
+  }
+  const timelineDocuments = await listDocs<TimelineNodeDoc>(projectRoot, 'timeline_node')
+  const timelineIds = new Set(timelineDocuments.map((document) => document.data.id))
+  for (const nodeId of [partial.starts_at, partial.ends_at]) {
+    if (nodeId && !timelineIds.has(nodeId)) throw new Error(`Timeline node not found: ${nodeId}`)
+  }
+  if (partial.starts_at && partial.ends_at) {
+    const order = new Map(
+      timelineDocuments
+        .map((document) => document.data)
+        .sort(compareTimelineNodes)
+        .map((node, index) => [node.id, index] as const)
+    )
+    if (Number(order.get(partial.ends_at)) <= Number(order.get(partial.starts_at))) {
+      throw new Error('Relationship end time must be after start time.')
+    }
+  }
+  const doc = characterRelationSchema.parse({
+    id: partial.id ?? (await allocateAutoId(projectRoot, 'character_relation', 'rel', title)),
+    type: 'character_relation',
+    schema_version: 1,
+    title,
+    status: partial.status ?? 'active',
+    tags: partial.tags ?? [],
+    ...planningCardFields(partial),
+    from_character: partial.from_character,
+    to_character: partial.to_character,
+    relation_type: partial.relation_type,
+    direction: partial.direction ?? 'directed',
+    starts_at: partial.starts_at ?? null,
+    ends_at: partial.ends_at ?? null,
+    visibility: partial.visibility ?? 'private'
+  }) as CharacterRelationDoc
+  const file = fileForDoc(projectRoot, 'character_relation', doc.id, title)
+  await writeMarkdown(file, doc as unknown as Record<string, unknown>, content)
   return file
 }
 
@@ -214,6 +311,7 @@ export async function createForeshadowing(
     title,
     status: partial.status ?? partial.state ?? 'planned',
     tags: partial.tags ?? [],
+    ...planningCardFields(partial),
     code: partial.code ?? '',
     level: partial.level ?? 'L4',
     summary: partial.summary ?? '',
@@ -224,7 +322,10 @@ export async function createForeshadowing(
     expires_at: partial.expires_at ?? '',
     state: partial.state ?? 'planned',
     related_characters: partial.related_characters ?? [],
-    related_arc: partial.related_arc ?? ''
+    related_arc: partial.related_arc ?? '',
+    trigger_conditions: partial.trigger_conditions ?? [],
+    reminder_window: partial.reminder_window ?? '',
+    reminded_at: partial.reminded_at ?? []
   }) as ForeshadowingDoc
   const file = path.join(dirForType(projectRoot, 'foreshadowing'), `${doc.id}.md`)
   await writeMarkdown(file, doc as unknown as Record<string, unknown>, content || `## Foreshadowing\n`)
@@ -248,6 +349,7 @@ export async function createWorldEntry(
     title,
     status: partial.status ?? partial.entry_status ?? 'candidate',
     tags: partial.tags ?? [],
+    ...planningCardFields(partial),
     code: partial.code ?? '',
     triggers: partial.triggers ?? [],
     category_tags: partial.category_tags ?? [],
@@ -278,7 +380,6 @@ export async function createReference(
     type: 'reference',
     schema_version: 1,
     title,
-    status: partial.status ?? 'draft',
     tags: partial.tags ?? [],
     source_title: partial.source_title ?? title,
     author: partial.author ?? '',
@@ -307,11 +408,16 @@ export async function createIssue(
     title,
     status: partial.status ?? partial.state ?? 'open',
     tags: partial.tags ?? [],
+    ...planningCardFields(partial),
     priority: partial.priority ?? 'medium',
     state: partial.state ?? 'open',
     due: partial.due ?? '',
     decision_needed: partial.decision_needed ?? '',
-    related_docs: partial.related_docs ?? []
+    related_docs: partial.related_docs ?? [],
+    rule_id: partial.rule_id ?? '',
+    evidence: partial.evidence ?? '',
+    check_fingerprint: partial.check_fingerprint ?? '',
+    checked_at: partial.checked_at ?? ''
   }) as IssueDoc
   const file = path.join(dirForType(projectRoot, 'issue'), `${doc.id}.md`)
   await writeMarkdown(file, doc as unknown as Record<string, unknown>, content || `## Issue\n`)
@@ -331,6 +437,7 @@ export async function createStrategy(
     title,
     status: partial.status ?? 'active',
     tags: partial.tags ?? [],
+    ...planningCardFields(partial),
     category: partial.category ?? 'narrative',
     scope: partial.scope ?? 'project',
     principles: partial.principles ?? [],
@@ -354,6 +461,7 @@ export async function createPattern(
     title,
     status: partial.status ?? 'active',
     tags: partial.tags ?? [],
+    ...planningCardFields(partial),
     kind: partial.kind ?? 'story',
     scope: partial.scope ?? 'project',
     applies_to: partial.applies_to ?? [],
@@ -361,6 +469,33 @@ export async function createPattern(
   }) as PatternDoc
   const file = fileForDoc(projectRoot, 'pattern', doc.id, title)
   await writeMarkdown(file, doc as unknown as Record<string, unknown>, content || `## Pattern\n`)
+  return file
+}
+
+export async function createNarrative(
+  projectRoot: string,
+  title: string,
+  partial: Partial<NarrativeDoc> = {},
+  content = ''
+): Promise<string> {
+  const doc = narrativeSchema.parse({
+    id: partial.id ?? (await allocateAutoId(projectRoot, 'narrative', 'narrative', title)),
+    type: 'narrative',
+    schema_version: 1,
+    title,
+    status: partial.status ?? 'active',
+    tags: partial.tags ?? [],
+    ...planningCardFields(partial),
+    category: partial.category ?? 'style',
+    scope: partial.scope ?? 'project',
+    applies_to: partial.applies_to ?? [],
+    principles: partial.principles ?? [],
+    avoid: partial.avoid ?? [],
+    source: partial.source ?? 'user',
+    sample: partial.sample ?? ''
+  }) as NarrativeDoc
+  const file = fileForDoc(projectRoot, 'narrative', doc.id, title)
+  await writeMarkdown(file, doc as unknown as Record<string, unknown>, content)
   return file
 }
 
@@ -377,6 +512,7 @@ export async function createCharacterState(
     title,
     status: partial.status ?? 'active',
     tags: partial.tags ?? [],
+    ...planningCardFields(partial),
     character: partial.character,
     scope_type: partial.scope_type ?? 'outline',
     scope_id: partial.scope_id,
@@ -393,12 +529,189 @@ export async function createCharacterState(
   return file
 }
 
+export async function createTimelineNode(
+  projectRoot: string,
+  title: string,
+  partial: Partial<TimelineNodeDoc> & Pick<TimelineNodeDoc, 'year' | 'month'>,
+  content = ''
+): Promise<string> {
+  const time = validateStoryTime(partial)
+  const existing = await listDocs<TimelineNodeDoc>(projectRoot, 'timeline_node')
+  const candidateForKey = timelineNodeSchema.parse({
+    id: partial.id ?? 'timeline-key-preview',
+    type: 'timeline_node',
+    schema_version: 1,
+    title,
+    status: partial.status ?? 'confirmed',
+    tags: partial.tags ?? [],
+    ...planningCardFields(partial),
+    ...time,
+    previous: null,
+    next: null
+  }) as TimelineNodeDoc
+  const duplicate = existing.find(
+    (document) => timelineNodeKey(document.data) === timelineNodeKey(candidateForKey)
+  )
+  if (duplicate) {
+    throw new Error(
+      `Timeline node ${duplicate.data.title} already represents this moment; attach another event to that node.`
+    )
+  }
+
+  const ordered = [...existing].sort((a, b) => compareTimelineNodes(a.data, b.data))
+  const insertionIndex = ordered.findIndex(
+    (document) => compareTimelineNodes(candidateForKey, document.data) < 0
+  )
+  const index = insertionIndex < 0 ? ordered.length : insertionIndex
+  const previous = index > 0 ? ordered[index - 1] : null
+  const next = index < ordered.length ? ordered[index] : null
+  const doc = timelineNodeSchema.parse({
+    ...candidateForKey,
+    id: partial.id ?? (await allocateAutoId(projectRoot, 'timeline_node', 'time', title)),
+    previous: previous?.data.id ?? null,
+    next: next?.data.id ?? null
+  }) as TimelineNodeDoc
+  const file = fileForDoc(projectRoot, 'timeline_node', doc.id, title)
+  const previousSnapshot = previous ? { data: previous.data, content: previous.content } : null
+  const nextSnapshot = next ? { data: next.data, content: next.content } : null
+
+  try {
+    await writeMarkdown(file, doc as unknown as Record<string, unknown>, content)
+    if (previous) {
+      await writeMarkdown(
+        previous.path,
+        { ...previous.data, next: doc.id } as unknown as Record<string, unknown>,
+        previous.content
+      )
+    }
+    if (next) {
+      await writeMarkdown(
+        next.path,
+        { ...next.data, previous: doc.id } as unknown as Record<string, unknown>,
+        next.content
+      )
+    }
+    const updated = (await listDocs<TimelineNodeDoc>(projectRoot, 'timeline_node')).map(
+      (document) => document.data
+    )
+    const issues = validateTimelineChain(updated)
+    if (issues.length) throw new Error(issues.map((issue) => issue.message).join(' '))
+    return file
+  } catch (error) {
+    await rm(file, { force: true })
+    if (previous && previousSnapshot) {
+      await writeMarkdown(
+        previous.path,
+        previousSnapshot.data as unknown as Record<string, unknown>,
+        previousSnapshot.content
+      )
+    }
+    if (next && nextSnapshot) {
+      await writeMarkdown(
+        next.path,
+        nextSnapshot.data as unknown as Record<string, unknown>,
+        nextSnapshot.content
+      )
+    }
+    throw error
+  }
+}
+
+export async function createTimelineEventAtNode(
+  projectRoot: string,
+  timelineNode: string,
+  title: string,
+  partial: Partial<TimelineEventDoc> = {},
+  content = ''
+): Promise<string> {
+  const node = await findDoc<TimelineNodeDoc>(projectRoot, timelineNode)
+  if (!node) throw new Error(`Timeline node not found: ${timelineNode}`)
+  return appendTimelineEvent(
+    projectRoot,
+    title,
+    {
+      ...partial,
+      timeline_node: node.data.id,
+      date: node.data.display_time,
+      previous: null,
+      next: null
+    },
+    content
+  )
+}
+
+export async function attachTimelineEventToNode(
+  projectRoot: string,
+  eventId: string,
+  timelineNode: string,
+  displayTime?: string
+): Promise<string> {
+  const [event, node] = await Promise.all([
+    findDoc<TimelineEventDoc>(projectRoot, eventId),
+    findDoc<TimelineNodeDoc>(projectRoot, timelineNode)
+  ])
+  if (!event) throw new Error(`Timeline event not found: ${eventId}`)
+  if (!node) throw new Error(`Timeline node not found: ${timelineNode}`)
+  const date = displayTime?.trim() || event.data.date.trim() || node.data.display_time
+  await writeMarkdown(
+    event.path,
+    {
+      ...event.data,
+      timeline_node: node.data.id,
+      date,
+      previous: null,
+      next: null
+    } as unknown as Record<string, unknown>,
+    event.content
+  )
+  return event.path
+}
+
+export async function createTimelineNodeFromEvent(
+  projectRoot: string,
+  eventId: string,
+  title?: string,
+  storyTime?: string
+): Promise<string> {
+  const event = await findDoc<TimelineEventDoc>(projectRoot, eventId)
+  if (!event) throw new Error(`Timeline event not found: ${eventId}`)
+  const rawTime = storyTime?.trim() || event.data.date.trim()
+  const time = parseStoryTime(rawTime)
+  const nodes = await listDocs<TimelineNodeDoc>(projectRoot, 'timeline_node')
+  const key = timelineNodeKey({
+    calendar: time.calendar ?? 'story',
+    year: time.year,
+    month: time.month,
+    day: time.day ?? null,
+    hour: time.hour ?? null,
+    minute: time.minute ?? null
+  })
+  const existing = nodes.find((item) => timelineNodeKey(item.data) === key)
+  if (existing) {
+    await attachTimelineEventToNode(projectRoot, event.data.id, existing.data.id, time.display_time)
+    return existing.path
+  }
+
+  const nodePath = await createTimelineNode(
+    projectRoot,
+    title?.trim() || event.data.title || time.display_time || rawTime,
+    time
+  )
+  const node = await readMarkdown<Record<string, unknown>>(nodePath)
+  const nodeData = timelineNodeSchema.parse(node.data) as TimelineNodeDoc
+  await attachTimelineEventToNode(projectRoot, event.data.id, nodeData.id, time.display_time)
+  return nodePath
+}
+
 export async function appendTimelineEvent(
   projectRoot: string,
   title: string,
   partial: Partial<TimelineEventDoc> = {},
   content = ''
 ): Promise<string> {
+  if (partial.timeline_node && !(await findDoc<TimelineNodeDoc>(projectRoot, partial.timeline_node))) {
+    throw new Error(`Timeline node not found: ${partial.timeline_node}`)
+  }
   const events = await listDocs<TimelineEventDoc>(projectRoot, 'timeline_event')
   const previous =
     partial.previous === undefined ? (events.at(-1)?.data.id ?? null) : (partial.previous ?? null)
@@ -409,6 +722,8 @@ export async function appendTimelineEvent(
     title,
     status: partial.status ?? 'confirmed',
     tags: partial.tags ?? [],
+    ...planningCardFields(partial),
+    timeline_node: partial.timeline_node ?? null,
     date: partial.date ?? '',
     previous,
     next: partial.next ?? null,
@@ -435,7 +750,15 @@ export async function createLocation(
     title,
     status: partial.status ?? 'confirmed',
     tags: partial.tags ?? [],
+    ...planningCardFields(partial),
+    kind: partial.kind ?? 'position',
+    scale: partial.scale ?? 'city',
     parent_location: partial.parent_location ?? null,
+    layout_of: partial.layout_of ?? null,
+    relative_direction: partial.relative_direction ?? '',
+    floor: partial.floor ?? '',
+    diagram_nodes: partial.diagram_nodes ?? [],
+    diagram_edges: partial.diagram_edges ?? [],
     description: partial.description ?? ''
   }) as LocationDoc
   const file = fileForDoc(projectRoot, 'location', doc.id, title)
@@ -457,6 +780,7 @@ export async function createRoute(
     title,
     status: partial.status ?? 'confirmed',
     tags: partial.tags ?? [],
+    ...planningCardFields(partial),
     from,
     to,
     distance_li: partial.distance_li ?? null,
@@ -471,23 +795,44 @@ export async function createRoute(
 
 export async function createOutline(
   projectRoot: string,
-  level: OutlineDoc['level'],
+  level: OutlineLevelInput,
   title: string,
   partial: Partial<OutlineDoc> = {},
-  content = ''
+  content = '',
+  options: { placement?: 'strict' | 'legacy-import' } = {}
 ): Promise<string> {
+  const currentLevel = normalizeOutlineLevel(level)
+  if (options.placement !== 'legacy-import') {
+    const outlines = await listDocs<OutlineDoc>(projectRoot, 'outline')
+    assertOutlinePlacementAgainst(
+      outlines.map((item) => item.data),
+      currentLevel,
+      partial.parent ?? null
+    )
+  }
   const doc = outlineSchema.parse({
-    id: partial.id ?? (await allocateAutoId(projectRoot, 'outline', level, title)),
+    id: partial.id ?? (await allocateAutoId(projectRoot, 'outline', currentLevel, title)),
     type: 'outline',
     schema_version: 1,
     title,
     status: partial.status ?? 'draft',
     tags: partial.tags ?? [],
-    level,
+    level: currentLevel,
     parent: partial.parent ?? null,
     order: partial.order ?? 0,
     target_words: partial.target_words,
     chapter_hook: partial.chapter_hook,
+    story_purpose: partial.story_purpose ?? '',
+    core_characters: partial.core_characters ?? [],
+    central_conflict: partial.central_conflict ?? '',
+    final_direction: partial.final_direction ?? '',
+    worldline_axis: partial.worldline_axis ?? '',
+    character_destiny_axis: partial.character_destiny_axis ?? '',
+    key_stages: partial.key_stages ?? [],
+    causal_chain: partial.causal_chain ?? [],
+    final_state: partial.final_state ?? '',
+    stage_goal: partial.stage_goal ?? '',
+    irreversible_change: partial.irreversible_change ?? '',
     reader_promise: partial.reader_promise ?? '',
     reader_payoff: partial.reader_payoff ?? '',
     reader_benefit: partial.reader_benefit ?? '',
@@ -541,13 +886,19 @@ export async function createScene(
     title,
     status: partial.status ?? 'draft',
     tags: partial.tags ?? [],
+    chapter_id: partial.chapter_id ?? partial.section,
+    section: partial.chapter_id ?? partial.section,
+    order: partial.order ?? 0,
+    writing_focus: partial.writing_focus ?? '',
+    outline_content: partial.outline_content ?? content,
+    accepted_at: partial.accepted_at ?? null,
+    purged_at: partial.purged_at ?? null,
     chapter_number: partial.chapter_number ?? '',
     volume: partial.volume ?? '',
     act: partial.act ?? '',
-    section: partial.section,
-    timeline_node: partial.timeline_node,
-    location: partial.location,
-    pov: partial.pov,
+    timeline_node: partial.timeline_node ?? '',
+    location: partial.location ?? '',
+    pov: partial.pov ?? '',
     characters: partial.characters ?? [],
     world_time: partial.world_time ?? '',
     chapter_break_hook: partial.chapter_break_hook ?? '',
@@ -573,11 +924,39 @@ export async function createScene(
   const volume = partial.tags?.find((t) => t.startsWith('volume-')) ?? 'volume-01'
   const chapter = partial.tags?.find((t) => t.startsWith('chapter-')) ?? 'chapter-001'
   const file = path.join(projectRoot, 'scenes', volume, chapter, `${doc.id}-${slugify(title)}.md`)
-  await writeMarkdown(file, doc as unknown as Record<string, unknown>, content || `## Draft\n`)
+  await writeMarkdown(file, doc as unknown as Record<string, unknown>, content)
   return file
 }
 
-export async function listDocs<T extends BaseDoc>(
+export async function createChapterProse(
+  projectRoot: string,
+  chapterId: string,
+  title: string,
+  partial: Partial<ChapterProseDoc> = {},
+  content = ''
+): Promise<string> {
+  const existing = (await listDocs<ChapterProseDoc>(projectRoot, 'chapter_prose')).find(
+    (item) => item.data.chapter_id === chapterId
+  )
+  if (existing) return existing.path
+  const doc = chapterProseSchema.parse({
+    id: partial.id ?? (await allocateAutoId(projectRoot, 'chapter_prose', 'prose', title)),
+    type: 'chapter_prose',
+    schema_version: 1,
+    title,
+    status: partial.status ?? 'draft',
+    tags: partial.tags ?? [],
+    chapter_id: chapterId,
+    scene_ids: partial.scene_ids ?? [],
+    finalized_at: partial.finalized_at ?? null,
+    published_at: partial.published_at ?? null
+  }) as ChapterProseDoc
+  const file = fileForDoc(projectRoot, 'chapter_prose', doc.id, title)
+  await writeMarkdown(file, doc as unknown as Record<string, unknown>, content)
+  return file
+}
+
+export async function listDocs<T extends DocumentIdentity>(
   projectRoot: string,
   type?: DocType
 ): Promise<Array<{ path: string; data: T; content: string }>> {
@@ -594,10 +973,12 @@ export async function listDocs<T extends BaseDoc>(
         'issues',
         'strategy',
         'patterns',
+        'narrative',
         'character-states',
         'resources',
         'causality',
         'outlines',
+        'chapters',
         'scenes',
         'prompts'
       ].map((d) => path.join(projectRoot, d))
@@ -612,13 +993,23 @@ export async function listDocs<T extends BaseDoc>(
   return docs as Array<{ path: string; data: T; content: string }>
 }
 
-function parseKnownDocument(data: Record<string, unknown>, file: string): Record<string, unknown> {
+export function parseKnownDocument(data: Record<string, unknown>, file: string): Record<string, unknown> {
   const type = data.type
   if (typeof type !== 'string' || !Object.hasOwn(DOC_SCHEMAS, type)) return data
 
   const schema = DOC_SCHEMAS[type as keyof typeof DOC_SCHEMAS]
   const result = schema.safeParse(data)
-  if (result.success) return result.data
+  if (result.success) {
+    if (type === 'reference') {
+      const reference: Record<string, unknown> = { ...result.data }
+      delete reference.status
+      delete reference.enabled
+      delete reference.source_refs
+      delete reference.relations
+      return reference
+    }
+    return result.data
+  }
 
   const details = result.error.issues
     .map((issue) => `${issue.path.length ? issue.path.join('.') : 'frontmatter'}: ${issue.message}`)
@@ -626,7 +1017,7 @@ function parseKnownDocument(data: Record<string, unknown>, file: string): Record
   throw new Error(`Invalid ${type} document at ${file}: ${details}`)
 }
 
-export async function findDoc<T extends BaseDoc>(
+export async function findDoc<T extends DocumentIdentity>(
   projectRoot: string,
   id: string
 ): Promise<{ path: string; data: T; content: string } | null> {
@@ -636,15 +1027,18 @@ export async function findDoc<T extends BaseDoc>(
 
 export async function buildIndex(projectRoot: string): Promise<ProjectIndex> {
   const project = await loadProject(projectRoot)
-  const docs = await listDocs<BaseDoc>(projectRoot)
-  const entries: ProjectIndexEntry[] = docs.map((doc) => ({
-    id: doc.data.id,
-    type: doc.data.type,
-    title: doc.data.title,
-    status: doc.data.status,
-    tags: doc.data.tags ?? [],
-    path: path.relative(projectRoot, doc.path).replace(/\\/g, '/')
-  }))
+  const docs = await listDocs<DocumentIdentity>(projectRoot)
+  const entries: ProjectIndexEntry[] = docs.map((doc) => {
+    const status = 'status' in doc.data && typeof doc.data.status === 'string' ? doc.data.status : undefined
+    return {
+      id: doc.data.id,
+      type: doc.data.type,
+      title: doc.data.title,
+      ...(status ? { status } : {}),
+      tags: doc.data.tags ?? [],
+      path: path.relative(projectRoot, doc.path).replace(/\\/g, '/')
+    }
+  })
   const index: ProjectIndex = {
     generated_at: new Date().toISOString(),
     project_title: project.title,
@@ -656,7 +1050,7 @@ export async function buildIndex(projectRoot: string): Promise<ProjectIndex> {
   return index
 }
 
-export async function requireDoc<T extends BaseDoc>(
+export async function requireDoc<T extends DocumentIdentity>(
   projectRoot: string,
   id: string
 ): Promise<{ path: string; data: T; content: string }> {

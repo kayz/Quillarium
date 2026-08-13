@@ -24,6 +24,7 @@ import type {
 } from '../../app/types.js'
 import { t } from '../../app/i18n.js'
 import { bridge } from '../../app/bridge.js'
+import { formatDesktopError } from '../../shared/errors.js'
 import { ExportModal } from './ExportModal.js'
 
 export function TopChrome({
@@ -326,7 +327,7 @@ function SettingsModal({
         if (!cancelled) {
           setNotice({
             tone: 'danger',
-            message: `${t(language, 'credentialActionFailed')} ${formatSettingsError(error)}`
+            message: `${t(language, 'credentialActionFailed')} ${formatDesktopError(error, language)}`
           })
         }
       }
@@ -361,7 +362,7 @@ function SettingsModal({
     } catch (error) {
       setNotice({
         tone: 'danger',
-        message: `${t(language, 'credentialActionFailed')} ${formatSettingsError(error)}`
+        message: `${t(language, 'credentialActionFailed')} ${formatDesktopError(error, language)}`
       })
     } finally {
       setBusyAction(null)
@@ -383,7 +384,7 @@ function SettingsModal({
         message: display.language === 'zh' ? '显示设置已保存。' : 'Display settings saved.'
       })
     } catch (error) {
-      setNotice({ tone: 'danger', message: formatSettingsError(error) })
+      setNotice({ tone: 'danger', message: formatDesktopError(error, language) })
     } finally {
       setBusyAction(null)
     }
@@ -400,7 +401,7 @@ function SettingsModal({
     } catch (error) {
       setNotice({
         tone: 'danger',
-        message: `${t(language, 'credentialActionFailed')} ${formatSettingsError(error)}`
+        message: `${t(language, 'credentialActionFailed')} ${formatDesktopError(error, language)}`
       })
     } finally {
       setBusyAction(null)
@@ -429,7 +430,7 @@ function SettingsModal({
     } catch (error) {
       setNotice({
         tone: 'danger',
-        message: `${t(language, 'credentialActionFailed')} ${formatSettingsError(error)}`
+        message: `${t(language, 'credentialActionFailed')} ${formatDesktopError(error, language)}`
       })
     } finally {
       setBusyAction(null)
@@ -451,7 +452,7 @@ function SettingsModal({
     } catch (error) {
       setNotice({
         tone: 'danger',
-        message: `${t(language, 'credentialActionFailed')} ${formatSettingsError(error)}`
+        message: `${t(language, 'credentialActionFailed')} ${formatDesktopError(error, language)}`
       })
     } finally {
       setBusyAction(null)
@@ -470,7 +471,7 @@ function SettingsModal({
     } catch (error) {
       setNotice({
         tone: 'danger',
-        message: `${t(language, 'credentialActionFailed')} ${formatSettingsError(error)}`
+        message: `${t(language, 'credentialActionFailed')} ${formatDesktopError(error, language)}`
       })
     } finally {
       setBusyAction(null)
@@ -658,8 +659,8 @@ function SettingsModal({
                   })
                 }
               >
-                <option value="private">Private</option>
-                <option value="public">Public</option>
+                <option value="private">{language === 'zh' ? '私有' : 'Private'}</option>
+                <option value="public">{language === 'zh' ? '公开' : 'Public'}</option>
               </select>
             </label>
           </div>
@@ -815,10 +816,6 @@ function storageStatusMessage(language: LanguageName, storage: StorageStatus | n
     return t(language, 'credentialMigrationWarning')
   }
   return t(language, 'credentialStorageWarning')
-}
-
-function formatSettingsError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }
 
 function defaultAIProfile(provider: AIProviderName): AIProfileForm {

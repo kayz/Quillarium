@@ -109,6 +109,23 @@ describe('generation run snapshots', () => {
       await rm(tmp, { recursive: true, force: true })
     }
   })
+
+  it('snapshots an author-adjusted prompt verbatim', async () => {
+    const tmp = await mkdtemp(path.join(os.tmpdir(), 'quillarium-ai-prompt-'))
+    try {
+      const project = await createProjectAt(path.join(tmp, 'project'), {
+        id: 'prompt-sample',
+        title: 'Prompt Sample'
+      })
+      const prompt = '  Author adjusted prompt.\nKeep this exact ending.\n'
+      const run = await createGenerationRun(project.root, 'scene-one', 'context', config, {}, [], prompt)
+
+      await expect(readRunFile(project.root, run.id, 'prompt.md')).resolves.toBe(prompt)
+      await expect(readRunFile(project.root, run.id, 'context.md')).resolves.toBe('context')
+    } finally {
+      await rm(tmp, { recursive: true, force: true })
+    }
+  })
 })
 
 describe('loadAIProfile', () => {

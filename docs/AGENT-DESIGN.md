@@ -48,7 +48,8 @@ growth, foreshadowing plan, arc arrangement, and emotional curve.
 
 ### Arc / Segment
 
-The arc level turns a portion of the volume into an executable plot block: event order, conflict
+The part level turns a portion of the volume into a major, normally irreversible story movement.
+An optional act subdivides that part into a complete dramatic unit: event order, conflict
 escalation, cast, fixed reveals, relationship movement, and foreshadowing plants or resolutions.
 
 ### Chapter

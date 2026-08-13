@@ -2,8 +2,14 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { createCharacter, listDocs, requireDoc } from './documents.js'
-import type { BaseDoc, CharacterDoc, SceneDoc } from './types.js'
+import {
+  createCharacter,
+  createCharacterRelation,
+  createTimelineNode,
+  listDocs,
+  requireDoc
+} from './documents.js'
+import type { BaseDoc, CharacterDoc, CharacterRelationDoc, ReferenceDoc, SceneDoc } from './types.js'
 
 describe('document reads', () => {
   it('applies schema defaults to legacy documents', async () => {
@@ -68,18 +74,19 @@ describe('document reads', () => {
           'type: scene',
           'title: Broken Scene',
           'section: section-001',
+          'order: not-a-number',
           'timeline_node: event-001',
           'location: location-001',
           '---',
           '',
-          'Missing required POV.',
+          'Invalid scene order.',
           ''
         ].join('\n'),
         'utf8'
       )
 
       await expect(listDocs<SceneDoc>(projectRoot, 'scene')).rejects.toThrow(
-        `Invalid scene document at ${file}: pov: Required`
+        `Invalid scene document at ${file}: order: Expected number, received string`
       )
     } finally {
       await rm(projectRoot, { recursive: true, force: true })
@@ -157,6 +164,46 @@ describe('document reads', () => {
     }
   })
 
+  it('removes legacy planning lifecycle fields from reference material reads', async () => {
+    const projectRoot = await mkdtemp(path.join(os.tmpdir(), 'quillarium-reference-identity-'))
+    const referencesDir = path.join(projectRoot, 'references')
+    await mkdir(referencesDir, { recursive: true })
+    await writeFile(
+      path.join(referencesDir, 'legacy-reference.md'),
+      [
+        '---',
+        'id: reference-legacy',
+        'type: reference',
+        'title: Legacy source',
+        'status: draft',
+        'enabled: true',
+        'source_refs: []',
+        'relations: []',
+        'quillarium_origin:',
+        '  schema_version: 1',
+        '  kind: document-import',
+        '  sources: []',
+        '---',
+        '',
+        'Source body.',
+        ''
+      ].join('\n'),
+      'utf8'
+    )
+
+    try {
+      const [reference] = await listDocs<ReferenceDoc>(projectRoot, 'reference')
+
+      expect(reference.data).not.toHaveProperty('status')
+      expect(reference.data).not.toHaveProperty('enabled')
+      expect(reference.data).not.toHaveProperty('source_refs')
+      expect(reference.data).not.toHaveProperty('relations')
+      expect(reference.data).toHaveProperty('quillarium_origin.kind', 'document-import')
+    } finally {
+      await rm(projectRoot, { recursive: true, force: true })
+    }
+  })
+
   it('allocates a new automatic id when the same id already exists on disk', async () => {
     const projectRoot = await mkdtemp(path.join(os.tmpdir(), 'quillarium-documents-collision-'))
     const title = 'Concurrent Collision 7c91'
@@ -188,6 +235,44 @@ describe('document reads', () => {
           'Third character body.\n'
         ])
       )
+    } finally {
+      await rm(projectRoot, { recursive: true, force: true })
+    }
+  })
+
+  it('requires a relationship end node to be strictly after its start node', async () => {
+    const projectRoot = await mkdtemp(path.join(os.tmpdir(), 'quillarium-character-relation-time-'))
+
+    try {
+      await createCharacter(projectRoot, '甲', { id: 'character-a' })
+      await createCharacter(projectRoot, '乙', { id: 'character-b' })
+      await createTimelineNode(projectRoot, '初见', { id: 'time-1', year: 1, month: 1 })
+      await createTimelineNode(projectRoot, '反目', { id: 'time-3', year: 1, month: 3 })
+
+      await expect(
+        createCharacterRelation(projectRoot, '无效关系', {
+          from_character: 'character-a',
+          to_character: 'character-b',
+          relation_type: '朋友',
+          starts_at: 'time-1',
+          ends_at: 'time-1'
+        })
+      ).rejects.toThrow('Relationship end time must be after start time.')
+
+      await createCharacterRelation(projectRoot, '关系阶段', {
+        id: 'relation-phase',
+        from_character: 'character-a',
+        to_character: 'character-b',
+        relation_type: '朋友',
+        starts_at: 'time-1',
+        ends_at: 'time-3'
+      })
+      const [relation] = await listDocs<CharacterRelationDoc>(projectRoot, 'character_relation')
+      expect(relation.data).toMatchObject({
+        id: 'relation-phase',
+        starts_at: 'time-1',
+        ends_at: 'time-3'
+      })
     } finally {
       await rm(projectRoot, { recursive: true, force: true })
     }

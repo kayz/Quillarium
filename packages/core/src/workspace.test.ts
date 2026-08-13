@@ -168,7 +168,19 @@ describe('shared guidance integration', () => {
       { id: 'strategy-narration', principles: ['遵守项目视角。'] },
       '项目规则优先。'
     )
-    await createOutline(projectRoot, 'chapter', 'Chapter One', { id: 'chapter-one' })
+    await createOutline(projectRoot, 'book', 'Book', { id: 'book-one' })
+    await createOutline(projectRoot, 'volume', 'Volume', {
+      id: 'volume-one',
+      parent: 'book-one'
+    })
+    await createOutline(projectRoot, 'part', 'Part', {
+      id: 'part-one',
+      parent: 'volume-one'
+    })
+    await createOutline(projectRoot, 'chapter', 'Chapter One', {
+      id: 'chapter-one',
+      parent: 'part-one'
+    })
 
     const packet = await assembleContextPacket(projectRoot, { type: 'outline', id: 'chapter-one' })
     expect(packet.shared_guidance).toHaveLength(1)

@@ -5,6 +5,16 @@
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./planning-cards": {
+      "types": "./dist/planning-cards.d.ts",
+      "import": "./dist/planning-cards.js"
+    }
+  },
   "scripts": {
     "build": "tsc -b"
   },
