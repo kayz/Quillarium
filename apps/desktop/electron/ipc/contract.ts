@@ -9,6 +9,7 @@ import type {
   DocumentIdentity,
   DocumentOriginResolution,
   EditableScenePromptPlan,
+  FinalizationApplicationReport,
   FinalizeReviewSession,
   GitHubConfig,
   ImportPlanInput,
@@ -432,6 +433,18 @@ export interface IpcContract {
     request: [root: string, sessionId: string, impactId: string, answer: string, state?: string]
     response: FinalizeReviewSession
   }
+  'finalize:answerQuestion': {
+    request: [root: string, sessionId: string, questionId: string, answer: string, state?: string]
+    response: FinalizeReviewSession
+  }
+  'finalize:apply': {
+    request: [root: string, sessionId: string]
+    response: FinalizationApplicationReport
+  }
+  'finalize:recover': {
+    request: [root: string]
+    response: FinalizationApplicationReport[]
+  }
   'run:readFile': { request: [root: string, runId: string, file: string]; response: string }
   'run:select': { request: [root: string, runId: string]; response: CandidateGroupSummary }
   'run:check': {
@@ -532,6 +545,9 @@ export const QUILLARIUM_API_CHANNELS = {
   createFinalizeReviewPlan: 'finalize:reviewPlan',
   loadFinalizeReviewSession: 'finalize:session',
   confirmFinalizeImpact: 'finalize:confirmImpact',
+  answerFinalizeQuestion: 'finalize:answerQuestion',
+  applyFinalizeReview: 'finalize:apply',
+  recoverFinalizationApplications: 'finalize:recover',
   readRunFile: 'run:readFile',
   selectRunCandidate: 'run:select',
   checkRunCandidate: 'run:check',

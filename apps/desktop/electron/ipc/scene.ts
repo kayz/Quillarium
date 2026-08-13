@@ -4,10 +4,13 @@ import {
   assertChapterAllowsAI,
   assertPlainProse,
   acceptSceneIntoChapter,
+  answerFinalizeQuestion,
+  applyFinalizeReviewSession,
   buildEditableScenePromptPlan,
   buildChapterWritingPlan,
   buildFinalizeReviewPrompt,
   confirmFinalizeImpact,
+  completeFinalizeReviewSession,
   createFinalizeReviewSession,
   createRun,
   createScene,
@@ -17,6 +20,7 @@ import {
   loadChapterLifecycle,
   publishChapter,
   readMarkdown,
+  recoverFinalizationApplications,
   renderContextPacket,
   timelineIdsForOutline,
   writeMarkdown,
@@ -259,7 +263,7 @@ export function registerSceneHandlers(): void {
       config,
       'You are Quillarium Finalize Review Agent. Return strict JSON only.'
     )
-    return createFinalizeReviewSession(root, { ...input, aiResponse: response })
+    return completeFinalizeReviewSession(root, session.id, response)
   })
   typedHandle('finalize:session', async (_event, root, sessionId) =>
     loadFinalizeReviewSession(root, sessionId)
@@ -267,6 +271,19 @@ export function registerSceneHandlers(): void {
   typedHandle('finalize:confirmImpact', async (_event, root, sessionId, impactId, answer, state) =>
     confirmFinalizeImpact(root, sessionId, impactId, answer, state === 'rejected' ? 'rejected' : 'confirmed')
   )
+  typedHandle('finalize:answerQuestion', async (_event, root, sessionId, questionId, answer, state) =>
+    answerFinalizeQuestion(
+      root,
+      sessionId,
+      questionId,
+      answer,
+      state === 'deferred' ? 'deferred' : 'resolved'
+    )
+  )
+  typedHandle('finalize:apply', async (_event, root, sessionId) =>
+    applyFinalizeReviewSession(root, sessionId)
+  )
+  typedHandle('finalize:recover', async (_event, root) => recoverFinalizationApplications(root))
 }
 
 export interface DesktopContextPreviewDependencies {

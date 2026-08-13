@@ -1,8 +1,10 @@
 import path from 'node:path'
+import { createHash, randomUUID } from 'node:crypto'
 import { ensureDir, readText, writeText } from './fs.js'
+import { findDoc, listDocs } from './documents.js'
 import { timestampId, makeId } from './ids.js'
 import { readPrompt } from './prompts.js'
-import type { DocType } from './types.js'
+import type { ChapterProseDoc, DocType, OutlineDoc } from './types.js'
 
 export interface FinalizeImpact {
   id: string
@@ -12,6 +14,11 @@ export interface FinalizeImpact {
   confidence: number
   change: string
   evidence: string
+  operation?: 'create' | 'update'
+  frontmatter?: Record<string, unknown>
+  content?: string
+  /** Hash captured by Quillarium when the review is created; never trusted from model output. */
+  expected_sha256?: string | null
   requires_confirmation: boolean
   state: 'open' | 'confirmed' | 'rejected' | 'applied'
   answer?: string
@@ -39,6 +46,17 @@ export interface FinalizeReviewSession {
   impacts: FinalizeImpact[]
   questions: FinalizeQuestion[]
   status: 'planned' | 'needs-confirmation' | 'ready-to-apply' | 'applied'
+  source_snapshot?: {
+    chapter_sha256: string
+    prose_id: string
+    prose_sha256: string
+    prose_status: ChapterProseDoc['status']
+  }
+  application?: {
+    id: string
+    report_path: string
+    applied_at: string
+  }
 }
 
 export function reviewSessionPath(projectRoot: string, sessionId: string): string {
@@ -55,9 +73,12 @@ export async function createFinalizeReviewSession(
     aiResponse?: string
   }
 ): Promise<FinalizeReviewSession> {
-  const id = timestampId('review')
+  const id = `${timestampId('review')}-${randomUUID()}`
   const prompt = await readPrompt(projectRoot, 'check-finalize-review')
   const parsed = input.aiResponse ? parseFinalizeAIResponse(input.aiResponse) : null
+  const impacts = parsed ? await hydrateFinalizeImpactHashes(projectRoot, parsed.impacts) : []
+  const sourceSnapshot = await captureFinalizeSourceSnapshot(projectRoot, input.chapterId)
+  if (sourceSnapshot) await assertFinalMatchesSource(projectRoot, sourceSnapshot, input.final)
   const session: FinalizeReviewSession = {
     id,
     created_at: new Date().toISOString(),
@@ -68,15 +89,40 @@ export async function createFinalizeReviewSession(
     prompt,
     ai_response: input.aiResponse,
     summary: parsed?.summary,
-    impacts: parsed?.impacts ?? [],
+    impacts,
     questions: parsed?.questions ?? [],
-    status:
-      parsed && (parsed.impacts.some((item) => item.requires_confirmation) || parsed.questions.length)
-        ? 'needs-confirmation'
-        : 'planned'
+    status: parsed ? nextFinalizeStatus(impacts, parsed.questions) : 'planned',
+    source_snapshot: sourceSnapshot
   }
   await saveFinalizeReviewSession(projectRoot, session)
   return session
+}
+
+export async function completeFinalizeReviewSession(
+  projectRoot: string,
+  sessionId: string,
+  aiResponse: string
+): Promise<FinalizeReviewSession> {
+  const session = await loadFinalizeReviewSession(projectRoot, sessionId)
+  if (session.status === 'applied') throw new Error(`Finalization review is already applied: ${sessionId}`)
+  const parsed = parseFinalizeAIResponse(aiResponse)
+  const impacts = await hydrateFinalizeImpactHashes(projectRoot, parsed.impacts)
+  const currentSnapshot = await captureFinalizeSourceSnapshot(projectRoot, session.chapter_id)
+  if (!currentSnapshot) throw new Error(`Finalization source chapter prose not found: ${session.chapter_id}`)
+  if (session.source_snapshot && !sameSourceSnapshot(session.source_snapshot, currentSnapshot)) {
+    throw new Error(`Finalization source changed while the review was running: ${session.chapter_id}`)
+  }
+  const completed: FinalizeReviewSession = {
+    ...session,
+    ai_response: aiResponse,
+    summary: parsed.summary,
+    impacts,
+    questions: parsed.questions,
+    status: nextFinalizeStatus(impacts, parsed.questions),
+    source_snapshot: currentSnapshot
+  }
+  await saveFinalizeReviewSession(projectRoot, completed)
+  return completed
 }
 
 export async function loadFinalizeReviewSession(
@@ -102,12 +148,14 @@ export async function answerFinalizeQuestion(
   state: FinalizeQuestion['state'] = 'resolved'
 ): Promise<FinalizeReviewSession> {
   const session = await loadFinalizeReviewSession(projectRoot, sessionId)
+  if (session.status === 'applied') throw new Error(`Finalization review is already applied: ${sessionId}`)
+  if (!session.questions.some((question) => question.id === questionId)) {
+    throw new Error(`Finalize question not found: ${questionId}`)
+  }
   session.questions = session.questions.map((question) =>
     question.id === questionId ? { ...question, answer, state } : question
   )
-  session.status = session.questions.some((question) => question.state === 'open')
-    ? 'needs-confirmation'
-    : 'ready-to-apply'
+  session.status = nextFinalizeStatus(session.impacts, session.questions)
   await saveFinalizeReviewSession(projectRoot, session)
   return session
 }
@@ -120,12 +168,14 @@ export async function confirmFinalizeImpact(
   state: 'confirmed' | 'rejected' = 'confirmed'
 ): Promise<FinalizeReviewSession> {
   const session = await loadFinalizeReviewSession(projectRoot, sessionId)
+  if (session.status === 'applied') throw new Error(`Finalization review is already applied: ${sessionId}`)
+  if (!session.impacts.some((impact) => impact.id === impactId)) {
+    throw new Error(`Finalize impact not found: ${impactId}`)
+  }
   session.impacts = session.impacts.map((impact) =>
     impact.id === impactId ? { ...impact, answer, state } : impact
   )
-  session.status = session.impacts.some((impact) => impact.state === 'open')
-    ? 'needs-confirmation'
-    : 'ready-to-apply'
+  session.status = nextFinalizeStatus(session.impacts, session.questions)
   await saveFinalizeReviewSession(projectRoot, session)
   return session
 }
@@ -168,17 +218,112 @@ function parseFinalizeAIResponse(raw: string): {
       confidence: Number(impact.confidence ?? 0),
       change: impact.change ?? '',
       evidence: impact.evidence ?? '',
-      requires_confirmation: impact.requires_confirmation ?? true,
-      state: impact.state ?? 'open'
+      operation:
+        impact.operation === 'create' || impact.operation === 'update' ? impact.operation : undefined,
+      frontmatter:
+        impact.frontmatter && typeof impact.frontmatter === 'object' && !Array.isArray(impact.frontmatter)
+          ? impact.frontmatter
+          : undefined,
+      content: typeof impact.content === 'string' ? impact.content : undefined,
+      // Model output cannot grant itself write authority. Every executable impact
+      // must cross an explicit author-confirmation boundary.
+      requires_confirmation: true,
+      state: 'open' as const
     })),
     questions: (parsed.questions ?? []).map((question) => ({
       id: question.id ?? makeId('issue', question.title ?? '定稿反查问题'),
       title: question.title ?? '定稿反查问题',
       priority: question.priority ?? 'medium',
       decision_needed: question.decision_needed ?? '',
-      state: question.state ?? 'open'
+      // Questions, like impacts, require an explicit author decision.
+      state: 'open' as const
     }))
   }
+}
+
+function nextFinalizeStatus(
+  impacts: FinalizeImpact[],
+  questions: FinalizeQuestion[]
+): FinalizeReviewSession['status'] {
+  if (
+    impacts.some((impact) => impact.state === 'open') ||
+    questions.some((question) => question.state === 'open')
+  ) {
+    return 'needs-confirmation'
+  }
+  return 'ready-to-apply'
+}
+
+async function hydrateFinalizeImpactHashes(
+  projectRoot: string,
+  impacts: FinalizeImpact[]
+): Promise<FinalizeImpact[]> {
+  return Promise.all(
+    impacts.map(async (impact) => {
+      if (!impact.target_id) return impact
+      const target = await findDoc(projectRoot, impact.target_id)
+      return {
+        ...impact,
+        expected_sha256: target
+          ? createHash('sha256')
+              .update(await readText(target.path))
+              .digest('hex')
+          : null
+      }
+    })
+  )
+}
+
+async function captureFinalizeSourceSnapshot(
+  projectRoot: string,
+  chapterId: string
+): Promise<FinalizeReviewSession['source_snapshot']> {
+  const chapter = await findDoc<OutlineDoc>(projectRoot, chapterId)
+  if (!chapter || chapter.data.type !== 'outline' || chapter.data.level !== 'chapter') return undefined
+  const prose = (await listDocs<ChapterProseDoc>(projectRoot, 'chapter_prose')).find(
+    (document) => document.data.chapter_id === chapterId
+  )
+  if (!prose) return undefined
+  return {
+    chapter_sha256: sha256(await readText(chapter.path)),
+    prose_id: prose.data.id,
+    prose_sha256: sha256(await readText(prose.path)),
+    prose_status: prose.data.status
+  }
+}
+
+async function assertFinalMatchesSource(
+  projectRoot: string,
+  snapshot: NonNullable<FinalizeReviewSession['source_snapshot']>,
+  final: string
+): Promise<void> {
+  const prose = await findDoc<ChapterProseDoc>(projectRoot, snapshot.prose_id)
+  if (!prose || prose.data.type !== 'chapter_prose') {
+    throw new Error(`Finalization source prose not found: ${snapshot.prose_id}`)
+  }
+  if (normalizeProse(prose.content) !== normalizeProse(final)) {
+    throw new Error('Finalize review input does not match the authoritative chapter prose.')
+  }
+}
+
+function sameSourceSnapshot(
+  left: NonNullable<FinalizeReviewSession['source_snapshot']>,
+  right: NonNullable<FinalizeReviewSession['source_snapshot']>
+): boolean {
+  return (
+    left.chapter_sha256 === right.chapter_sha256 &&
+    left.prose_id === right.prose_id &&
+    left.prose_sha256 === right.prose_sha256 &&
+    left.prose_status === right.prose_status
+  )
+}
+
+function normalizeProse(value: string): string {
+  return value.replace(/\r\n?/gu, '\n').trim()
+}
+
+function sha256(content: string): string {
+  return createHash('sha256').update(content).digest('hex')
 }
 
 function stripCodeFence(value: string): string {

@@ -54,6 +54,21 @@ describe('formatDesktopError', () => {
     )
   })
 
+  it('localizes finalization conflicts and rollback outcomes', () => {
+    expect(formatDesktopError('Finalization source changed after review: chapter-one', 'zh')).toContain(
+      '重新生成定稿反查'
+    )
+    expect(
+      formatDesktopError(
+        'Finalization apply failed and was rolled back. Audit: reviews/apply/attempt.json.',
+        'zh'
+      )
+    ).toContain('所有目标和反查状态已恢复')
+    expect(
+      formatDesktopError('Finalization review still has open decisions: 1 impacts, 0 questions.', 'en')
+    ).toBe('Resolve every open impact and question before applying this final review.')
+  })
+
   it('uses the selected interface language for otherwise unknown errors', () => {
     expect(formatDesktopError('Internal bridge implementation failed.', 'zh')).toBe(
       '操作未完成。请重试；若问题持续，请重启 Quillarium。'

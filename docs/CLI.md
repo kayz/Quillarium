@@ -207,10 +207,32 @@ accepts the target scene into its chapter and appends it to the independent chap
 Grouped candidates must be selected first. Empty or Markdown-formatted output is rejected. Pass `--scene <scene-id>` only when the scene
 recorded in run metadata must be overridden.
 
-The CLI exposes finalization-impact review through `finalize review-plan/show/confirm`; it does not
-currently expose the desktop's chapter `draft → final → published` actions or the two-confirmation
-publication UI. Confirming a review impact records the author's decision but does not apply Canon or
-continuity changes atomically; that apply service remains roadmap work.
+The CLI exposes the same finalization review and atomic continuity service as Desktop. First create
+and inspect a review, then confirm or reject each impact and resolve or defer every question:
+
+```bash
+pnpm cli finalize review-plan --chapter <chapter-id> --draft-file ./draft.txt --final-file ./final.txt --scenes scene-one,scene-two --ai-response '<strict-json>' --project "./writing-workspace/projects/my-novel"
+pnpm cli finalize show <review-id> --project "./writing-workspace/projects/my-novel"
+pnpm cli finalize confirm <review-id> <impact-id> "Author confirmed" --project "./writing-workspace/projects/my-novel"
+pnpm cli finalize confirm <review-id> <impact-id> "Not supported" --reject --project "./writing-workspace/projects/my-novel"
+pnpm cli finalize answer <review-id> <question-id> "Author decision" --project "./writing-workspace/projects/my-novel"
+```
+
+Only a `ready-to-apply` review can be applied. Each confirmed impact needs an explicit supported
+target, stable ID, `create` or `update` operation, and structured frontmatter and/or a complete
+Markdown body. Model output cannot confirm itself, and old prose-only impacts fail closed rather
+than being guessed into file edits.
+
+```bash
+pnpm cli finalize apply <review-id> --project "./writing-workspace/projects/my-novel"
+pnpm cli finalize recover --project "./writing-workspace/projects/my-novel"
+```
+
+`apply` validates the complete set and before hashes, retains backups and staged after-images,
+applies all managed files, rereads them, and prints the durable audit report. A failure rolls every
+file and the review session back. `recover` restores any interrupted nonterminal transaction. The
+CLI still does not expose the Desktop chapter `draft → final → published` actions or its
+two-confirmation publication UI.
 
 ### 5. Export accepted prose
 
@@ -364,7 +386,7 @@ and options.
 | `generate`       | Generate a scene; optional `--dry-run`                                               |
 | `check`          | Scene/outline checks via `--type`; scenes allow `--semantic`; optional `--run`       |
 | `st`             | `import-card`, `export-card`, `export-lorebook`                                      |
-| `finalize`       | `review-plan`, `show`, `confirm`                                                     |
+| `finalize`       | `review-plan`, `show`, `confirm`, `answer`, `apply`, `recover`                       |
 | `chapter-plan`   | Build ordered scene-writing prompts for a chapter                                    |
 | `run`            | `list`, `show`, `set-output`, `accept`                                               |
 | `help [command]` | Display help for a command                                                           |

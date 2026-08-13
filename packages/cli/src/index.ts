@@ -5,6 +5,8 @@ import { Command } from 'commander'
 import dotenv from 'dotenv'
 import {
   appendTimelineEvent,
+  answerFinalizeQuestion,
+  applyFinalizeReviewSession,
   assembleContextPacket,
   buildChapterWritingPlan,
   buildFinalizeReviewPrompt,
@@ -61,6 +63,7 @@ import {
   setWorkspaceDir,
   loadWorkspace,
   registerWorkspaceProject,
+  recoverFinalizationApplications,
   stableProjectId,
   writeRunFile,
   writeRunMetadata,
@@ -1034,6 +1037,41 @@ export function buildProgram(): Command {
       opts.reject ? 'rejected' : 'confirmed'
     )
     console.log(`${session.id}\t${session.status}`)
+  })
+  projectOption(
+    finalize
+      .command('answer')
+      .argument('<session-id>', 'Review session id')
+      .argument('<question-id>', 'Question id')
+      .argument('<answer>', 'Author answer')
+      .option('--defer', 'Defer the question instead of resolving it')
+      .description('Resolve or defer a finalize review question')
+  ).action(async (sessionId, questionId, answer, opts) => {
+    const session = await answerFinalizeQuestion(
+      path.resolve(opts.project),
+      sessionId,
+      questionId,
+      answer,
+      opts.defer ? 'deferred' : 'resolved'
+    )
+    console.log(`${session.id}\t${session.status}`)
+  })
+  projectOption(
+    finalize
+      .command('apply')
+      .argument('<session-id>', 'Review session id')
+      .description('Atomically apply a confirmed finalize review and write an audit report')
+  ).action(async (sessionId, opts) => {
+    console.log(
+      JSON.stringify(await applyFinalizeReviewSession(path.resolve(opts.project), sessionId), null, 2)
+    )
+  })
+  projectOption(
+    finalize
+      .command('recover')
+      .description('Recover every interrupted finalization transaction from retained backups')
+  ).action(async (opts) => {
+    console.log(JSON.stringify(await recoverFinalizationApplications(path.resolve(opts.project)), null, 2))
   })
 
   projectOption(

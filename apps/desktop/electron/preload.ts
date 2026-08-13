@@ -82,6 +82,10 @@ const api: QuillariumAPI = {
   loadFinalizeReviewSession: (root, sessionId) => invoke('finalize:session', root, sessionId),
   confirmFinalizeImpact: (root, sessionId, impactId, answer, state) =>
     invoke('finalize:confirmImpact', root, sessionId, impactId, answer, state),
+  answerFinalizeQuestion: (root, sessionId, questionId, answer, state) =>
+    invoke('finalize:answerQuestion', root, sessionId, questionId, answer, state),
+  applyFinalizeReview: (root, sessionId) => invoke('finalize:apply', root, sessionId),
+  recoverFinalizationApplications: (root) => invoke('finalize:recover', root),
   readRunFile: (root, runId, file) => invoke('run:readFile', root, runId, file),
   selectRunCandidate: (root, runId) => invoke('run:select', root, runId),
   checkRunCandidate: (root, runId) => invoke('run:check', root, runId),

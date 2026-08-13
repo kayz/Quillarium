@@ -81,6 +81,10 @@ const api = {
   loadFinalizeReviewSession: (root, sessionId) => ipcRenderer.invoke('finalize:session', root, sessionId),
   confirmFinalizeImpact: (root, sessionId, impactId, answer, state) =>
     ipcRenderer.invoke('finalize:confirmImpact', root, sessionId, impactId, answer, state),
+  answerFinalizeQuestion: (root, sessionId, questionId, answer, state) =>
+    ipcRenderer.invoke('finalize:answerQuestion', root, sessionId, questionId, answer, state),
+  applyFinalizeReview: (root, sessionId) => ipcRenderer.invoke('finalize:apply', root, sessionId),
+  recoverFinalizationApplications: (root) => ipcRenderer.invoke('finalize:recover', root),
   readRunFile: (root, runId, file) => ipcRenderer.invoke('run:readFile', root, runId, file),
   selectRunCandidate: (root, runId) => ipcRenderer.invoke('run:select', root, runId),
   checkRunCandidate: (root, runId) => ipcRenderer.invoke('run:check', root, runId),

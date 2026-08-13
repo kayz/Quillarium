@@ -107,7 +107,25 @@ semantic score.
 Selection is a recoverable group transaction that leaves exactly one selected Run and writes no
 scene, chapter, Canon, or continuity file. Candidate acceptance is a separate explicit operation;
 group candidates must be selected first. Accepted groups cannot be reselected. The next P0 boundary
-is atomic finalization apply, not additional chat or message semantics.
+is the complete release acceptance gate, not additional chat or message semantics.
+
+### Atomic finalization apply — implemented
+
+Finalization is now a fail-closed structured workflow shared by Desktop and CLI:
+
+```text
+review -> author decisions -> validate complete set and target hashes
+       -> retain backups and staged after-images -> apply -> reread/verify -> audit
+```
+
+Model output cannot mark an impact confirmed. Existing reviews that contain only prose suggestions
+remain reviewable but cannot be executed as patches. Confirmed impacts must specify a supported
+target family, stable target ID, `create`/`update` operation, and explicit frontmatter and/or complete
+Markdown body. Apply paths are computed inside the core service and contained within the managed
+project directory; symlink traversal, stale hashes, duplicate targets, missing references, and
+identity changes fail before writes. A mid-write or verification failure restores every target and
+the review session. Reports retain source chapter/scenes, before/after SHA-256 values, backups, and
+recovery paths. See [ADR-finalization-apply.md](docs/adr/ADR-finalization-apply.md).
 
 ### Versioned writing presets — implemented
 
@@ -130,8 +148,6 @@ create and select the default preset through Desktop or `quill preset init`.
   `candidate.selected`, `scene.accepted`, and `finalization.applied`.
 - Add scoped writing notes with explicit expiry.
 - Add rebuildable rolling summaries that cite source chapters and never replace accepted prose.
-- Complete atomic finalization apply with validation, backup, verification, audit records, and
-  recovery.
 - Connect publication feedback to chapter-level retrospectives and future planning.
 
 ## P2: Declarative Chapter Recipes

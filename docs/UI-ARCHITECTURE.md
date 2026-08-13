@@ -181,7 +181,9 @@ The implemented desktop baseline supports:
 11. accept raw output into a scene and write it into chapter prose in order without headings or
     separator characters
 12. open chapter prose as a dedicated large plain-text editor with word progress and lifecycle actions
-13. delete an unpublished volume/part/act/chapter/scene, recursively cleaning its descendants and runs
+13. on final prose, review AI-proposed continuity impacts/questions, explicitly decide each item,
+    then back up, atomically apply, verify, and inspect the audit
+14. delete an unpublished volume/part/act/chapter/scene, recursively cleaning its descendants and runs
 
 The AI-writing page uses a resizable two-column prompt composer: source cards on the left and the
 exact editable prompt on the right. Chapter prose has its own full-width page rather than sharing
@@ -191,8 +193,11 @@ visible non-whitespace character counts. The stylesheet is an independent implem
 CSS or font binaries are copied.
 
 The chapter-prose page exposes `draft`, `final`, and `published`. Finalization locks AI and scene
-edits. Publication uses a confirm dialog plus exact chapter-title confirmation, then locks prose and
-purges scene prompts/AI artifacts while retaining scene outlines. Before publication, story-node
-delete actions are available; a published descendant blocks the entire deletion. Git actions remain
-workspace-aware or standalone scoped, and visible pane separators can be dragged (or focused and
-adjusted with arrow keys) to allocate space.
+edits. In `final`, a right-side review panel can request a structured back-check, show every impact
+and question, and require an explicit author decision before enabling continuity apply. The panel
+uses the same core service as CLI and offers an interrupted-transaction recovery check. Publication
+uses a confirm dialog plus exact chapter-title confirmation, then locks prose and purges scene
+prompts/AI artifacts while retaining scene outlines. Before publication, story-node delete actions
+are available; a published descendant blocks the entire deletion. Git actions remain workspace-aware
+or standalone scoped, and visible pane separators can be dragged (or focused and adjusted with
+arrow keys) to allocate space.

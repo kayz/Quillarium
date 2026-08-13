@@ -12,8 +12,9 @@ implemented. The workbench includes typed relations and material provenance, a l
 spatial and time-aware character views, keyword-triggered world knowledge, foreshadowing reminders,
 manual AI checks that persist issue cards, card-by-card prompt composition, an explainable
 model-budgeted Context compiler, versioned writing presets with immutable run snapshots, and
-multi-candidate comparison, selection, and branching. The root [ROADMAP](../ROADMAP.md) tracks
-atomic finalization apply and later lifecycle work.
+multi-candidate comparison, selection, and branching. Atomic finalization apply is also implemented
+with explicit author decisions, complete before images, target-hash conflict detection, rollback,
+verification, and a durable audit. The root [ROADMAP](../ROADMAP.md) tracks later lifecycle work.
 
 The implemented context layer returns one deterministic `ContextPacket` with selected documents,
 warnings, shared guidance, typed `PromptBlock` values, and a complete `ContextTrace`. Selection uses
@@ -126,10 +127,13 @@ prepare -> generate candidates -> accept scenes -> check chapter
 ```
 
 Selecting a candidate does not accept prose. Accepting a scene does not finalize a chapter.
-The current implementation can create and answer a reviewable finalization-impact session, and it
-separately enforces chapter finalization/publication. The atomic continuity-apply operation that
-writes confirmed Canon, timeline, character-state, foreshadowing, or issue updates with before/after
-hashes and recovery information is still P1 work.
+Finalization review and continuity apply are separate from chapter state transitions and
+publication. The model proposes typed changes but cannot confirm them. After all impacts and
+questions receive author decisions, one core service validates the complete set, locks the reviewed
+before hashes, backs up every affected file, applies and rereads every result, and marks the review
+`applied` only after verification. Canon, character/state, timeline, location, world, resource,
+foreshadowing, narrative, and issue records are supported. Natural-language `change` text is never
+interpreted as an executable patch.
 
 Chapter prose has three states:
 
@@ -260,6 +264,22 @@ Selection uses a recoverable project-level journal to update exactly one `select
 group. It does not change Run status or any prose. Reselection is allowed until a group member is
 accepted; accepting a grouped candidate requires it to be selected first. See
 [ADR-candidate-branches.md](adr/ADR-candidate-branches.md).
+
+### Finalization Reviews and Continuity Apply
+
+Review sessions live in `reviews/<review-id>.json`. A structured impact records its `create` or
+`update` operation, stable target ID, field-level frontmatter merge, optional complete Markdown body,
+evidence, confidence, decision state, and the target SHA-256 captured by Quillarium when the review
+is completed. The hash is never trusted from model output. The review also locks the chapter-outline
+and authoritative final-prose hashes, so an author edit after review requires a new review.
+
+Apply first prepares every target in memory and validates type, identity, path containment,
+references, duplicate targets, and all before hashes. It then writes backup and staged files beneath
+`reviews/apply/<review-id>/<application-id>/`, publishes an exclusive `report.json` transaction
+journal, atomically replaces managed targets, writes the review session last, and rereads all files.
+Only a fully verified transaction becomes `applied`. A write or verification error restores all
+before images and archives a rolled-back audit; startup or explicit recovery handles any nonterminal
+journal left by interruption. See [ADR-finalization-apply.md](adr/ADR-finalization-apply.md).
 
 ### Prompts and Writing Presets
 

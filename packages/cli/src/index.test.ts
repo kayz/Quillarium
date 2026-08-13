@@ -359,6 +359,22 @@ describe('CLI smoke flow', () => {
     expect(help).not.toMatch(/Writer/)
   })
 
+  it('exposes the complete finalization review and atomic-apply workflow', () => {
+    const finalize = buildProgram().commands.find((command) => command.name() === 'finalize')
+
+    expect(finalize?.commands.map((command) => command.name())).toEqual([
+      'review-plan',
+      'show',
+      'confirm',
+      'answer',
+      'apply',
+      'recover'
+    ])
+    expect(finalize?.commands.find((command) => command.name() === 'apply')?.helpInformation()).toContain(
+      'Atomically apply'
+    )
+  })
+
   it('keeps explicit legacy-vault creation available without making it the default', async () => {
     const { root } = await initProject()
     const config = await readFile(path.join(root, 'project.yaml'), 'utf8')

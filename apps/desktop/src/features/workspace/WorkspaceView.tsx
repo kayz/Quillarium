@@ -319,7 +319,10 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
               {activeModule === 'write' ? (
                 selectedTarget?.type === 'chapter_prose' && doc && writingOutline ? (
                   <ChapterProseWorkspace
+                    key={writingOutline.data.id}
                     chapterTitle={writingOutline.data.title}
+                    chapterId={writingOutline.data.id}
+                    root={root}
                     doc={doc}
                     targetWords={data.project.chapter_words}
                     dirty={dirty}
@@ -331,6 +334,7 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
                     onSave={save}
                     onFinalize={() => finalizeChapterProse(writingOutline.data.id)}
                     onPublish={(confirmation) => publishChapterProse(writingOutline.data.id, confirmation)}
+                    onContinuityApplied={load}
                     language={language}
                   />
                 ) : workLevel === 'ai' ? (
