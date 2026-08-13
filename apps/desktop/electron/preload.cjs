@@ -65,6 +65,8 @@ const api = {
   generate: (root, sceneId) => ipcRenderer.invoke('scene:generate', root, sceneId),
   generateOutline: (root, outlineId, prompt, sceneId) =>
     ipcRenderer.invoke('outline:generate', root, outlineId, prompt, sceneId),
+  generateOutlineCandidates: (root, outlineId, prompt, sceneId, count, parentRunId) =>
+    ipcRenderer.invoke('outline:generateCandidates', root, outlineId, prompt, sceneId, count, parentRunId),
   prepareScene: (root, chapterId) => ipcRenderer.invoke('scene:prepare', root, chapterId),
   acceptManualScene: (root, sceneId, content) =>
     ipcRenderer.invoke('scene:acceptManual', root, sceneId, content),
@@ -80,6 +82,8 @@ const api = {
   confirmFinalizeImpact: (root, sessionId, impactId, answer, state) =>
     ipcRenderer.invoke('finalize:confirmImpact', root, sessionId, impactId, answer, state),
   readRunFile: (root, runId, file) => ipcRenderer.invoke('run:readFile', root, runId, file),
+  selectRunCandidate: (root, runId) => ipcRenderer.invoke('run:select', root, runId),
+  checkRunCandidate: (root, runId) => ipcRenderer.invoke('run:check', root, runId),
   acceptRun: (root, runId, candidate) => ipcRenderer.invoke('run:accept', root, runId, candidate),
   exportManuscript: (root, options) => ipcRenderer.invoke('export:manuscript', root, options),
   importSillyTavernCard: (root, filePath) => ipcRenderer.invoke('st:importCard', root, filePath),

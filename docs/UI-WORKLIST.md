@@ -169,6 +169,9 @@ These need product/design confirmation before or during implementation:
 - [x] Accept raw output into scene.
 - [x] Compare raw vs accepted.
 - [x] Mark run status: created / generated / checked / accepted.
+- [x] Generate a bounded candidate group from one action.
+- [x] Compare candidate prose and per-candidate checks side by side.
+- [x] Select without accepting; branch from any retained candidate.
 
 ## Milestone UI-9: Canon Module
 

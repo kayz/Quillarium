@@ -200,6 +200,13 @@ export interface ContextPacketSummary {
 export interface RunSummary {
   id: string
   scene_id: string
+  target_type?: 'scene' | 'outline'
+  target_id?: string
+  candidate_group_id?: string
+  candidate_index?: number
+  parent_run_id?: string
+  branch_id?: string
+  selected_at?: string
   status: string
   model: string
   created_at: string

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import { CheckCircle2 } from 'lucide-react'
+import { CheckCircle2, GitBranch, ListChecks, MousePointerClick } from 'lucide-react'
 import type {
   CheckReport,
   ContextPacketSummary,
@@ -305,6 +305,7 @@ export function RunPanel({
   sceneIds,
   onAccepted,
   onCandidateChange,
+  onBranch,
   language
 }: {
   root: string
@@ -313,10 +314,11 @@ export function RunPanel({
   sceneIds?: string[]
   onAccepted: () => Promise<void>
   onCandidateChange?: (value: string) => void
+  onBranch?: (parentRunId: string) => Promise<void>
   language: LanguageName
 }) {
   const filtered = runs.filter((run) =>
-    sceneIds ? sceneIds.includes(run.scene_id) : !sceneId || run.scene_id === sceneId
+    sceneId ? run.scene_id === sceneId : sceneIds ? sceneIds.includes(run.scene_id) : true
   )
   const [selectedRun, setSelectedRun] = useState<string | null>(null)
   const [activeFile, setActiveFile] = useState('metadata.yaml')
@@ -324,8 +326,22 @@ export function RunPanel({
   const [accepting, setAccepting] = useState(false)
   const [acceptError, setAcceptError] = useState('')
   const [candidate, setCandidate] = useState('')
+  const [comparison, setComparison] = useState<
+    Record<string, { raw: string; report: string; evaluation: string }>
+  >({})
   const currentRun = filtered.some((run) => run.id === selectedRun) ? selectedRun : (filtered[0]?.id ?? null)
   const currentRunSummary = filtered.find((run) => run.id === currentRun) ?? null
+  const currentGroupRuns = currentRunSummary?.candidate_group_id
+    ? filtered
+        .filter((run) => run.candidate_group_id === currentRunSummary.candidate_group_id)
+        .sort(
+          (left, right) =>
+            (left.candidate_index ?? Number.MAX_SAFE_INTEGER) -
+              (right.candidate_index ?? Number.MAX_SAFE_INTEGER) || left.id.localeCompare(right.id)
+        )
+    : currentRunSummary
+      ? [currentRunSummary]
+      : []
 
   useEffect(() => {
     async function loadPreview() {
@@ -353,7 +369,25 @@ export function RunPanel({
       }
     }
     void loadPreview()
-  }, [root, currentRun, activeFile, language])
+  }, [root, currentRun, activeFile, language, runs])
+
+  useEffect(() => {
+    if (activeFile !== 'comparison' || currentGroupRuns.length === 0) return
+    void Promise.all(
+      currentGroupRuns.map(async (run) => ({
+        id: run.id,
+        raw: await bridge.readRunFile(root, run.id, 'output-raw.md').catch(() => ''),
+        report: await bridge.readRunFile(root, run.id, 'check-report.md').catch(() => ''),
+        evaluation: await bridge.readRunFile(root, run.id, 'evaluation.json').catch(() => '')
+      }))
+    ).then((items) =>
+      setComparison(
+        Object.fromEntries(
+          items.map((item) => [item.id, { raw: item.raw, report: item.report, evaluation: item.evaluation }])
+        )
+      )
+    )
+  }, [root, activeFile, currentRunSummary?.candidate_group_id, runs])
 
   const accept = async () => {
     if (!currentRun) return
@@ -369,6 +403,56 @@ export function RunPanel({
     }
   }
 
+  const selectCandidate = async (runId = currentRun) => {
+    if (!runId) return
+    setAccepting(true)
+    setAcceptError('')
+    try {
+      await bridge.selectRunCandidate(root, runId)
+      setSelectedRun(runId)
+      await onAccepted()
+    } catch (error) {
+      setAcceptError(formatDesktopError(error, language))
+    } finally {
+      setAccepting(false)
+    }
+  }
+
+  const checkCandidate = async () => {
+    if (!currentRun) return
+    setAccepting(true)
+    setAcceptError('')
+    try {
+      await bridge.checkRunCandidate(root, currentRun)
+      setActiveFile('check-report.md')
+      await onAccepted()
+    } catch (error) {
+      setAcceptError(formatDesktopError(error, language))
+    } finally {
+      setAccepting(false)
+    }
+  }
+
+  const branchCandidate = async () => {
+    if (!currentRun || !onBranch) return
+    setAccepting(true)
+    setAcceptError('')
+    try {
+      await onBranch(currentRun)
+      setSelectedRun(null)
+      setActiveFile('comparison')
+    } catch (error) {
+      setAcceptError(formatDesktopError(error, language))
+    } finally {
+      setAccepting(false)
+    }
+  }
+
+  const canAccept =
+    currentRunSummary &&
+    ['generated', 'checked'].includes(currentRunSummary.status) &&
+    (!currentRunSummary.candidate_group_id || Boolean(currentRunSummary.selected_at))
+
   return (
     <footer className="run-panel">
       <div className="run-tabs">
@@ -383,10 +467,47 @@ export function RunPanel({
             </button>
           )
         )}
+        <button
+          className={activeFile === 'comparison' ? 'active' : ''}
+          onClick={() => setActiveFile('comparison')}
+          disabled={currentGroupRuns.length < 2}
+        >
+          {language === 'zh' ? '候选对比' : 'Candidate compare'}
+        </button>
         <span className="spacer" />
+        <button onClick={() => void checkCandidate()} disabled={accepting || !currentRun}>
+          <ListChecks size={14} /> {language === 'zh' ? '检查本稿' : 'Check'}
+        </button>
+        {currentRunSummary?.candidate_group_id && (
+          <button
+            onClick={() => void selectCandidate()}
+            disabled={accepting || !currentRun || Boolean(currentRunSummary.selected_at)}
+          >
+            <MousePointerClick size={14} />
+            {currentRunSummary.selected_at
+              ? language === 'zh'
+                ? '已选中'
+                : 'Selected'
+              : language === 'zh'
+                ? '选中本稿'
+                : 'Select'}
+          </button>
+        )}
+        {onBranch && (
+          <button onClick={() => void branchCandidate()} disabled={accepting || !currentRun}>
+            <GitBranch size={14} /> {language === 'zh' ? '从本稿分支' : 'Branch'}
+          </button>
+        )}
         <button
           onClick={accept}
-          disabled={accepting || !currentRun || currentRunSummary?.status !== 'generated'}
+          disabled={accepting || !currentRun || !canAccept}
+          title={
+            currentRunSummary?.candidate_group_id && !currentRunSummary.selected_at
+              ? language === 'zh'
+                ? '先选中候选稿；选中不会写入正文'
+                : 'Select a candidate first; selection does not write prose'
+              : undefined
+          }
         >
           {t(language, 'acceptRaw')}
         </button>
@@ -402,7 +523,7 @@ export function RunPanel({
       <div className="run-split">
         <div className="run-table">
           <div className="run-row header">
-            <span>{t(language, 'type')}</span>
+            <span>{language === 'zh' ? '候选 / 组' : 'Candidate / group'}</span>
             <span>{t(language, 'model')}</span>
             <span>{t(language, 'time')}</span>
             <span>{t(language, 'status')}</span>
@@ -416,15 +537,74 @@ export function RunPanel({
                 key={run.id}
                 onClick={() => setSelectedRun(run.id)}
               >
-                <span>{run.id}</span>
+                <span>
+                  <strong>
+                    {run.candidate_index === undefined
+                      ? run.id
+                      : language === 'zh'
+                        ? `候选 ${run.candidate_index + 1}`
+                        : `Candidate ${run.candidate_index + 1}`}
+                  </strong>
+                  {run.candidate_group_id && <small>{run.candidate_group_id.slice(0, 22)}</small>}
+                </span>
                 <span>{run.model}</span>
                 <span>{run.created_at}</span>
-                <span>{enumChoiceLabel('run_status', run.status, language)}</span>
+                <span>
+                  {enumChoiceLabel('run_status', run.status, language)}
+                  {run.selected_at && (
+                    <small className="candidate-selected-mark">
+                      {language === 'zh' ? '已选中' : 'selected'}
+                    </small>
+                  )}
+                </span>
               </button>
             ))
           )}
         </div>
-        {activeFile === 'output-raw.md' ? (
+        {activeFile === 'comparison' ? (
+          <div className="candidate-comparison">
+            {currentGroupRuns.map((run) => (
+              <article key={run.id} className={run.selected_at ? 'selected' : ''}>
+                <header>
+                  <strong>
+                    {language === 'zh'
+                      ? `候选 ${(run.candidate_index ?? 0) + 1}`
+                      : `Candidate ${(run.candidate_index ?? 0) + 1}`}
+                  </strong>
+                  <span>
+                    {enumChoiceLabel('run_status', run.status, language)}
+                    {run.selected_at ? (language === 'zh' ? ' · 已选中' : ' · selected') : ''}
+                  </span>
+                </header>
+                {comparison[run.id]?.evaluation && (
+                  <CandidateScoreStrip json={comparison[run.id]!.evaluation} language={language} />
+                )}
+                <pre className="candidate-comparison-prose">{comparison[run.id]?.raw}</pre>
+                <details>
+                  <summary>{language === 'zh' ? '检查报告' : 'Check report'}</summary>
+                  <pre>{comparison[run.id]?.report || (language === 'zh' ? '尚未检查' : 'Not checked')}</pre>
+                </details>
+                <footer>
+                  <button onClick={() => setSelectedRun(run.id)}>
+                    {language === 'zh' ? '查看本稿' : 'Open'}
+                  </button>
+                  <button
+                    onClick={() => void selectCandidate(run.id)}
+                    disabled={accepting || Boolean(run.selected_at)}
+                  >
+                    {run.selected_at
+                      ? language === 'zh'
+                        ? '已选中'
+                        : 'Selected'
+                      : language === 'zh'
+                        ? '选中'
+                        : 'Select'}
+                  </button>
+                </footer>
+              </article>
+            ))}
+          </div>
+        ) : activeFile === 'output-raw.md' ? (
           <label className="candidate-editor">
             <span>
               {language === 'zh' ? '节工作稿（接受前可人工修改）' : 'Scene working draft'}
@@ -458,6 +638,28 @@ export function WordProgress({ content, target }: { content: string; target: num
       <div>
         <i style={{ width: `${pct}%` }} />
       </div>
+    </div>
+  )
+}
+
+function CandidateScoreStrip({ json, language }: { json: string; language: LanguageName }) {
+  let score: { deterministic_score?: number; semantic_score?: number; semantic_status?: string }
+  try {
+    score = JSON.parse(json) as typeof score
+  } catch {
+    return null
+  }
+  return (
+    <div className="candidate-score-strip">
+      <span>
+        {language === 'zh' ? '规则一致性' : 'Deterministic'}
+        <strong>{score.deterministic_score ?? '—'}</strong>
+      </span>
+      <span>
+        {language === 'zh' ? '语义一致性' : 'Semantic'}
+        <strong>{score.semantic_score ?? '—'}</strong>
+        <small>{score.semantic_status}</small>
+      </span>
     </div>
   )
 }

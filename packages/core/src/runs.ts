@@ -4,7 +4,13 @@ import { readdir, rename, rm, writeFile } from 'node:fs/promises'
 import { ensureDir, pathExists, readText, writeText } from './fs.js'
 import { timestampId } from './ids.js'
 import { objectToYaml, parseMarkdown } from './yaml.js'
-import type { ContextTrace, PromptBlock, RunMetadata, SharedGuidanceContent } from './types.js'
+import type {
+  CandidateGroupSummary,
+  ContextTrace,
+  PromptBlock,
+  RunMetadata,
+  SharedGuidanceContent
+} from './types.js'
 import { assertWritingPresetSnapshot } from './writing-presets.js'
 import type { WritingPresetSnapshot } from './types.js'
 
@@ -20,9 +26,10 @@ export async function createRun(
 ): Promise<RunMetadata> {
   const targetId = metadata.target_id ?? sceneId
   const targetType = metadata.target_type ?? 'scene'
-  const id = metadata.id ?? `${timestampId('run')}-${targetId}`
+  const id = metadata.id ?? `${timestampId('run')}-${targetId}-${randomUUID().slice(0, 8)}`
   const runDir = path.join(projectRoot, 'runs', id)
   assertRunDirectory(projectRoot, runDir)
+  if (await pathExists(runDir)) throw new Error(`Run already exists: ${id}`)
   await ensureDir(runDir)
   const full: RunMetadata = {
     id,
@@ -30,6 +37,11 @@ export async function createRun(
     target_type: targetType,
     target_id: targetId,
     source_outline: metadata.source_outline,
+    candidate_group_id: metadata.candidate_group_id,
+    candidate_index: metadata.candidate_index,
+    parent_run_id: metadata.parent_run_id,
+    branch_id: metadata.branch_id,
+    selected_at: metadata.selected_at,
     created_at: metadata.created_at ?? new Date().toISOString(),
     provider: metadata.provider ?? 'none',
     model: metadata.model ?? 'none',
@@ -45,6 +57,7 @@ export async function createRun(
   await writeText(path.join(runDir, 'output-raw.md'), '')
   await writeText(path.join(runDir, 'output-accepted.md'), '')
   await writeText(path.join(runDir, 'check-report.md'), '')
+  await writeText(path.join(runDir, 'evaluation.json'), '')
   return full
 }
 
@@ -161,6 +174,11 @@ export async function snapshotWritingPreset(
 }
 
 export async function listRuns(projectRoot: string): Promise<RunMetadata[]> {
+  await recoverCandidateSelection(projectRoot)
+  return readRuns(projectRoot)
+}
+
+async function readRuns(projectRoot: string): Promise<RunMetadata[]> {
   const runsRoot = path.join(projectRoot, 'runs')
   if (!(await pathExists(runsRoot))) return []
   const entries = await readdir(runsRoot, { withFileTypes: true })
@@ -176,6 +194,7 @@ export async function listRuns(projectRoot: string): Promise<RunMetadata[]> {
       if (value instanceof Date) return value.toISOString()
       return typeof value === 'string' ? value : value == null ? '' : String(value)
     }
+    const candidateIndex = Number(data.candidate_index)
     const status = get('status')
     const targetType = get('target_type')
     runs.push({
@@ -184,6 +203,11 @@ export async function listRuns(projectRoot: string): Promise<RunMetadata[]> {
       target_type: targetType === 'outline' ? 'outline' : 'scene',
       target_id: get('target_id') || get('scene_id'),
       source_outline: get('source_outline') || undefined,
+      candidate_group_id: get('candidate_group_id') || undefined,
+      candidate_index: Number.isInteger(candidateIndex) && candidateIndex >= 0 ? candidateIndex : undefined,
+      parent_run_id: get('parent_run_id') || undefined,
+      branch_id: get('branch_id') || undefined,
+      selected_at: get('selected_at') || undefined,
       created_at: get('created_at'),
       provider: get('provider'),
       model: get('model'),
@@ -196,6 +220,137 @@ export async function listRuns(projectRoot: string): Promise<RunMetadata[]> {
     })
   }
   return runs.sort((a, b) => b.created_at.localeCompare(a.created_at))
+}
+
+export async function listCandidateGroups(projectRoot: string): Promise<CandidateGroupSummary[]> {
+  const grouped = new Map<string, RunMetadata[]>()
+  for (const run of await listRuns(projectRoot)) {
+    if (!run.candidate_group_id) continue
+    const members = grouped.get(run.candidate_group_id) ?? []
+    members.push(run)
+    grouped.set(run.candidate_group_id, members)
+  }
+  return [...grouped.entries()]
+    .map(([id, members]) => {
+      const runs = members.sort(compareCandidateRuns)
+      const selected = runs.find((run) => Boolean(run.selected_at))
+      return {
+        id,
+        branch_id: runs[0]?.branch_id ?? 'main',
+        parent_run_id: runs[0]?.parent_run_id,
+        selected_run_id: selected?.id,
+        runs
+      }
+    })
+    .sort((left, right) => (right.runs[0]?.created_at ?? '').localeCompare(left.runs[0]?.created_at ?? ''))
+}
+
+export async function selectRunCandidate(
+  projectRoot: string,
+  runId: string,
+  selectedAt = new Date().toISOString()
+): Promise<CandidateGroupSummary> {
+  if (Number.isNaN(Date.parse(selectedAt))) throw new Error(`Invalid candidate selection time: ${selectedAt}`)
+  const runs = await listRuns(projectRoot)
+  const selected = runs.find((run) => run.id === runId)
+  if (!selected) throw new Error(`Run not found: ${runId}`)
+  if (!selected.candidate_group_id) throw new Error(`Run is not part of a candidate group: ${runId}`)
+  if (selected.status === 'created') throw new Error(`Candidate has no generated output: ${runId}`)
+  const members = runs.filter((run) => run.candidate_group_id === selected.candidate_group_id)
+  if (members.some((run) => run.status === 'accepted')) {
+    throw new Error(
+      `Candidate selection is locked after a group member is accepted: ${selected.candidate_group_id}`
+    )
+  }
+  const journalPath = candidateSelectionJournalPath(projectRoot)
+  await ensureDir(path.dirname(journalPath))
+  await writeFile(
+    journalPath,
+    `${JSON.stringify(
+      {
+        schema_version: 1,
+        candidate_group_id: selected.candidate_group_id,
+        selected_run_id: runId,
+        selected_at: selectedAt
+      },
+      null,
+      2
+    )}\n`,
+    { encoding: 'utf8', flag: 'wx' }
+  ).catch((error: NodeJS.ErrnoException) => {
+    if (error.code === 'EEXIST') {
+      throw new Error('Another candidate selection transaction is pending; retry after recovery.')
+    }
+    throw error
+  })
+  await recoverCandidateSelection(projectRoot)
+  const group = (await listCandidateGroups(projectRoot)).find(
+    (item) => item.id === selected.candidate_group_id
+  )
+  if (!group || group.selected_run_id !== runId) {
+    throw new Error(`Candidate selection verification failed: ${runId}`)
+  }
+  return group
+}
+
+export async function requireSelectedCandidateForAcceptance(
+  projectRoot: string,
+  run: RunMetadata
+): Promise<void> {
+  if (!run.candidate_group_id) return
+  const current = (await listRuns(projectRoot)).find((item) => item.id === run.id)
+  if (!current?.selected_at) {
+    throw new Error(`Select this candidate before accepting it: ${run.id}`)
+  }
+}
+
+interface CandidateSelectionJournal {
+  schema_version: 1
+  candidate_group_id: string
+  selected_run_id: string
+  selected_at: string
+}
+
+async function recoverCandidateSelection(projectRoot: string): Promise<void> {
+  const journalPath = candidateSelectionJournalPath(projectRoot)
+  if (!(await pathExists(journalPath))) return
+  const journal = JSON.parse(await readText(journalPath)) as Partial<CandidateSelectionJournal>
+  if (
+    journal.schema_version !== 1 ||
+    !journal.candidate_group_id ||
+    !journal.selected_run_id ||
+    !journal.selected_at
+  ) {
+    throw new Error(`Invalid candidate selection journal: ${journalPath}`)
+  }
+  const runs = await readRuns(projectRoot)
+  const members = runs.filter((run) => run.candidate_group_id === journal.candidate_group_id)
+  if (!members.some((run) => run.id === journal.selected_run_id)) {
+    throw new Error(`Candidate selection journal references a missing run: ${journal.selected_run_id}`)
+  }
+  for (const run of members) {
+    const selectedAt = run.id === journal.selected_run_id ? journal.selected_at : undefined
+    if (run.selected_at === selectedAt) continue
+    await writeRunMetadata(projectRoot, { ...run, selected_at: selectedAt })
+  }
+  const verified = await readRuns(projectRoot)
+  const selectedIds = verified
+    .filter((run) => run.candidate_group_id === journal.candidate_group_id && run.selected_at)
+    .map((run) => run.id)
+  if (selectedIds.length !== 1 || selectedIds[0] !== journal.selected_run_id) {
+    throw new Error(`Candidate selection transaction could not be verified: ${journal.candidate_group_id}`)
+  }
+  await rm(journalPath, { force: true })
+}
+
+function candidateSelectionJournalPath(projectRoot: string): string {
+  return path.join(projectRoot, 'runs', '.candidate-selection.json')
+}
+
+function compareCandidateRuns(left: RunMetadata, right: RunMetadata): number {
+  const indexDifference =
+    (left.candidate_index ?? Number.MAX_SAFE_INTEGER) - (right.candidate_index ?? Number.MAX_SAFE_INTEGER)
+  return indexDifference || left.created_at.localeCompare(right.created_at) || left.id.localeCompare(right.id)
 }
 
 function isRunStatus(value: string): value is RunMetadata['status'] {

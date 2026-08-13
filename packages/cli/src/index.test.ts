@@ -967,6 +967,55 @@ describe('CLI smoke flow', () => {
     expect(output.join('\n')).toContain('You are assisting with a long-form novel project.')
   })
 
+  it('creates, checks, selects, and explicitly accepts one retained candidate', async () => {
+    const { root } = await initProject()
+    const seeded = await seedScene(root)
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    output = []
+
+    await run('generate', seeded.sceneId, '--dry-run', '--candidates', '3', '--project', root)
+    const groupId = output[0]?.replace('Created candidate group: ', '')
+    const runIds = output.slice(1)
+    expect(groupId).toBeTruthy()
+    expect(runIds).toHaveLength(3)
+    expect(new Set((await listRuns(root)).map((item) => item.candidate_group_id))).toEqual(new Set([groupId]))
+
+    const candidateFiles = await Promise.all(
+      runIds.map(async (runId, index) => {
+        const file = path.join(root, `candidate-${index + 1}.txt`)
+        await writeFile(file, `Candidate prose ${index + 1}.`, 'utf8')
+        return file
+      })
+    )
+    for (let index = 0; index < runIds.length; index += 1) {
+      await run('run', 'set-output', runIds[index]!, '--file', candidateFiles[index]!, '--project', root)
+    }
+    await expect(run('run', 'accept', runIds[1]!, '--project', root)).rejects.toThrow(
+      'Select this candidate before accepting it'
+    )
+
+    output = []
+    await run('check', seeded.sceneId, '--run', runIds[1]!, '--project', root)
+    expect((await listRuns(root)).find((item) => item.id === runIds[1])?.status).toBe('checked')
+    expect(await readRunFile(root, runIds[1]!, 'check-report.md')).toContain('checked_characters: 16')
+
+    output = []
+    await run('run', 'select', runIds[1]!, '--project', root)
+    expect(output[0]).toContain('no prose was written')
+    const beforeAccept = (await listDocs<SceneDoc>(root, 'scene')).find(
+      (item) => item.data.id === seeded.sceneId
+    )?.content
+    expect(beforeAccept).not.toContain('Candidate prose 2.')
+
+    output = []
+    await run('run', 'accept', runIds[1]!, '--project', root)
+    expect(
+      (await listDocs<SceneDoc>(root, 'scene')).find((item) => item.data.id === seeded.sceneId)?.content
+    ).toContain('Candidate prose 2.')
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
   it('accepts a run without discarding its metadata and updates the scene', async () => {
     const { root } = await initProject()
     const seeded = await seedScene(root)

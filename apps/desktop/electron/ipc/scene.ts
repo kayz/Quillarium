@@ -38,6 +38,7 @@ import {
 } from '@quillarium/checks'
 import {
   createGenerationRun,
+  generateCandidateGroup,
   buildSectionPrompt,
   contextCompileOptions,
   generateIntoRun,
@@ -180,6 +181,45 @@ export function registerSceneHandlers(): void {
     )
     return { run, output, scene: scene as DesktopDocEntry<SceneDoc> }
   })
+  typedHandle(
+    'outline:generateCandidates',
+    async (_event, root, outlineId, prompt, sceneId, count, parentRunId) => {
+      await assertChapterAllowsAI(root, outlineId)
+      const scene = await ensureSceneForOutline(root, outlineId, sceneId)
+      const resolved = await resolveDesktopGenerationPreset(root)
+      const packet = await assembleContextPacket(
+        root,
+        { type: 'outline', id: outlineId },
+        contextCompileOptions(resolved.config, resolved.snapshot)
+      )
+      const context = renderContextPacket(packet)
+      const group = await generateCandidateGroup(
+        {
+          projectRoot: root,
+          sceneId: scene.data.id,
+          context,
+          config: resolved.config,
+          count,
+          parentRunId,
+          metadata: {
+            target_type: 'outline',
+            target_id: outlineId,
+            source_outline: outlineId
+          },
+          sharedGuidance: packet.shared_guidance,
+          promptOverride: prompt,
+          compilation: {
+            prompt_blocks: packet.prompt_blocks,
+            context_trace: packet.context_trace,
+            writing_preset: resolved.snapshot
+          }
+        },
+        {},
+        assertPlainProse
+      )
+      return { ...group, scene: scene as DesktopDocEntry<SceneDoc> }
+    }
+  )
   typedHandle(
     'scene:prepare',
     async (_event, root, chapterId) =>

@@ -96,15 +96,18 @@ closed. Desktop and `quill context --trace` preview source, purpose, authority, 
 count, truncation, and selection/exclusion reasons. Generation runs persist immutable
 `prompt-blocks.json` and `context-trace.json` snapshots.
 
-### Multiple candidates and branches
+### Multiple candidates and branches — implemented
 
-The current run schema records one target and one raw/accepted output. The following fields and
-branch operations are not implemented yet:
+Desktop and CLI can create two to eight independent Runs in one candidate group. Run metadata now
+records `candidate_group_id`, `candidate_index`, `parent_run_id`, `branch_id`, and `selected_at`.
+Unselected candidates remain on disk; any retained candidate can seed a new branch group. Candidate
+checks write the prose-specific report plus a transparent deterministic score and an optional
+semantic score.
 
-- Generate several candidates in one group and compare them side by side.
-- Record `candidate_group_id`, `parent_run_id`, `branch_id`, and `selected_at`.
-- Preserve unselected candidates and allow a candidate to seed a new branch.
-- Keep candidate selection distinct from scene acceptance, chapter finalization, and publication.
+Selection is a recoverable group transaction that leaves exactly one selected Run and writes no
+scene, chapter, Canon, or continuity file. Candidate acceptance is a separate explicit operation;
+group candidates must be selected first. Accepted groups cannot be reselected. The next P0 boundary
+is atomic finalization apply, not additional chat or message semantics.
 
 ### Versioned writing presets — implemented
 

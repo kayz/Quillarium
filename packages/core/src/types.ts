@@ -678,6 +678,16 @@ export interface RunMetadata {
   target_type: 'scene' | 'outline'
   target_id: string
   source_outline?: string
+  /** Stable identifier shared by candidates created by one generation request. */
+  candidate_group_id?: string
+  /** Zero-based display order within a candidate group. */
+  candidate_index?: number
+  /** Run used as the source of a newly branched candidate group. */
+  parent_run_id?: string
+  /** Stable branch lineage. Base generation uses `main`; new branches receive a new id. */
+  branch_id?: string
+  /** Present only on the currently selected candidate in a group. Selection is not acceptance. */
+  selected_at?: string
   created_at: string
   provider: string
   model: string
@@ -686,6 +696,14 @@ export interface RunMetadata {
   preset_sha256?: string
   status: 'created' | 'generated' | 'checked' | 'accepted'
   run_dir: string
+}
+
+export interface CandidateGroupSummary {
+  id: string
+  branch_id: string
+  parent_run_id?: string
+  selected_run_id?: string
+  runs: RunMetadata[]
 }
 
 export interface ProjectIndexEntry {

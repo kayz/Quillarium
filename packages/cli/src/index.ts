@@ -49,6 +49,7 @@ import {
   loadWritingPreset,
   planWritingPresetMigration,
   applyWritingPresetMigration,
+  readRunFile,
   readPrompt,
   renderContextPacket,
   snapshotContextCompilation,
@@ -62,6 +63,7 @@ import {
   registerWorkspaceProject,
   stableProjectId,
   writeRunFile,
+  writeRunMetadata,
   type BaseDoc,
   type DocType,
   type OutlineDoc,
@@ -73,11 +75,14 @@ import {
   checkTarget,
   formatCheckReport,
   runSemanticChecks,
+  scoreCheckReport,
   semanticStatusFromIssues
 } from '@quillarium/checks'
 import {
   contextCompileOptions,
+  createGenerationCandidateRuns,
   createGenerationRun,
+  generateCandidateGroup,
   generateIntoRun,
   generateText,
   loadAIConfig,
@@ -831,6 +836,8 @@ export function buildProgram(): Command {
       .argument('<scene-id>', 'Scene id')
       .option('--dry-run', 'Create context and prompt run but do not call AI')
       .option('--preset <id>', 'Use a specific project writing preset')
+      .option('--candidates <count>', 'Create 2-8 independently retained candidates')
+      .option('--parent-run <run-id>', 'Create a new branch from a retained candidate')
       .description('Generate a scene with configured OpenAI-compatible provider')
   ).action(async (sceneId, opts) => {
     const root = path.resolve(opts.project)
@@ -842,6 +849,37 @@ export function buildProgram(): Command {
       contextCompileOptions(config, resolved.snapshot)
     )
     const context = renderContextPacket(packet)
+    const requestedCount = opts.candidates === undefined ? undefined : Number(opts.candidates)
+    const candidateCount = requestedCount ?? (opts.parentRun ? 3 : undefined)
+    if (candidateCount !== undefined) {
+      const request = {
+        projectRoot: root,
+        sceneId,
+        context,
+        config,
+        count: candidateCount,
+        parentRunId: opts.parentRun,
+        sharedGuidance: packet.shared_guidance,
+        compilation: {
+          prompt_blocks: packet.prompt_blocks,
+          context_trace: packet.context_trace,
+          writing_preset: resolved.snapshot
+        }
+      }
+      if (opts.dryRun) {
+        const runs = await createGenerationCandidateRuns(request)
+        console.log(`Created candidate group: ${runs[0]?.candidate_group_id}`)
+        for (const run of runs) console.log(run.id)
+        return
+      }
+      const group = await generateCandidateGroup(request)
+      console.log(`Candidate group: ${group.id}\tbranch: ${group.branch_id}`)
+      for (const candidate of group.candidates) {
+        console.log(`--- ${candidate.run.id} ---`)
+        console.log(candidate.output)
+      }
+      return
+    }
     const run = await createGenerationRun(
       root,
       sceneId,
@@ -889,10 +927,18 @@ export function buildProgram(): Command {
     if (opts.semantic && opts.type !== 'scene') {
       throw new Error('AI semantic checks currently require a scene target.')
     }
+    const candidateRun = opts.run ? (await listRuns(root)).find((item) => item.id === opts.run) : undefined
+    if (opts.run && !candidateRun) throw new Error(`Run not found: ${opts.run}`)
+    if (candidateRun && (opts.type !== 'scene' || candidateRun.scene_id !== targetId)) {
+      throw new Error(`Run ${candidateRun.id} does not belong to scene ${targetId}.`)
+    }
+    const candidateContent = candidateRun
+      ? await readRunFile(root, candidateRun.id, 'output-raw.md')
+      : undefined
     const report =
       opts.type === 'outline'
         ? await checkTarget(root, { type: 'outline', id: targetId })
-        : await checkScene(root, targetId)
+        : await checkScene(root, targetId, candidateContent)
     if (opts.semantic) {
       const config = loadAIConfig()
       const hasUsableConfig = Boolean(config.model && (config.apiKey || config.baseUrl.includes('localhost')))
@@ -905,21 +951,31 @@ export function buildProgram(): Command {
             'Semantic checks were not run because CLI AI is not configured. Set QUILL_AI_API_KEY, or set QUILL_AI_BASE_URL to a local OpenAI-compatible endpoint; omit --semantic to run deterministic checks only.'
         })
       } else {
-        const semanticIssues = await runSemanticChecks(root, targetId, (prompt) =>
-          generateText(prompt, config, undefined, {
-            timeoutMs: SEMANTIC_CHECK_TIMEOUT_MS,
-            ...(config.provider === 'deepseek' ? { responseFormat: 'json_object' as const } : {})
-          })
+        const semanticIssues = await runSemanticChecks(
+          root,
+          targetId,
+          (prompt) =>
+            generateText(prompt, config, undefined, {
+              timeoutMs: SEMANTIC_CHECK_TIMEOUT_MS,
+              ...(config.provider === 'deepseek' ? { responseFormat: 'json_object' as const } : {})
+            }),
+          candidateContent
         )
         report.semantic_status = semanticStatusFromIssues(semanticIssues)
         report.issues.push(...semanticIssues)
       }
     }
     const formatted = formatCheckReport(report)
-    if (opts.run) {
-      const run = (await listRuns(root)).find((item) => item.id === opts.run)
-      if (!run) throw new Error(`Run not found: ${opts.run}`)
-      await writeRunFile(root, run, 'check-report.md', formatted)
+    if (candidateRun) {
+      const checked = { ...candidateRun, status: 'checked' as const }
+      await writeRunFile(root, checked, 'check-report.md', formatted)
+      await writeRunFile(
+        root,
+        checked,
+        'evaluation.json',
+        `${JSON.stringify(scoreCheckReport(report), null, 2)}\n`
+      )
+      await writeRunMetadata(root, checked)
     }
     console.log(formatted)
   })

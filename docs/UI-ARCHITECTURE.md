@@ -67,6 +67,9 @@ only its direct child level. AI writing is a scene-level full-width workspace, n
 lower panel. It follows three explicit stages: assemble the current context into a prompt, let the
 author revise that prompt, then generate and inspect candidates/runs. The exact adjusted prompt is
 snapshotted to `run/prompt.md`; assembling or editing it never mutates Canon or the source outline.
+The run workspace selects a candidate count, displays one group side by side, shows each candidate's
+rules/semantic evaluation and full report, and exposes separate check, select, branch, and accept
+actions. Selection is visibly distinct from acceptance and never writes prose.
 
 ## Planning Record Creation
 

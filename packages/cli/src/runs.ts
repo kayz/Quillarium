@@ -7,6 +7,8 @@ import {
   listRuns,
   readRunFile,
   requireNonEmptyRunOutput,
+  requireSelectedCandidateForAcceptance,
+  selectRunCandidate,
   writeRunFile,
   writeRunMetadata
 } from '@quillarium/core'
@@ -16,8 +18,28 @@ export function registerRunCommands(program: Command, projectOption: (command: C
   projectOption(run.command('list').description('List run directories')).action(async (options) => {
     const runs = await listRuns(path.resolve(options.project))
     for (const item of runs) {
-      console.log(`${item.id}\t${item.scene_id}\t${item.status}\t${item.model}\t${item.created_at}`)
+      console.log(
+        [
+          item.id,
+          item.scene_id,
+          item.status,
+          item.model,
+          item.candidate_group_id ?? '-',
+          item.branch_id ?? '-',
+          item.selected_at ? 'selected' : '-',
+          item.created_at
+        ].join('\t')
+      )
     }
+  })
+  projectOption(
+    run
+      .command('select')
+      .argument('<run-id>', 'Candidate run id')
+      .description('Select one candidate for review without accepting or writing prose')
+  ).action(async (runId, options) => {
+    const group = await selectRunCandidate(path.resolve(options.project), runId)
+    console.log(`Selected ${group.selected_run_id} in ${group.id}; no prose was written.`)
   })
   projectOption(
     run
@@ -56,6 +78,7 @@ export function registerRunCommands(program: Command, projectOption: (command: C
       requireNonEmptyRunOutput(await readRunFile(root, runId, 'output-raw.md'), runId)
     )
     const sceneId = options.scene ?? current.scene_id
+    await requireSelectedCandidateForAcceptance(root, current)
     const accepted = { ...current, scene_id: sceneId, status: 'accepted' as const }
     await writeRunFile(root, accepted, 'output-accepted.md', raw)
     await writeRunMetadata(root, accepted)

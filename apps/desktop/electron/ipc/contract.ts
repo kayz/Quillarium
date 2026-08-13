@@ -1,6 +1,7 @@
 import { ipcMain, type IpcMainInvokeEvent } from 'electron'
 import type {
   AIProfileConfig,
+  CandidateGroupSummary,
   ChapterLifecycleSnapshot,
   ChapterPublicationResult,
   ChapterPromptPlan,
@@ -26,7 +27,7 @@ import type {
   LoadedWritingPreset,
   WritingPresetListItem
 } from '@quillarium/core'
-import type { CheckReport } from '@quillarium/checks'
+import type { CheckReport, CheckScore } from '@quillarium/checks'
 import type {
   CharacterCardImportResult,
   CharacterCardWriteResult,
@@ -73,6 +74,14 @@ export interface AIStatus {
   check: boolean
   ready: boolean
   storage: AIKeyStorageStatus
+}
+
+export interface DesktopGeneratedCandidateGroup {
+  id: string
+  branch_id: string
+  parent_run_id?: string
+  candidates: Array<{ run: RunMetadata; output: string }>
+  scene: DesktopDocEntry<SceneDoc>
 }
 
 export interface ProjectCreateInput {
@@ -372,6 +381,17 @@ export interface IpcContract {
     request: [root: string, outlineId: string, prompt?: string, sceneId?: string]
     response: { run: RunMetadata; output: string; scene: DesktopDocEntry<SceneDoc> }
   }
+  'outline:generateCandidates': {
+    request: [
+      root: string,
+      outlineId: string,
+      prompt: string,
+      sceneId: string | undefined,
+      count: number,
+      parentRunId?: string
+    ]
+    response: DesktopGeneratedCandidateGroup
+  }
   'scene:prepare': {
     request: [root: string, chapterId: string]
     response: DesktopDocEntry<SceneDoc>
@@ -413,6 +433,11 @@ export interface IpcContract {
     response: FinalizeReviewSession
   }
   'run:readFile': { request: [root: string, runId: string, file: string]; response: string }
+  'run:select': { request: [root: string, runId: string]; response: CandidateGroupSummary }
+  'run:check': {
+    request: [root: string, runId: string]
+    response: { run: RunMetadata; report: CheckReport; markdown: string; evaluation: CheckScore }
+  }
   'run:accept': { request: [root: string, runId: string, candidate?: string]; response: RunMetadata }
   'export:manuscript': {
     request: [root: string, options?: ManuscriptExportOptions]
@@ -496,6 +521,7 @@ export const QUILLARIUM_API_CHANNELS = {
   generateDryRun: 'scene:generateDryRun',
   generate: 'scene:generate',
   generateOutline: 'outline:generate',
+  generateOutlineCandidates: 'outline:generateCandidates',
   prepareScene: 'scene:prepare',
   acceptManualScene: 'scene:acceptManual',
   buildScenePromptPlan: 'scene:promptPlan',
@@ -507,6 +533,8 @@ export const QUILLARIUM_API_CHANNELS = {
   loadFinalizeReviewSession: 'finalize:session',
   confirmFinalizeImpact: 'finalize:confirmImpact',
   readRunFile: 'run:readFile',
+  selectRunCandidate: 'run:select',
+  checkRunCandidate: 'run:check',
   acceptRun: 'run:accept',
   exportManuscript: 'export:manuscript',
   importSillyTavernCard: 'st:importCard',
