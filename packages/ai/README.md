@@ -11,6 +11,9 @@ and records scene-generation artifacts in core run directories.
   `DEFAULT_AI_TIMEOUT_MS`, and `DEFAULT_AI_MAX_RETRIES`.
 - Recorded generation: `buildSectionPrompt`, `createGenerationRun`, and `generateIntoRun`.
 
+`buildSectionPrompt` retains its pre-0.2 exported name. Current author-facing terminology is scene
+(“节”), and chapter prompt-source composition lives in `@quillarium/core`.
+
 `loadAIConfig` reads `QUILL_AI_PROVIDER`, `QUILL_AI_BASE_URL`, `QUILL_AI_API_KEY`,
 `QUILL_AI_MODEL`, `QUILL_AI_TEMPERATURE`, and `QUILL_AI_MAX_TOKENS`. `loadAIProfile` can merge a
 saved desktop profile and accepts a decryption callback; an environment API key takes precedence.

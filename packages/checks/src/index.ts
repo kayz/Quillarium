@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import {
   docExists,
   listDocs,
@@ -16,6 +17,8 @@ import {
   type WorldEntryDoc
 } from '@quillarium/core'
 
+export * from './planning.js'
+
 export interface CheckIssue {
   severity: 'error' | 'warning' | 'info'
   code: string
@@ -30,6 +33,8 @@ export interface CheckReport {
   target_id?: string
   generated_at: string
   semantic_status?: 'not_requested' | 'completed' | 'partial' | 'unavailable'
+  content_sha256?: string
+  checked_characters?: number
   issues: CheckIssue[]
 }
 
@@ -126,7 +131,7 @@ export async function checkOutline(projectRoot: string, outlineId: string): Prom
       })
     }
   }
-  if (outline.data.level === 'arc') {
+  if (outline.data.level === 'part' || outline.data.level === 'arc') {
     if (!(outline.data.conflict_ladder ?? []).length) {
       issues.push({
         severity: 'warning',
@@ -195,7 +200,9 @@ export async function checkOutline(projectRoot: string, outlineId: string): Prom
         message: 'Chapter outline has no ending_hook or chapter_hook.'
       })
     }
-    const chapterScenes = scenes.filter((scene) => scene.data.section === outline.data.id)
+    const chapterScenes = scenes.filter(
+      (scene) => (scene.data.chapter_id || scene.data.section) === outline.data.id
+    )
     if (!chapterScenes.length) {
       issues.push({
         severity: 'warning',
@@ -227,7 +234,11 @@ export async function checkOutline(projectRoot: string, outlineId: string): Prom
     (state) => state.data.scope_id === outline.data.id || relatedCharacters.has(state.data.character)
   )
   if (
-    (outline.data.level === 'volume' || outline.data.level === 'arc' || outline.data.level === 'chapter') &&
+    (outline.data.level === 'volume' ||
+      outline.data.level === 'part' ||
+      outline.data.level === 'arc' ||
+      outline.data.level === 'act' ||
+      outline.data.level === 'chapter') &&
     !hasState
   ) {
     issues.push({
@@ -259,9 +270,14 @@ export async function checkOutline(projectRoot: string, outlineId: string): Prom
   }
 }
 
-export async function checkScene(projectRoot: string, sceneId: string): Promise<CheckReport> {
+export async function checkScene(
+  projectRoot: string,
+  sceneId: string,
+  contentOverride?: string
+): Promise<CheckReport> {
   const issues: CheckIssue[] = []
-  const scene = await requireDoc<SceneDoc>(projectRoot, sceneId)
+  const storedScene = await requireDoc<SceneDoc>(projectRoot, sceneId)
+  const scene = contentOverride === undefined ? storedScene : { ...storedScene, content: contentOverride }
 
   await requireOrIssue(
     projectRoot,
@@ -330,6 +346,8 @@ export async function checkScene(projectRoot: string, sceneId: string): Promise<
     target_type: 'scene',
     target_id: sceneId,
     generated_at: new Date().toISOString(),
+    content_sha256: createHash('sha256').update(scene.content).digest('hex'),
+    checked_characters: [...scene.content.replace(/\s/gu, '')].length,
     issues
   }
 }
@@ -497,6 +515,8 @@ export function formatCheckReport(report: CheckReport): string {
     '',
     `generated_at: ${report.generated_at}`,
     `semantic_status: ${semanticStatus}`,
+    ...(report.content_sha256 ? [`content_sha256: ${report.content_sha256}`] : []),
+    ...(report.checked_characters !== undefined ? [`checked_characters: ${report.checked_characters}`] : []),
     '',
     `issues: ${report.issues.length}`,
     ''

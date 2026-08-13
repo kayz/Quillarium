@@ -1,7 +1,8 @@
 import path from 'node:path'
-import { dialog } from 'electron'
+import { dialog, type OpenDialogOptions, type OpenDialogReturnValue } from 'electron'
 import {
   answerImportIssue,
+  buildSingleCardReimportPrompt,
   buildImportPrompt,
   createImportSessionPlan,
   ensureDefaultPrompts,
@@ -9,6 +10,12 @@ import {
   landImportSession,
   listMarkdownFiles,
   loadImportSession,
+  readImportSessionSources,
+  readMarkdown,
+  resolveDocumentOrigin,
+  reimportAIImportCard,
+  reimportMarkdownCard,
+  updateImportSessionCandidates,
   readPrompt,
   writeText
 } from '@quillarium/core'
@@ -17,6 +24,7 @@ import { loadDesktopAIProfile } from './credentials.js'
 import { typedHandle } from './contract.js'
 
 export function registerImportHandlers(): void {
+  typedHandle('import:chooseSources', async () => chooseImportSourceFiles())
   typedHandle('import:chooseMarkdown', async (_event, root) => {
     const result = await dialog.showOpenDialog({
       title: '选择要导入的 Markdown',
@@ -62,10 +70,50 @@ export function registerImportHandlers(): void {
     return createImportSessionPlan(root, { ...input, aiResponse: response })
   })
   typedHandle('import:session', async (_event, root, sessionId) => loadImportSession(root, sessionId))
+  typedHandle('import:updateCandidates', async (_event, root, sessionId, candidates) =>
+    updateImportSessionCandidates(root, sessionId, candidates)
+  )
   typedHandle('import:answerIssue', async (_event, root, sessionId, issueId, answer) =>
     answerImportIssue(root, sessionId, issueId, answer)
   )
   typedHandle('import:landSession', async (_event, root, sessionId) => landImportSession(root, sessionId))
+  typedHandle('import:reimportCard', async (_event, root, filePath) => {
+    const document = await readMarkdown<Record<string, unknown>>(filePath)
+    const origin = (await resolveDocumentOrigin(root, filePath))?.origin
+    if (!origin) throw new Error('This card has no recorded import source.')
+    if (origin.kind === 'document-import') {
+      return reimportMarkdownCard(root, filePath, origin)
+    }
+    if (origin.kind !== 'ai-import') {
+      throw new Error('This card was not created by a document import.')
+    }
+    const session = await loadImportSession(root, origin.session_id)
+    const sourceText = await readImportSessionSources(session)
+    const config = await loadDesktopAIProfile('background')
+    const response = await generateText(
+      buildSingleCardReimportPrompt(session, origin.candidate_index, document, sourceText),
+      config,
+      'You are Quillarium Background Import Agent. Re-extract exactly one requested card and return strict JSON only.',
+      { responseFormat: 'json_object' }
+    )
+    return reimportAIImportCard(root, filePath, origin, response)
+  })
+}
+
+export interface ImportSourceDialog {
+  showOpenDialog(options: OpenDialogOptions): Promise<OpenDialogReturnValue>
+}
+
+export async function chooseImportSourceFiles(importDialog: ImportSourceDialog = dialog): Promise<string[]> {
+  const result = await importDialog.showOpenDialog({
+    title: '选择要拆分的文本或 Markdown 文件',
+    properties: ['openFile', 'multiSelections'],
+    filters: [
+      { name: '文本与 Markdown', extensions: ['md', 'markdown', 'txt'] },
+      { name: '所有文件', extensions: ['*'] }
+    ]
+  })
+  return result.canceled ? [] : result.filePaths
 }
 
 function slugImportName(value: string): string {

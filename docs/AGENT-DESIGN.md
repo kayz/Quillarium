@@ -34,22 +34,36 @@ sources and remains unresolved until the author makes an explicit project edit.
 
 ## Native Workflow Levels
 
-Quillarium uses five planning and delivery levels.
+Quillarium uses seven conceptual planning and delivery levels. `overview` and `book` are parallel
+top-level documents; `scene` is stored as a scene record with a durable scene outline rather than as
+another outline node.
 
-### Book
+### Overview
 
-The book level defines the series promise, genre boundary, core appeal, long suspense, Canon,
-worldbuilding, characters, timeline seeds, foreshadowing ledger, and reusable story patterns.
+The overview states the work's purpose in one sentence: core people, central conflict, and final
+direction. It is not a book outline and does not own volume children.
+
+### Book Outline
+
+The book outline defines the worldline and character-destiny axes, causal stages, and final state. It
+owns the volume tree and may reference Canon, worldbuilding, characters, timeline seeds,
+foreshadowing, and narrative guidance without duplicating them.
 
 ### Volume
 
 The volume level defines why a volume exists: its destination, reader payoff, event chain, character
-growth, foreshadowing plan, arc arrangement, and emotional curve.
+growth, foreshadowing plan, part arrangement, and emotional curve.
 
-### Arc / Segment
+### Part
 
-The arc level turns a portion of the volume into an executable plot block: event order, conflict
-escalation, cast, fixed reveals, relationship movement, and foreshadowing plants or resolutions.
+The part turns a portion of the volume into a major, normally irreversible story movement around one
+medium-term goal.
+
+### Act (Optional)
+
+An optional act subdivides a part into a complete dramatic unit: event order, conflict escalation,
+cast, fixed reveals, relationship movement, and foreshadowing plants or resolutions. A part may also
+own chapters directly.
 
 ### Chapter
 
@@ -59,9 +73,11 @@ chapter is not complete merely because all of its scenes have drafts.
 
 ### Scene
 
-A scene is the minimum prose-generation unit. It binds POV, time, location, participants, constraints,
-and intended state changes. A chapter may contain several scenes, and multiple candidates may exist
-for a scene without any candidate becoming authoritative.
+A scene is the minimum prose-generation unit. It binds POV, time, location, participants, writing
+focus, constraints, and intended state changes. A chapter may contain zero scenes and be written
+entirely by hand, or contain several ordered scenes. A scene's accepted plain prose is appended into
+the independent chapter prose; its outline remains durable after publication purges prompts and AI
+artifacts.
 
 ## Chapter Lifecycle
 
@@ -77,10 +93,11 @@ prepare chapter
   -> record publication feedback and retrospective
 ```
 
-Candidate selection only chooses a draft for the next step. It does not publish the chapter, mutate
-Canon, or update continuity. Acceptance creates authoritative prose for the selected scene. Chapter
-finalization proposes the derived updates; a separate atomic apply operation writes those approved
-updates and records an audit trail.
+The current runtime records one raw and one accepted output per run. Future candidate selection will
+only choose a draft for the next step; it will not publish the chapter, mutate Canon, or update
+continuity. Acceptance creates authoritative prose for the selected scene. The current finalization
+review records proposed impacts and author confirmations; the separate atomic continuity-apply
+operation remains planned.
 
 ## Agent Responsibilities
 
@@ -88,9 +105,11 @@ Agents may classify, propose, draft, compare, extract, and check. They must not 
 silently mutate authoritative files.
 
 - Import Agent: classify source files, preserve provenance, and propose structured project records.
-- Book Agent: organize Canon, world, timeline, characters, foreshadowing, and patterns.
+- Overview Agent: keep the one-sentence purpose distinct from the book's worldline plan.
+- Book Agent: organize the worldline, character destinies, Canon, world, timeline, and foreshadowing.
 - Volume Agent: develop volume goals, event chains, growth, pacing, and payoff.
-- Arc Agent: arrange events, cast, conflict movement, reveals, and foreshadowing.
+- Part Agent: pursue one medium-term goal and define its irreversible change.
+- Act Agent: when an act exists, arrange its complete conflict movement, reveal, and result.
 - Chapter Agent: prepare chapter obligations and coordinate scene production.
 - Scene Agent: assemble explainable context and generate one or more prose candidates.
 - Check Agent: run deterministic checks first and add clearly identified semantic findings.
@@ -112,8 +131,8 @@ Every agent operation has an explicit scope and produces reviewable artifacts.
 - Accepting prose requires an explicit author action and writes only the selected target plus its run
   metadata.
 - Finalization is a proposal until the author confirms it.
-- Applying finalization validates the entire change set, writes it atomically, and records before and
-  after evidence. A partial apply is a failure and must be recoverable.
+- A future continuity-apply operation must validate the entire change set, write it atomically, and
+  record before/after evidence. A partial apply is a failure and must be recoverable.
 - Credentials, local indexes, UI state, and regenerable exports are never written into a project or
   workspace manifest.
 
@@ -133,25 +152,28 @@ chapter and requires the finalization/apply boundary. The author can later edit 
 record. The next context assembly follows the current files and reports contradictions rather than
 guessing which fact should win.
 
-## Reusable Patterns
+## Narrative Guidance and Legacy Patterns
 
-Reusable project patterns live in one flat `patterns/` directory and use frontmatter to distinguish
-their purpose:
+New style, pacing, structure, dialogue, description, and genre-boundary guidance uses enabled
+`narrative` cards. These cards participate in prompt assembly and planning checks only when enabled.
+
+Pre-0.2 reusable patterns remain readable in `patterns/` and use frontmatter to distinguish their
+purpose:
 
 - `story`: structure, reveal order, hook shape, payoff setup, and foreshadowing cadence.
 - `writing`: prose execution, dialogue pressure, exposition control, emotional beats, and chapter-end
   pressure.
 - `prompt`: reusable prompt behavior; supported by the schema even if not exposed in the first UI.
 
-Pattern sources may be `user`, `ai`, `accepted_prose`, or `imported`. A pattern influences drafting;
-it never outranks project facts.
+Pattern sources may be `user`, `ai`, `accepted_prose`, or `imported`. Legacy patterns and current
+narrative cards influence drafting; neither outranks project facts.
 
 ## Auditability and Reproduction
 
-Each AI run records the selected model, writing preset, prompt blocks, context trace, token counts,
-input hashes, candidate lineage, checks, and accepted output. Workspace guidance used by a run is
-snapshotted with its relative path, scope, SHA-256, and read time. Later template edits affect only
-new runs.
+Each current AI run records target, provider/model, status, rendered context, exact prompt, raw and
+accepted output, and check report. Workspace guidance used by a run is snapshotted with its relative
+path, scope, SHA-256, and read time; those snapshots are immutable. Versioned writing presets, full
+prompt-block/token traces, and candidate lineage are P0 targets rather than current run fields.
 
 External projects can inform design research, but Quillarium independently implements its product
 semantics. Design references and license boundaries are recorded in [REFERENCES.md](REFERENCES.md);

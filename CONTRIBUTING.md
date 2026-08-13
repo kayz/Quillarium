@@ -8,7 +8,11 @@ plain files in an Obsidian-compatible folder.
 
 ```bash
 pnpm install
-pnpm check
+pnpm build
+pnpm test
+pnpm lint
+pnpm format:check
+pnpm desktop:build
 pnpm cli --help
 pnpm desktop:dev
 ```
@@ -25,4 +29,5 @@ pnpm desktop:dev
 
 - Explain the workflow affected by the change.
 - Include tests for core data behavior.
-- Run `pnpm check` before submitting.
+- Run build, test, lint, format check, and the desktop build before submitting changes that affect
+  shared types or the Electron application. `pnpm check` remains the short build-and-test gate.

@@ -12,11 +12,17 @@ imports and runs, manages finalization review sessions, and exports accepted man
 - Compatibility and migration: v1 project reads, `planProjectMigration`, `migrateProjectLayout`,
   `migrateOutlineCycleFields`, and fingerprinted verification reports.
 - Documents and index: `createCanon`, `createCharacter`, `createCharacterState`,
-  `appendTimelineEvent`, `createLocation`, `createRoute`, `createOutline`, `createScene`, the other
-  `create*` helpers, `listDocs`, `findDoc`, `requireDoc`, and `buildIndex`.
+  `createCharacterRelation`, `createTimelineNode`, `createTimelineEventAtNode`,
+  `appendTimelineEvent`, `createLocation`, `createRoute`, `createOutline`, `createScene`,
+  `createChapterProse`, the other `create*` helpers, `listDocs`, `findDoc`, `requireDoc`, and
+  `buildIndex`.
 - Context and planning: `assembleContext`, `assembleContextPacket`, `renderContextPacket`,
-  `buildSceneWritingPrompt`, and `buildChapterWritingPlan`.
-- Import and review: `importMarkdownPath`, import-session APIs, and finalization-review APIs.
+  `buildSceneWritingPrompt`, `buildEditableScenePromptPlan`, typed prompt-source blocks, and
+  `buildChapterWritingPlan`.
+- Chapter lifecycle: `loadChapterLifecycle`, `acceptSceneIntoChapter`, `finalizeChapter`,
+  `publishChapter`, `deleteStoryNode`, and the human/AI edit guards.
+- Import, provenance, and review: `importMarkdownPath`, import-session APIs, origin resolution and
+  one-card re-import helpers, and finalization-review APIs.
 - Runs and export: `createRun`, shared-guidance snapshots, `readRunFile`, `writeRunFile`, `listRuns`,
   `requireNonEmptyRunOutput`, and `exportManuscript`.
 - Public schemas, document types, Markdown/YAML helpers, IDs, and filesystem helpers are re-exported
@@ -38,8 +44,14 @@ const index = await buildIndex(project.root)
 console.log(index.entries.length)
 ```
 
-`exportManuscript(projectRoot, { volumeId })` writes both Markdown and plain-text artifacts. It uses
-accepted run output, accepted-output signals, or final scenes and reports skipped scenes as gaps.
+`exportManuscript(projectRoot, { volumeId })` writes both Markdown and plain-text artifacts. It
+prefers finalized/published chapter prose, can use accepted outputs or final scenes for compatible
+projects, and reports skipped scenes as gaps.
+
+The current `ContextPacket` performs deterministic document selection with explicit links,
+pins/exclusions, enabled state, keyword activation, warnings, and fixed document caps. It is not yet
+the tokenizer-budgeted `ContextPolicy`/`PromptBlock` compiler described as future work in the product
+roadmap.
 
 ## Boundaries and Tests
 

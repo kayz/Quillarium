@@ -1,25 +1,32 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { ArrowLeft, Bot, Check, LoaderCircle, MessageSquareText, RotateCcw, X } from 'lucide-react'
 import type {
   LanguageName,
   PlanningChatMessage,
   PlanningDocumentKind,
-  PlanningDraft
+  PlanningDraft,
+  PlanningSession
 } from '../../app/types.js'
 import { bridge } from '../../app/bridge.js'
 import { formatDesktopError } from '../../shared/errors.js'
 import { MarkdownBodyEditor } from '../markdown/MarkdownBodyEditor.js'
-import { PLANNING_KIND_LABELS, planningKindForContext } from './planning-model.js'
+import { fieldPresentation } from '../metadata/field-presentation.js'
+import { MetadataEditor } from '../outline/OutlineShared.js'
+import { CREATABLE_PLANNING_KINDS, PLANNING_KIND_LABELS, planningKindForContext } from './planning-model.js'
 
 export function PlanningCreationDialog({
   root,
   module,
+  sessionId: initialSessionId,
+  documentId,
   language,
   onClose,
   onCreated
 }: {
   root: string
   module: string
+  sessionId?: string
+  documentId?: string
   language: LanguageName
   onClose: () => void
   onCreated: (result: { path: string; document: { data: Record<string, unknown>; content: string } }) => void
@@ -29,25 +36,70 @@ export function PlanningCreationDialog({
   const [messages, setMessages] = useState<PlanningChatMessage[]>([])
   const [message, setMessage] = useState('')
   const [proposal, setProposal] = useState<PlanningDraft | null>(null)
-  const [fieldsDraft, setFieldsDraft] = useState('{}')
-  const [fieldsError, setFieldsError] = useState<string | null>(null)
+  const [session, setSession] = useState<PlanningSession | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [busy, setBusy] = useState<'discuss' | 'confirm' | null>(null)
+  const [busy, setBusy] = useState<'load' | 'discuss' | 'confirm' | null>('load')
   const zh = language === 'zh'
   const suggestedKind = planningKindForContext(module as never)
+  const editing = Boolean(session?.document)
+
+  const close = useCallback(async () => {
+    if (session) {
+      try {
+        await bridge.savePlanningSession(root, session.id, { messages, proposal })
+      } catch (cause) {
+        setError(formatDesktopError(cause, language))
+        return
+      }
+    }
+    onClose()
+  }, [messages, onClose, proposal, root, session])
+
+  useEffect(() => {
+    let active = true
+    void (async () => {
+      try {
+        const loaded = initialSessionId
+          ? await bridge.loadPlanningSession(root, initialSessionId)
+          : await bridge.startPlanningSession(root, module, documentId)
+        if (!active) return
+        setSession(loaded)
+        setMessages(loaded.messages)
+        setProposal(loaded.proposal)
+        setBusy(null)
+      } catch (cause) {
+        if (!active) return
+        setError(formatDesktopError(cause, language))
+        setBusy(null)
+      }
+    })()
+    return () => {
+      active = false
+    }
+  }, [documentId, initialSessionId, module, root])
 
   useEffect(() => {
     inputRef.current?.focus()
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !busy) onClose()
+      if (event.key === 'Escape' && !busy) void close()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [busy, onClose])
+  }, [busy, close])
+
+  useEffect(() => {
+    if (!session || busy === 'load') return
+    const handle = window.setTimeout(() => {
+      void bridge.savePlanningSession(root, session.id, { messages, proposal }).catch((cause: unknown) => {
+        setError(formatDesktopError(cause, language))
+      })
+    }, 500)
+    return () => window.clearTimeout(handle)
+  }, [busy, messages, proposal, root, session])
 
   const discuss = async (retry = false) => {
     const authorMessage = retry ? (messages.at(-1)?.content ?? '') : message.trim()
-    if (!authorMessage && !retry) return
+    if ((!authorMessage && !retry) || !session) return
     const nextMessages = retry ? messages : [...messages, { role: 'author' as const, content: authorMessage }]
     setMessages(nextMessages)
     setMessage('')
@@ -57,46 +109,33 @@ export function PlanningCreationDialog({
       const response = await bridge.discussPlanningRecord(root, {
         module,
         messages: nextMessages,
-        proposal
+        proposal,
+        sessionId: session.id
       })
       setMessages([...nextMessages, { role: 'assistant', content: response.message }])
       if (response.proposal) {
         setProposal(response.proposal)
-        setFieldsDraft(JSON.stringify(response.proposal.fields, null, 2))
-        setFieldsError(null)
       }
     } catch (cause) {
-      setError(formatDesktopError(cause))
+      setError(formatDesktopError(cause, language))
     } finally {
       setBusy(null)
     }
   }
 
-  const updateFields = (value: string) => {
-    setFieldsDraft(value)
-    try {
-      const parsed: unknown = JSON.parse(value)
-      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-        throw new Error(zh ? '需要 JSON 对象' : 'Expected a JSON object')
-      }
-      setFieldsError(null)
-      setProposal((current) =>
-        current ? { ...current, fields: parsed as Record<string, unknown> } : current
-      )
-    } catch (cause) {
-      setFieldsError(cause instanceof Error ? cause.message : String(cause))
-    }
-  }
-
   const confirm = async () => {
-    if (!proposal || fieldsError) return
+    if (!proposal || !session) return
     setBusy('confirm')
     setError(null)
     try {
-      const result = await bridge.confirmPlanningRecord(root, proposal)
+      const result = await bridge.confirmPlanningRecord(root, {
+        sessionId: session.id,
+        messages,
+        proposal
+      })
       onCreated(result)
     } catch (cause) {
-      setError(formatDesktopError(cause))
+      setError(formatDesktopError(cause, language))
       setBusy(null)
     }
   }
@@ -105,24 +144,42 @@ export function PlanningCreationDialog({
     <div
       className="modal-backdrop planning-dialog-backdrop"
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget && !busy) onClose()
+        if (event.target === event.currentTarget && !busy) void close()
       }}
     >
       <section className="modal planning-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId}>
         <header className="planning-dialog-head">
           <div>
-            <span className="planning-kicker">{zh ? 'AI 对话式建档' : 'AI guided record'}</span>
-            <h2 id={titleId}>{zh ? '把想法整理成规划资料' : 'Shape an idea into a planning record'}</h2>
+            <span className="planning-kicker">
+              {editing
+                ? zh
+                  ? '恢复 AI 对话'
+                  : 'Restored AI conversation'
+                : zh
+                  ? 'AI 对话式建档'
+                  : 'AI guided record'}
+            </span>
+            <h2 id={titleId}>
+              {editing
+                ? zh
+                  ? '继续讨论并编辑这张卡片'
+                  : 'Continue the conversation and edit this card'
+                : zh
+                  ? '把想法整理成规划资料'
+                  : 'Shape an idea into a planning record'}
+            </h2>
             <p>
               {zh
-                ? `使用背景 AI。它会参考当前项目和“${module}”栏目，多轮确认后提出可修改草案。`
+                ? editing
+                  ? '已恢复这张卡片的完整对话与上次草案。继续讨论或直接修改，确认后原位更新。'
+                  : `使用背景 AI。它会参考当前项目和“${module}”栏目，多轮确认后提出可修改草案。`
                 : `Uses the background AI profile with project and “${module}” context.`}
             </p>
           </div>
           <button
             className="icon-button"
             type="button"
-            onClick={onClose}
+            onClick={() => void close()}
             disabled={Boolean(busy)}
             aria-label={zh ? '关闭' : 'Close'}
           >
@@ -192,10 +249,18 @@ export function PlanningCreationDialog({
                   <span>
                     <Check size={14} /> {zh ? '可修改提案' : 'Editable proposal'}
                   </span>
-                  <small>{zh ? '尚未写入项目' : 'Not written yet'}</small>
+                  <small>
+                    {editing
+                      ? zh
+                        ? '确认后更新原卡片'
+                        : 'Updates the original card'
+                      : zh
+                        ? '尚未写入项目'
+                        : 'Not written yet'}
+                  </small>
                 </div>
                 <label>
-                  {zh ? '标题' : 'Title'}
+                  <PlanningFieldCopy name="title" language={language} />
                   <input
                     value={proposal.title}
                     onChange={(event) => setProposal({ ...proposal, title: event.target.value })}
@@ -203,32 +268,32 @@ export function PlanningCreationDialog({
                   />
                 </label>
                 <label>
-                  {zh ? '文档类型' : 'Document type'}
+                  <PlanningFieldCopy name="document_type" language={language} />
                   <select
                     value={proposal.kind}
                     onChange={(event) =>
                       setProposal({ ...proposal, kind: event.target.value as PlanningDocumentKind })
                     }
                     aria-label={zh ? '提案文档类型' : 'Proposal document type'}
+                    disabled={editing}
                   >
-                    {(Object.keys(PLANNING_KIND_LABELS) as PlanningDocumentKind[]).map((kind) => (
+                    {(editing && proposal.kind && !CREATABLE_PLANNING_KINDS.includes(proposal.kind)
+                      ? [proposal.kind, ...CREATABLE_PLANNING_KINDS]
+                      : CREATABLE_PLANNING_KINDS
+                    ).map((kind) => (
                       <option key={kind} value={kind}>
                         {zh ? PLANNING_KIND_LABELS[kind].zh : PLANNING_KIND_LABELS[kind].en}
                       </option>
                     ))}
                   </select>
                 </label>
-                <label className="proposal-fields">
-                  <span>{zh ? '结构化字段（JSON）' : 'Structured fields (JSON)'}</span>
-                  <textarea
-                    value={fieldsDraft}
-                    onChange={(event) => updateFields(event.target.value)}
-                    spellCheck={false}
-                    aria-invalid={Boolean(fieldsError)}
-                    aria-label={zh ? '提案结构化字段 JSON' : 'Proposal structured fields JSON'}
+                <section className="proposal-fields" aria-label={zh ? '提案结构化字段' : 'Proposal fields'}>
+                  <MetadataEditor
+                    data={proposal.fields}
+                    language={language}
+                    onChange={(fields) => setProposal({ ...proposal, fields })}
                   />
-                  {fieldsError && <small className="field-error">{fieldsError}</small>}
-                </label>
+                </section>
                 <MarkdownBodyEditor
                   value={proposal.content}
                   onChange={(content) => setProposal({ ...proposal, content })}
@@ -268,17 +333,23 @@ export function PlanningCreationDialog({
           </div>
         )}
         <footer className="modal-actions planning-final-actions">
-          <button className="secondary" type="button" onClick={onClose} disabled={Boolean(busy)}>
+          <button className="secondary" type="button" onClick={() => void close()} disabled={Boolean(busy)}>
             {zh ? '取消' : 'Cancel'}
           </button>
           <span>
-            {zh ? '只有确认后才创建 Markdown 文件。' : 'A Markdown file is created only after confirmation.'}
+            {editing
+              ? zh
+                ? '关闭会保留对话草案；确认后才更新卡片。'
+                : 'Closing keeps the draft; confirmation updates the card.'
+              : zh
+                ? '只有确认后才创建 Markdown 文件。'
+                : 'A Markdown file is created only after confirmation.'}
           </span>
           <button
             className="primary"
             type="button"
             onClick={() => void confirm()}
-            disabled={Boolean(busy) || !proposal?.title.trim() || Boolean(fieldsError)}
+            disabled={Boolean(busy) || !proposal?.title.trim()}
           >
             {busy === 'confirm' ? <LoaderCircle className="spin" size={15} /> : <Check size={15} />}
             {busy === 'confirm'
@@ -286,11 +357,25 @@ export function PlanningCreationDialog({
                 ? '正在原子写入…'
                 : 'Writing atomically…'
               : zh
-                ? '确认并创建'
-                : 'Confirm and create'}
+                ? editing
+                  ? '确认并更新'
+                  : '确认并创建'
+                : editing
+                  ? 'Confirm and update'
+                  : 'Confirm and create'}
           </button>
         </footer>
       </section>
     </div>
+  )
+}
+
+function PlanningFieldCopy({ name, language }: { name: string; language: LanguageName }) {
+  const presentation = fieldPresentation(name, language)
+  return (
+    <span className="localized-field-copy">
+      <strong>{presentation.label}</strong>
+      <small>{presentation.description}</small>
+    </span>
   )
 }

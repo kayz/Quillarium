@@ -1,12 +1,17 @@
 import { ipcMain, type IpcMainInvokeEvent } from 'electron'
 import type {
   AIProfileConfig,
-  BaseDoc,
+  ChapterLifecycleSnapshot,
+  ChapterPublicationResult,
   ChapterPromptPlan,
   ContextPacket,
+  DocumentIdentity,
+  DocumentOriginResolution,
+  EditableScenePromptPlan,
   FinalizeReviewSession,
   GitHubConfig,
   ImportPlanInput,
+  ImportCandidate,
   ImportSession,
   ManuscriptExportOptions,
   ManuscriptExportResult,
@@ -80,9 +85,9 @@ export interface ProjectCreateInput {
 
 export type ProjectSummary = { root: string } & ProjectConfig
 
-export type DesktopDocData<T extends BaseDoc = BaseDoc> = T & Record<string, unknown>
+export type DesktopDocData<T extends DocumentIdentity = DocumentIdentity> = T & Record<string, unknown>
 
-export interface DesktopDocEntry<T extends BaseDoc = BaseDoc> {
+export interface DesktopDocEntry<T extends DocumentIdentity = DocumentIdentity> {
   path: string
   data: DesktopDocData<T>
   content: string
@@ -108,6 +113,8 @@ type ContextDocumentField =
   | 'canon'
   | 'strategies'
   | 'patterns'
+  | 'narratives'
+  | 'timeline_nodes'
   | 'timeline'
   | 'characters'
   | 'character_states'
@@ -115,7 +122,6 @@ type ContextDocumentField =
   | 'world_entries'
   | 'foreshadowing'
   | 'issues'
-  | 'references'
 
 export type DesktopContextPacket = Omit<ContextPacket, ContextDocumentField> & {
   [Field in ContextDocumentField]: DesktopDocEntry[]
@@ -149,12 +155,15 @@ export interface CanonDiscussionRequest {
 
 export const PLANNING_DOCUMENT_KINDS = [
   'character',
+  'character_relation',
   'world_entry',
+  'timeline_node',
   'timeline_event',
   'location',
   'foreshadowing',
   'strategy',
   'pattern',
+  'narrative',
   'issue',
   'reference'
 ] as const
@@ -178,11 +187,49 @@ export interface PlanningChatRequest {
   module: string
   messages: PlanningChatMessage[]
   proposal?: PlanningDraft | null
+  sessionId?: string
 }
 
 export interface PlanningChatResponse {
   message: string
   proposal: PlanningDraft | null
+}
+
+export interface PlanningDocumentRef {
+  path: string
+  id: string
+  type: PlanningDocumentKind
+}
+
+export interface PlanningSession {
+  schema_version: 1
+  id: string
+  module: string
+  created_at: string
+  updated_at: string
+  messages: PlanningChatMessage[]
+  proposal: PlanningDraft | null
+  document?: PlanningDocumentRef
+}
+
+export interface PlanningCheckSummary {
+  generated_at: string
+  checked_cards: number
+  skipped_disabled: number
+  rule_findings: number
+  ai_findings: number
+  created_issue_ids: string[]
+  updated_issue_ids: string[]
+}
+
+export interface PlanningSessionUpdate {
+  messages: PlanningChatMessage[]
+  proposal: PlanningDraft | null
+}
+
+export interface PlanningConfirmRequest extends PlanningSessionUpdate {
+  sessionId: string
+  proposal: PlanningDraft
 }
 
 export interface GitStatus {
@@ -239,7 +286,12 @@ export interface IpcContract {
     request: [root: string, kind: string, input: Record<string, unknown>]
     response: string
   }
+  'doc:origin': {
+    request: [root: string, filePath: string]
+    response: DocumentOriginResolution | null
+  }
   'import:chooseMarkdown': { request: [root: string]; response: MarkdownImportResult[] }
+  'import:chooseSources': { request: []; response: string[] }
   'import:markdownText': {
     request: [root: string, markdown: string, title?: string]
     response: MarkdownImportResult[]
@@ -249,25 +301,47 @@ export interface IpcContract {
   'prompt:read': { request: [root: string, name: PromptName]; response: string }
   'import:aiPlan': { request: [root: string, input: ImportPlanRequest]; response: ImportSession }
   'import:session': { request: [root: string, sessionId: string]; response: ImportSession }
+  'import:updateCandidates': {
+    request: [root: string, sessionId: string, candidates: ImportCandidate[]]
+    response: ImportSession
+  }
   'import:answerIssue': {
     request: [root: string, sessionId: string, issueId: string, answer: string]
     response: ImportSession
   }
   'import:landSession': { request: [root: string, sessionId: string]; response: ImportSession }
+  'import:reimportCard': {
+    request: [root: string, filePath: string]
+    response: { path: string; document: MarkdownDocument }
+  }
   'canon:discuss': { request: [root: string, input: CanonDiscussionRequest]; response: string }
+  'planning:start': {
+    request: [root: string, module: string, documentId?: string]
+    response: PlanningSession
+  }
+  'planning:session': { request: [root: string, sessionId: string]; response: PlanningSession }
+  'planning:save': {
+    request: [root: string, sessionId: string, update: PlanningSessionUpdate]
+    response: PlanningSession
+  }
   'planning:discuss': {
     request: [root: string, input: PlanningChatRequest]
     response: PlanningChatResponse
   }
   'planning:confirm': {
-    request: [root: string, proposal: PlanningDraft]
+    request: [root: string, input: PlanningConfirmRequest]
     response: { path: string; document: MarkdownDocument }
+  }
+  'planning:check': {
+    request: [root: string, language: 'zh' | 'en']
+    response: PlanningCheckSummary
   }
   'scene:context': { request: [root: string, sceneId: string]; response: string }
   'target:context': {
     request: [root: string, target: TargetInput]
     response: { packet: DesktopContextPacket; markdown: string }
   }
+  'target:writingPrompt': { request: [root: string, outlineId: string]; response: string }
   'target:check': {
     request: [root: string, target: TargetInput]
     response: { report: CheckReport; markdown: string }
@@ -277,11 +351,11 @@ export interface IpcContract {
     response: { report: CheckReport; markdown: string }
   }
   'scene:semanticCheck': {
-    request: [root: string, sceneId: string]
+    request: [root: string, sceneId: string, content?: string]
     response: CheckReport
   }
   'scene:checkIntoRun': {
-    request: [root: string, sceneId: string]
+    request: [root: string, sceneId: string, content?: string]
     response: { run: RunMetadata; report: CheckReport; markdown: string }
   }
   'scene:generateDryRun': { request: [root: string, sceneId: string]; response: RunMetadata }
@@ -290,8 +364,32 @@ export interface IpcContract {
     response: { run: RunMetadata; output: string }
   }
   'outline:generate': {
-    request: [root: string, outlineId: string]
+    request: [root: string, outlineId: string, prompt?: string, sceneId?: string]
     response: { run: RunMetadata; output: string; scene: DesktopDocEntry<SceneDoc> }
+  }
+  'scene:prepare': {
+    request: [root: string, chapterId: string]
+    response: DesktopDocEntry<SceneDoc>
+  }
+  'scene:acceptManual': {
+    request: [root: string, sceneId: string, content: string]
+    response: ChapterLifecycleSnapshot
+  }
+  'scene:promptPlan': {
+    request: [root: string, sceneId: string]
+    response: EditableScenePromptPlan
+  }
+  'chapter:lifecycle': {
+    request: [root: string, chapterId: string]
+    response: ChapterLifecycleSnapshot
+  }
+  'chapter:finalize': {
+    request: [root: string, chapterId: string]
+    response: ChapterLifecycleSnapshot
+  }
+  'chapter:publish': {
+    request: [root: string, chapterId: string, confirmation: string]
+    response: ChapterPublicationResult
   }
   'chapter:writingPlan': {
     request: [root: string, chapterId: string, selectedByScene?: ChapterSelections]
@@ -310,7 +408,7 @@ export interface IpcContract {
     response: FinalizeReviewSession
   }
   'run:readFile': { request: [root: string, runId: string, file: string]; response: string }
-  'run:accept': { request: [root: string, runId: string]; response: RunMetadata }
+  'run:accept': { request: [root: string, runId: string, candidate?: string]; response: RunMetadata }
   'export:manuscript': {
     request: [root: string, options?: ManuscriptExportOptions]
     response: ManuscriptExportResult
@@ -360,20 +458,29 @@ export const QUILLARIUM_API_CHANNELS = {
   deleteDoc: 'doc:delete',
   openDocExternal: 'doc:openExternal',
   createDoc: 'doc:create',
+  resolveDocumentOrigin: 'doc:origin',
   chooseMarkdownImport: 'import:chooseMarkdown',
+  chooseImportSources: 'import:chooseSources',
   importMarkdownText: 'import:markdownText',
   syncMarkdownImports: 'import:syncMarkdown',
   initPrompts: 'prompt:init',
   readPrompt: 'prompt:read',
   createAIImportPlan: 'import:aiPlan',
   loadImportSession: 'import:session',
+  updateImportCandidates: 'import:updateCandidates',
   answerImportIssue: 'import:answerIssue',
   landImportSession: 'import:landSession',
+  reimportCard: 'import:reimportCard',
   discussCanon: 'canon:discuss',
+  startPlanningSession: 'planning:start',
+  loadPlanningSession: 'planning:session',
+  savePlanningSession: 'planning:save',
   discussPlanningRecord: 'planning:discuss',
   confirmPlanningRecord: 'planning:confirm',
+  checkPlanningCards: 'planning:check',
   assembleContext: 'scene:context',
   assembleTargetContext: 'target:context',
+  assembleWritingPrompt: 'target:writingPrompt',
   checkTarget: 'target:check',
   checkScene: 'scene:check',
   semanticCheckScene: 'scene:semanticCheck',
@@ -381,6 +488,12 @@ export const QUILLARIUM_API_CHANNELS = {
   generateDryRun: 'scene:generateDryRun',
   generate: 'scene:generate',
   generateOutline: 'outline:generate',
+  prepareScene: 'scene:prepare',
+  acceptManualScene: 'scene:acceptManual',
+  buildScenePromptPlan: 'scene:promptPlan',
+  loadChapterLifecycle: 'chapter:lifecycle',
+  finalizeChapter: 'chapter:finalize',
+  publishChapter: 'chapter:publish',
   buildChapterWritingPlan: 'chapter:writingPlan',
   createFinalizeReviewPlan: 'finalize:reviewPlan',
   loadFinalizeReviewSession: 'finalize:session',

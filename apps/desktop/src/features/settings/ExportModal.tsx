@@ -39,7 +39,7 @@ export function ExportModal({
           loaded.docs.filter((doc: DocEntry) => doc.data.type === 'outline' && doc.data.level === 'volume')
         )
       } catch (loadError) {
-        if (!cancelled) setError(formatDesktopError(loadError))
+        if (!cancelled) setError(formatDesktopError(loadError, language))
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -49,7 +49,7 @@ export function ExportModal({
     return () => {
       cancelled = true
     }
-  }, [root])
+  }, [language, root])
 
   const selectedPath = result ? (format === 'md' ? result.markdown_path : result.text_path) : ''
 
@@ -60,7 +60,7 @@ export function ExportModal({
     try {
       setResult(await bridge.exportManuscript(root, volumeId ? { volumeId } : {}))
     } catch (exportError) {
-      setError(formatDesktopError(exportError))
+      setError(formatDesktopError(exportError, language))
     } finally {
       setBusy(false)
     }
@@ -75,7 +75,7 @@ export function ExportModal({
         setError(t(language, 'openExportFailed'))
       }
     } catch (openError) {
-      setError(formatDesktopError(openError))
+      setError(formatDesktopError(openError, language))
     } finally {
       setOpening(false)
     }
@@ -231,6 +231,8 @@ function sourceLabel(
   source: ManuscriptExportResult['exported_scenes'][number]['source']
 ): string {
   switch (source) {
+    case 'chapter_prose':
+      return language === 'zh' ? '章正文' : 'Chapter prose'
     case 'accepted_run':
       return t(language, 'acceptedRunSource')
     case 'accepted_output':

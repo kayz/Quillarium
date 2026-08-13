@@ -4,13 +4,13 @@ import { ensureDir, pathExists, readText, writeText } from './fs.js'
 import { slugify } from './ids.js'
 import { loadProject } from './project.js'
 import { listRuns } from './runs.js'
-import type { OutlineDoc, RunMetadata, SceneDoc } from './types.js'
+import type { ChapterProseDoc, OutlineDoc, RunMetadata, SceneDoc } from './types.js'
 
 export interface ManuscriptExportOptions {
   volumeId?: string
 }
 
-export type ManuscriptExportSource = 'accepted_run' | 'accepted_output' | 'final_scene'
+export type ManuscriptExportSource = 'chapter_prose' | 'accepted_run' | 'accepted_output' | 'final_scene'
 export type ManuscriptExportGapReason = 'not_accepted' | 'missing_content' | 'missing_outline'
 
 export interface ManuscriptExportScene {
@@ -41,7 +41,7 @@ type StoredOutline = { path: string; data: OutlineDoc; content: string }
 type StoredScene = { path: string; data: SceneDoc; content: string }
 
 type ExportEntry =
-  | { kind: 'heading'; level: OutlineDoc['level']; title: string }
+  | { kind: 'heading'; level: OutlineDoc['level']; title: string; outline_id: string | null }
   | { kind: 'scene'; scene: StoredScene; outline: StoredOutline }
 
 interface AcceptedContent {
@@ -59,9 +59,10 @@ export async function exportManuscript(
   options: ManuscriptExportOptions = {}
 ): Promise<ManuscriptExportResult> {
   const root = path.resolve(projectRoot)
-  const [project, outlines, scenes, runs] = await Promise.all([
+  const [project, outlines, chapterProse, scenes, runs] = await Promise.all([
     loadProject(root),
     listDocs<OutlineDoc>(root, 'outline'),
+    listDocs<ChapterProseDoc>(root, 'chapter_prose'),
     listDocs<SceneDoc>(root, 'scene'),
     listRuns(root)
   ])
@@ -77,6 +78,12 @@ export async function exportManuscript(
   const textParts: string[] = []
   const exportedScenes: ManuscriptExportScene[] = []
   const gaps: ManuscriptExportGap[] = []
+  const proseByChapter = new Map(
+    chapterProse
+      .filter((item) => item.data.status === 'final' || item.data.status === 'published')
+      .map((item) => [item.data.chapter_id, item])
+  )
+  const proseExportedChapters = new Set<string>()
 
   for (const entry of entries) {
     if (entry.kind === 'heading') {
@@ -85,8 +92,28 @@ export async function exportManuscript(
         markdownParts.push(`${'#'.repeat(depth)} ${entry.title}`)
         textParts.push(markdownToPlainText(entry.title))
       }
+      if (entry.level === 'chapter') {
+        const chapter = entry.outline_id
+          ? outlines.find((item) => item.data.id === entry.outline_id && item.data.level === 'chapter')
+          : undefined
+        const prose = chapter ? proseByChapter.get(chapter.data.id) : undefined
+        if (chapter && prose?.content.trim()) {
+          markdownParts.push(prose.content.trim())
+          textParts.push(markdownToPlainText(prose.content))
+          proseExportedChapters.add(chapter.data.id)
+          exportedScenes.push({
+            scene_id: prose.data.id,
+            scene_title: prose.data.title,
+            outline_id: chapter.data.id,
+            source: 'chapter_prose',
+            run_id: null
+          })
+        }
+      }
       continue
     }
+
+    if (proseExportedChapters.has(entry.outline.data.id)) continue
 
     const resolved = resolveSceneContent(entry.scene, accepted)
     if (!resolved.content) {
@@ -163,7 +190,8 @@ function collectEntries(
 
   const scenesByOutline = new Map<string, StoredScene[]>()
   for (const scene of scenes) {
-    scenesByOutline.set(scene.data.section, [...(scenesByOutline.get(scene.data.section) ?? []), scene])
+    const chapterId = scene.data.chapter_id || scene.data.section
+    scenesByOutline.set(chapterId, [...(scenesByOutline.get(chapterId) ?? []), scene])
   }
   for (const items of scenesByOutline.values()) {
     const ordered = sortScenes(items)
@@ -176,7 +204,12 @@ function collectEntries(
   const visit = (outline: StoredOutline) => {
     if (visitedOutlines.has(outline.data.id)) return
     visitedOutlines.add(outline.data.id)
-    entries.push({ kind: 'heading', level: outline.data.level, title: outline.data.title })
+    entries.push({
+      kind: 'heading',
+      level: outline.data.level,
+      title: outline.data.title,
+      outline_id: outline.data.id
+    })
     for (const scene of scenesByOutline.get(outline.data.id) ?? []) {
       visitedSceneIds.add(scene.data.id)
       entries.push({ kind: 'scene', scene, outline })
@@ -186,15 +219,16 @@ function collectEntries(
 
   if (volume) {
     const book = findAncestor(volume, outlineById, 'book')
-    if (book) entries.push({ kind: 'heading', level: 'book', title: book.data.title })
-    else entries.push({ kind: 'heading', level: 'book', title: projectTitle })
+    if (book)
+      entries.push({ kind: 'heading', level: 'book', title: book.data.title, outline_id: book.data.id })
+    else entries.push({ kind: 'heading', level: 'book', title: projectTitle, outline_id: null })
     visit(volume)
   } else {
     const roots = outlines
       .filter((outline) => !outline.data.parent || !outlineById.has(outline.data.parent))
       .sort(compareOutlines)
     if (!outlines.some((outline) => outline.data.level === 'book')) {
-      entries.push({ kind: 'heading', level: 'book', title: projectTitle })
+      entries.push({ kind: 'heading', level: 'book', title: projectTitle, outline_id: null })
     }
     for (const root of roots) visit(root)
     // Broken or cyclic parent links must not make otherwise valid outline-bound scenes disappear.
@@ -313,6 +347,7 @@ function sortScenes(scenes: StoredScene[]): StoredScene[] {
 
 function compareScenes(a: StoredScene, b: StoredScene): number {
   return (
+    a.data.order - b.data.order ||
     a.data.chapter_number.localeCompare(b.data.chapter_number, undefined, { numeric: true }) ||
     a.data.id.localeCompare(b.data.id) ||
     a.path.localeCompare(b.path)
@@ -320,10 +355,13 @@ function compareScenes(a: StoredScene, b: StoredScene): number {
 }
 
 function headingDepth(level: OutlineDoc['level']): number | null {
+  if (level === 'overview') return null
   if (level === 'book') return 1
   if (level === 'volume') return 2
-  if (level === 'chapter') return 3
-  if (level === 'section') return 4
+  if (level === 'part' || level === 'arc') return 3
+  if (level === 'act') return 4
+  if (level === 'chapter') return 5
+  if (level === 'section') return 6
   return null
 }
 

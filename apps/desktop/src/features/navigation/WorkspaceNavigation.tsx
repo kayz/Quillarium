@@ -2,7 +2,6 @@ import React from 'react'
 import {
   BookOpen,
   CheckCircle2,
-  Circle,
   Clock3,
   FileText,
   GitBranch,
@@ -14,7 +13,12 @@ import {
 } from 'lucide-react'
 import type { DocEntry, LanguageName, ModuleName, TargetSelection } from '../../app/types.js'
 import { t } from '../../app/i18n.js'
-import { outlineLevelLabel, outlineSortKey } from '../../shared/outline.js'
+import { buildOutlineHierarchy } from '../../shared/outline.js'
+import {
+  documentTypeLabel,
+  enumChoiceLabel,
+  outlineLevelDisplayLabel
+} from '../metadata/field-presentation.js'
 
 export function StructureTree({
   docs,
@@ -27,30 +31,47 @@ export function StructureTree({
   onSelect: (target: TargetSelection) => void
   language: LanguageName
 }) {
-  const outlines = docs
-    .filter((item) => item.data.type === 'outline')
-    .sort((a, b) => outlineSortKey(a).localeCompare(outlineSortKey(b)))
+  const { children } = buildOutlineHierarchy(docs)
   const scenes = docs.filter((item) => item.data.type === 'scene')
-  const children = new Map<string | null, DocEntry[]>()
-  for (const outline of outlines) {
-    const parent = (outline.data.parent as string | null | undefined) ?? null
-    children.set(parent, [...(children.get(parent) ?? []), outline])
-  }
+  const chapterProse = docs.filter((item) => item.data.type === 'chapter_prose')
   const renderOutline = (outline: DocEntry, depth: number): React.ReactNode => {
     const nestedOutlines = children.get(outline.data.id) ?? []
-    const nestedScenes = scenes.filter((scene) => scene.data.section === outline.data.id)
+    const prose = chapterProse.find((item) => item.data.chapter_id === outline.data.id)
+    const nestedScenes = scenes.filter(
+      (scene) => (scene.data.chapter_id ?? scene.data.section) === outline.data.id
+    )
     return (
       <React.Fragment key={outline.data.id}>
         <button
           className={`tree-node level-${String(outline.data.level ?? 'section')} ${
-            selectedTarget?.type === 'outline' && selectedTarget.id === outline.data.id ? 'active' : ''
+            selectedTarget?.type === 'outline' &&
+            selectedTarget.id === outline.data.id &&
+            !selectedTarget.view
+              ? 'active'
+              : ''
           }`}
           style={{ paddingLeft: `${10 + depth * 14}px` }}
           onClick={() => onSelect({ type: 'outline', id: outline.data.id })}
         >
-          <FileText size={14} /> {outlineLevelLabel(String(outline.data.level))} · {outline.data.title}
+          <FileText size={14} /> {outlineLevelDisplayLabel(String(outline.data.level), language)} ·{' '}
+          {outline.data.title}
         </button>
         {nestedOutlines.map((child) => renderOutline(child, depth + 1))}
+        {outline.data.level === 'chapter' && (
+          <button
+            className={`tree-node chapter-prose-state ${
+              (prose && selectedTarget?.type === 'chapter_prose' && selectedTarget.id === prose.data.id) ||
+              (selectedTarget?.id === outline.data.id && selectedTarget.view === 'prose')
+                ? 'active'
+                : ''
+            }`}
+            style={{ paddingLeft: `${24 + depth * 14}px` }}
+            onClick={() => onSelect({ type: 'outline', id: outline.data.id, view: 'prose' })}
+          >
+            <FileText size={14} /> {language === 'zh' ? '章正文' : 'Chapter prose'} ·{' '}
+            {proseStatusLabel(String(prose?.data.status ?? 'draft'), language)}
+          </button>
+        )}
         {nestedScenes.map((scene) => (
           <button
             key={scene.data.id}
@@ -58,23 +79,47 @@ export function StructureTree({
               selectedTarget?.type === 'scene' && selectedTarget.id === scene.data.id ? 'active' : ''
             }`}
             style={{ paddingLeft: `${24 + depth * 14}px` }}
-            onClick={() => onSelect({ type: 'scene', id: scene.data.id })}
+            onClick={() => onSelect({ type: 'scene', id: scene.data.id, view: 'ai' })}
           >
-            <FileText size={14} /> {scene.data.title}
+            <FileText size={14} /> {language === 'zh' ? '节' : 'Scene'} · {scene.data.title}
           </button>
         ))}
+        {outline.data.level === 'chapter' && (
+          <button
+            className={`tree-node level-ai ${
+              selectedTarget?.id === outline.data.id && selectedTarget.view === 'ai' ? 'active' : ''
+            }`}
+            style={{ paddingLeft: `${24 + depth * 14}px` }}
+            onClick={() => onSelect({ type: 'outline', id: outline.data.id, view: 'ai' })}
+          >
+            <Sparkles size={14} /> {language === 'zh' ? '节管理 / AI 编写' : 'Scenes / AI writing'}
+          </button>
+        )}
       </React.Fragment>
     )
   }
-  const attachedSceneIds = new Set(scenes.filter((scene) => scene.data.section).map((scene) => scene.data.id))
+  const attachedSceneIds = new Set(
+    scenes.filter((scene) => scene.data.chapter_id ?? scene.data.section).map((scene) => scene.data.id)
+  )
   const rootOutlines = children.get(null) ?? []
+  const overviewRoots = rootOutlines.filter((outline) => outline.data.level === 'overview')
+  const bookRoots = rootOutlines.filter((outline) => outline.data.level === 'book')
+  const otherRoots = rootOutlines.filter(
+    (outline) => outline.data.level !== 'overview' && outline.data.level !== 'book'
+  )
   const looseScenes = scenes.filter((scene) => !attachedSceneIds.has(scene.data.id))
   return (
     <div className="tree">
       <div className="tree-node open">
         <BookOpen size={15} /> {t(language, 'book')}
       </div>
-      {rootOutlines.map((outline) => renderOutline(outline, 0))}
+      <div className="tree-group-label">{language === 'zh' ? '总览' : 'Overview'}</div>
+      {overviewRoots.map((outline) => renderOutline(outline, 0))}
+      <div className="tree-group-label">
+        {language === 'zh' ? '总纲与故事树' : 'Book outline and story tree'}
+      </div>
+      {bookRoots.map((outline) => renderOutline(outline, 0))}
+      {otherRoots.map((outline) => renderOutline(outline, 0))}
       {looseScenes.map((scene) => (
         <button
           key={scene.data.id}
@@ -88,6 +133,10 @@ export function StructureTree({
       ))}
     </div>
   )
+}
+
+function proseStatusLabel(status: string, language: LanguageName): string {
+  return enumChoiceLabel('status', status, language, { documentType: 'chapter_prose' })
 }
 
 export function ModuleNav({
@@ -107,20 +156,18 @@ export function ModuleNav({
     foreshadowing: docs.filter((doc) => doc.data.type === 'foreshadowing').length,
     issues: docs.filter((doc) => doc.data.type === 'issue').length,
     references: docs.filter((doc) => doc.data.type === 'reference').length,
-    strategy: docs.filter((doc) => doc.data.type === 'strategy').length,
-    patterns: docs.filter((doc) => doc.data.type === 'pattern').length
+    narrative: docs.filter((doc) => ['narrative', 'strategy', 'pattern'].includes(doc.data.type)).length
   }
   const items = [
     ['write', PenLine, t(language, 'writing')],
-    ['canon', Library, 'Canon'],
-    ['world', BookOpen, '世界书'],
+    ['canon', Library, documentTypeLabel('canon', language)],
+    ['world', BookOpen, t(language, 'worldBook')],
     ['characters', UserRound, t(language, 'characters')],
     ['timeline', Clock3, t(language, 'timeline')],
-    ['foreshadowing', GitBranch, '伏笔'],
-    ['issues', CheckCircle2, '问题'],
-    ['references', FileText, '参考'],
-    ['strategy', Sparkles, '策略'],
-    ['patterns', Circle, '模式'],
+    ['foreshadowing', GitBranch, t(language, 'foreshadowing')],
+    ['issues', CheckCircle2, t(language, 'issues')],
+    ['references', FileText, t(language, 'references')],
+    ['narrative', Sparkles, language === 'zh' ? '叙事' : 'Narrative'],
     ['locations', MapPin, t(language, 'locations')],
     ['runs', Sparkles, t(language, 'runs')]
   ] as const

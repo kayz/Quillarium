@@ -7,7 +7,7 @@ const ipcDir = path.dirname(fileURLToPath(import.meta.url))
 const electronDir = path.dirname(ipcDir)
 
 describe('desktop IPC contract', () => {
-  it('keeps the contract, handlers, and both preload implementations on the same 60 channels', async () => {
+  it('keeps the contract, handlers, and both preload implementations on the same 75 channels', async () => {
     const [contract, preloadTypeScript, preloadCommonJs, ipcFiles] = await Promise.all([
       readFile(path.join(ipcDir, 'contract.ts'), 'utf8'),
       readFile(path.join(electronDir, 'preload.ts'), 'utf8'),
@@ -25,14 +25,14 @@ describe('desktop IPC contract', () => {
     )?.[1]
     expect(contractBlock).toBeTruthy()
     const contractChannels = matches(contractBlock!, /^\s{2}\w+: '([^']+)'/gm)
-    const handlerChannels = matches(handlerSources.join('\n'), /typedHandle\('([^']+)'/g)
+    const handlerChannels = matches(handlerSources.join('\n'), /typedHandle\(\s*'([^']+)'/g)
     const typeScriptChannels = matches(preloadTypeScript, /\binvoke\('([^']+)'/g)
     const commonJsChannels = matches(preloadCommonJs, /ipcRenderer\.invoke\('([^']+)'/g)
 
-    expectUniqueCount(contractChannels, 60)
-    expectUniqueCount(handlerChannels, 60)
-    expectUniqueCount(typeScriptChannels, 60)
-    expectUniqueCount(commonJsChannels, 60)
+    expectUniqueCount(contractChannels, 75)
+    expectUniqueCount(handlerChannels, 75)
+    expectUniqueCount(typeScriptChannels, 75)
+    expectUniqueCount(commonJsChannels, 75)
     expect(new Set(handlerChannels)).toEqual(new Set(contractChannels))
     expect(new Set(typeScriptChannels)).toEqual(new Set(contractChannels))
     expect(new Set(commonJsChannels)).toEqual(new Set(contractChannels))

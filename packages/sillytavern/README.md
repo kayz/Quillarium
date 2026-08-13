@@ -18,7 +18,7 @@ Character Card and World Info formats. All operations are local and deterministi
 ```ts
 import { importCharacterCard, writeWorldInfoFile } from '@quillarium/sillytavern'
 
-const projectRoot = './local-vaults/novels/My Novel'
+const projectRoot = './writing-workspace/projects/my-novel'
 const imported = await importCharacterCard(projectRoot, './cards/hero.png')
 console.log(imported.characterId, imported.rawPath)
 

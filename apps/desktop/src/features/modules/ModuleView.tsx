@@ -1,6 +1,9 @@
 import { Plus } from 'lucide-react'
 import type { DocEntry, LanguageName, ModuleName, RunSummary, TargetSelection } from '../../app/types.js'
 import { I18N, t } from '../../app/i18n.js'
+import { docTitle } from '../../shared/outline.js'
+import { enumChoiceLabel, fieldLabel } from '../metadata/field-presentation.js'
+import { docTypeLabel } from '../outline/outline-model.js'
 import { CanonWorkspace } from './CanonWorkspace.js'
 
 export function ModuleView({
@@ -12,6 +15,7 @@ export function ModuleView({
   onAIPlanningCreate,
   selectedTarget,
   onSelect,
+  onOpenCard,
   onReload,
   language
 }: {
@@ -23,6 +27,7 @@ export function ModuleView({
   onAIPlanningCreate: (module: ModuleName) => void
   selectedTarget: TargetSelection | null
   onSelect: (target: TargetSelection) => void
+  onOpenCard?: (doc: DocEntry) => void
   onReload: () => Promise<void>
   language: LanguageName
 }) {
@@ -34,13 +39,16 @@ export function ModuleView({
     foreshadowing: 'foreshadowing',
     issues: 'issue',
     references: 'reference',
-    strategy: 'strategy',
-    patterns: 'pattern',
+    narrative: 'narrative',
     locations: 'location',
     runs: 'scene',
     write: 'scene'
   }
-  const filtered = docs.filter((doc) => doc.data.type === map[module])
+  const filtered = docs.filter((doc) =>
+    module === 'narrative'
+      ? ['narrative', 'strategy', 'pattern'].includes(doc.data.type)
+      : doc.data.type === map[module]
+  )
   if (module === 'runs') {
     return (
       <section className="module-view">
@@ -49,9 +57,11 @@ export function ModuleView({
           {runs.map((run) => (
             <article key={run.id} className="info-card">
               <strong>{run.id}</strong>
-              <small>{run.scene_id}</small>
+              <small>
+                {language === 'zh' ? '所属节' : 'Scene'}：{run.scene_id}
+              </small>
               <p>
-                {run.status} · {run.model} · {run.created_at}
+                {enumChoiceLabel('run_status', run.status, language)} · {run.model} · {run.created_at}
               </p>
             </article>
           ))}
@@ -79,34 +89,66 @@ export function ModuleView({
           <button
             type="button"
             key={doc.data.id}
-            className={`info-card module-info-card ${selectedTarget?.id === doc.data.id ? 'active' : ''}`}
-            onClick={() => onSelect({ type: doc.data.type, id: doc.data.id })}
+            className={`info-card module-info-card ${doc.data.enabled === false ? 'disabled-card' : ''} ${selectedTarget?.id === doc.data.id ? 'active' : ''}`}
+            onClick={() => {
+              onSelect({ type: doc.data.type, id: doc.data.id })
+              onOpenCard?.(doc)
+            }}
           >
             <strong>{doc.data.title}</strong>
-            <small>
-              {doc.data.status} · {doc.data.id}
-            </small>
+            {doc.data.type === 'reference' ? (
+              <small>
+                {docTypeLabel(doc, language)} ·{' '}
+                {language === 'zh' ? '材料来源，不直接进入上下文' : 'Source material; excluded from context'}
+              </small>
+            ) : (
+              <small>
+                {docTypeLabel(doc, language)} ·{' '}
+                {enumChoiceLabel('status', String(doc.data.status ?? 'draft'), language, {
+                  documentType: String(doc.data.type)
+                })}
+                {doc.data.enabled === false ? (language === 'zh' ? ' · 未启用' : ' · Disabled') : ''}
+              </small>
+            )}
             {doc.data.type === 'canon' && (
               <small>
-                {String(doc.data.strength ?? '')} · {String(doc.data.source ?? '')}
+                {enumChoiceLabel('strength', String(doc.data.strength ?? 'hard'), language, {
+                  documentType: 'canon'
+                })}{' '}
+                ·{' '}
+                {enumChoiceLabel('source', String(doc.data.source ?? 'user'), language, {
+                  documentType: 'canon'
+                })}
               </small>
             )}
             {doc.data.type === 'timeline_event' && (
               <small>
-                previous: {String(doc.data.previous ?? 'none')} · next: {String(doc.data.next ?? 'none')}
+                {fieldLabel('previous', language)}：{docTitle(docs, doc.data.previous) || t(language, 'none')}{' '}
+                · {fieldLabel('next', language)}：{docTitle(docs, doc.data.next) || t(language, 'none')}
               </small>
             )}
-            {doc.data.type === 'location' && <RouteTable docs={docs} locationId={doc.data.id} />}
+            {doc.data.type === 'location' && (
+              <RouteTable docs={docs} locationId={doc.data.id} language={language} />
+            )}
             {doc.data.type === 'character' && (
               <small>
-                {String(doc.data.speech_style ?? 'no speech style')} ·{' '}
-                {String(doc.data.desire ?? 'no desire')}
+                {fieldLabel('speech_style', language)}：{String(doc.data.speech_style || t(language, 'none'))}{' '}
+                · {fieldLabel('desire', language)}：{String(doc.data.desire || t(language, 'none'))}
               </small>
             )}
             {doc.data.type === 'pattern' && (
               <small>
-                {String(doc.data.kind ?? 'story')} · {String(doc.data.scope ?? 'project')} ·{' '}
-                {String(doc.data.source ?? 'user')}
+                {enumChoiceLabel('kind', String(doc.data.kind ?? 'story'), language, {
+                  documentType: 'pattern'
+                })}{' '}
+                ·{' '}
+                {enumChoiceLabel('scope', String(doc.data.scope ?? 'project'), language, {
+                  documentType: 'pattern'
+                })}{' '}
+                ·{' '}
+                {enumChoiceLabel('source', String(doc.data.source ?? 'user'), language, {
+                  documentType: 'pattern'
+                })}
               </small>
             )}
             <p>{doc.content.slice(0, 180) || t(language, 'emptyBody')}</p>
@@ -127,26 +169,54 @@ export function ModuleFilters({
   language: LanguageName
 }) {
   if (module !== 'canon') return null
-  const statuses = [...new Set(docs.filter((doc) => doc.data.type === 'canon').map((doc) => doc.data.status))]
+  const statuses = [
+    ...new Set(
+      docs
+        .filter((doc) => doc.data.type === 'canon')
+        .map((doc) => doc.data.status)
+        .filter((status): status is string => Boolean(status))
+    )
+  ]
   return (
     <div className="filter-row">
       <span>
-        {t(language, 'status')}: {statuses.join(' / ') || t(language, 'none')}
+        {t(language, 'status')}:{' '}
+        {statuses.map((status) => enumChoiceLabel('status', status, language)).join(' / ') ||
+          t(language, 'none')}
       </span>
-      <span>{t(language, 'strength')}: hard / soft</span>
+      <span>
+        {t(language, 'strength')}: {enumChoiceLabel('strength', 'hard', language)} /{' '}
+        {enumChoiceLabel('strength', 'soft', language)}
+      </span>
       <span>{t(language, 'searchHint')}</span>
     </div>
   )
 }
 
-export function RouteTable({ docs, locationId }: { docs: DocEntry[]; locationId: string }) {
+export function RouteTable({
+  docs,
+  locationId,
+  language
+}: {
+  docs: DocEntry[]
+  locationId: string
+  language: LanguageName
+}) {
   const routes = docs.filter(
     (doc) => doc.data.type === 'route' && (doc.data.from === locationId || doc.data.to === locationId)
   )
-  if (!routes.length) return <small>routes: none</small>
+  if (!routes.length) return <small>{language === 'zh' ? '暂无关联路线' : 'No related routes'}</small>
   return (
     <small>
-      routes: {routes.map((route) => `${String(route.data.from)} -> ${String(route.data.to)}`).join('; ')}
+      {language === 'zh' ? '关联路线' : 'Routes'}：
+      {routes
+        .map(
+          (route) =>
+            (docTitle(docs, route.data.from) || String(route.data.from)) +
+            ' → ' +
+            (docTitle(docs, route.data.to) || String(route.data.to))
+        )
+        .join('；')}
     </small>
   )
 }
@@ -183,8 +253,7 @@ export function moduleTitle(module: ModuleName, language: LanguageName): string 
     foreshadowing: 'foreshadowing',
     issues: 'issues',
     references: 'references',
-    strategy: 'strategy',
-    patterns: 'patterns',
+    narrative: 'narrative',
     locations: 'locations',
     runs: 'runs'
   }

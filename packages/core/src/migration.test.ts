@@ -127,6 +127,17 @@ describe('project and outline compatibility migrations', () => {
     expect(parsed.data['custom_frontmatter']).toBe('preserve-me')
     await expect(readFile(path.join(backupRoot, 'outlines', 'volume-one.md'), 'utf8')).resolves.toBe(original)
   })
+
+  it('classifies a legacy book document with an explicit overview title as overview', () => {
+    const legacyOverview = outlineSchema.parse({
+      id: 'legacy-overview',
+      type: 'outline',
+      title: 'Sample Story 总纲与总览',
+      level: 'book'
+    })
+
+    expect(legacyOverview.level).toBe('overview')
+  })
 })
 
 describe('lossless legacy layout migration', () => {

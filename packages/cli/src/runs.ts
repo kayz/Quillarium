@@ -2,14 +2,13 @@ import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { Command } from 'commander'
 import {
+  acceptSceneIntoChapter,
+  assertPlainProse,
   listRuns,
   readRunFile,
-  requireDoc,
   requireNonEmptyRunOutput,
-  writeMarkdown,
   writeRunFile,
-  writeRunMetadata,
-  type SceneDoc
+  writeRunMetadata
 } from '@quillarium/core'
 
 export function registerRunCommands(program: Command, projectOption: (command: Command) => Command): void {
@@ -49,18 +48,25 @@ export function registerRunCommands(program: Command, projectOption: (command: C
       .command('accept')
       .argument('<run-id>', 'Run id')
       .option('--scene <scene-id>', 'Scene id; defaults to metadata scene_id')
-      .description('Accept output-raw.md into output-accepted.md and scene file')
+      .description('Accept output-raw.md into the scene and append it to chapter prose')
   ).action(async (runId, options) => {
     const root = path.resolve(options.project)
     const current = await requireRun(root, runId)
-    const raw = requireNonEmptyRunOutput(await readRunFile(root, runId, 'output-raw.md'), runId)
+    const raw = assertPlainProse(
+      requireNonEmptyRunOutput(await readRunFile(root, runId, 'output-raw.md'), runId)
+    )
     const sceneId = options.scene ?? current.scene_id
-    const sceneDoc = await requireDoc<SceneDoc>(root, sceneId)
     const accepted = { ...current, scene_id: sceneId, status: 'accepted' as const }
     await writeRunFile(root, accepted, 'output-accepted.md', raw)
     await writeRunMetadata(root, accepted)
-    await writeMarkdown(sceneDoc.path, sceneDoc.data as unknown as Record<string, unknown>, raw)
-    console.log(`Accepted ${runId} into ${sceneDoc.path}`)
+    try {
+      const lifecycle = await acceptSceneIntoChapter(root, sceneId, raw)
+      console.log(`Accepted ${runId} into ${lifecycle.prose.path}`)
+    } catch (error) {
+      await writeRunFile(root, current, 'output-accepted.md', '')
+      await writeRunMetadata(root, current)
+      throw error
+    }
   })
 }
 

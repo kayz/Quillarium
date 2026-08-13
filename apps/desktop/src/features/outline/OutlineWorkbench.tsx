@@ -72,7 +72,7 @@ export function OutlineWorkbench({
             <CheckCircle2 size={16} /> {t(language, 'checkAction')}
           </button>
           <button onClick={onGenerate} disabled={busy || level !== 'chapter'}>
-            <WandSparkles size={16} /> {level === 'chapter' ? '按章纲生成' : '章纲阶段生成'}
+            <WandSparkles size={16} /> {level === 'chapter' ? '按本章规划生成' : '进入章后生成'}
           </button>
         </div>
       </div>
@@ -119,7 +119,7 @@ export function OutlineWorkbench({
         </article>
       </div>
       <label className="outline-editor">
-        {level === 'chapter' ? '手写章纲' : `${outlineLevelLabel(level)}正文/说明`}
+        {level === 'chapter' ? '手写本章规划' : `${outlineLevelLabel(level)}正文/说明`}
         <textarea
           value={doc?.content ?? ''}
           onChange={(event) => {
@@ -128,7 +128,7 @@ export function OutlineWorkbench({
           }}
           placeholder={
             level === 'chapter'
-              ? '在这里写章纲：本章目标、开场、冲突、转折、结尾钩子、事实约束...'
+              ? '在这里规划本章：本章目标、开场、冲突、转折、结尾钩子、事实约束...'
               : '记录本层级目标、约束、事件安排和待讨论问题...'
           }
         />

@@ -1,16 +1,5 @@
-import {
-  BrainCircuit,
-  CheckCircle2,
-  LayoutGrid,
-  List,
-  PenLine,
-  Plus,
-  Save,
-  Search,
-  Sparkles,
-  Upload,
-  WandSparkles
-} from 'lucide-react'
+import { useRef, useState } from 'react'
+import { CheckCircle2, LayoutGrid, List, Plus, Save, Search, Trash2, Upload } from 'lucide-react'
 import type {
   ContextPacketSummary,
   DocEntry,
@@ -22,13 +11,17 @@ import type {
 } from '../../app/types.js'
 import { t } from '../../app/i18n.js'
 import {
+  buildOutlineHierarchy,
+  childWorkLevels,
   levelTasks,
   levelOverviewTitle,
-  nextWorkLevel,
   outlineLevelLabel,
   structuredLine
 } from '../../shared/outline.js'
-import { MarkdownPreview } from '../markdown/MarkdownPreview.js'
+import { MarkdownBodyEditor } from '../markdown/MarkdownBodyEditor.js'
+import { clampPaneSize, SplitHandle } from '../layout/SplitHandle.js'
+import { enumChoiceLabel, outlineLevelDisplayLabel } from '../metadata/field-presentation.js'
+import { EditableDocumentTitle } from '../outline/EditableDocumentTitle.js'
 
 export function WritingWorkspace({
   docs,
@@ -52,11 +45,9 @@ export function WritingWorkspace({
   onCreate,
   onDocChange,
   onSave,
+  onDelete,
   onCheck,
-  onSemanticCheck,
-  onGenerate,
-  onDryRun,
-  onRewrite,
+  onAcceptScene,
   onImportPanel,
   language
 }: {
@@ -78,43 +69,73 @@ export function WritingWorkspace({
   onSearch: (value: string) => void
   onViewMode: (mode: ViewMode) => void
   onSelect: (target: TargetSelection) => void
-  onCreate: (level: WorkLevel, parent?: string | null) => Promise<void>
+  onCreate: (level: WorkLevel, parent?: string | null) => void
   onDocChange: (doc: { data: Record<string, unknown>; content: string; path: string }) => void
   onSave: () => Promise<void>
+  onDelete: () => Promise<void>
   onCheck: () => Promise<void>
-  onSemanticCheck: () => Promise<void>
-  onGenerate: () => Promise<void>
-  onDryRun: () => Promise<void>
-  onRewrite: () => Promise<void>
+  onAcceptScene: (sceneId: string, content: string) => Promise<void>
   onImportPanel: () => void
   language: LanguageName
 }) {
+  const gridRef = useRef<HTMLDivElement | null>(null)
+  const [overviewWidth, setOverviewWidth] = useState(48)
   const selected = selectedScene ?? selectedOutline
   const items = leftMode === 'read' ? finalizedScenes : visibleItems
+  const childLabels = childWorkLevels(level).map(outlineLevelLabel).join('或')
+  const selectedLevel = String(selectedOutline?.data.level ?? '')
+  const canDelete =
+    selected?.data.type === 'scene' ||
+    (selected?.data.type === 'outline' &&
+      ['volume', 'part', 'arc', 'act', 'chapter', 'section'].includes(selectedLevel))
   return (
     <section className="writing-workspace">
       <div className="level-tabs">
-        {(['book', 'volume', 'arc', 'chapter'] as WorkLevel[]).map((item) => (
+        {(['overview', 'book', 'volume', 'part', 'act', 'chapter', 'ai'] as WorkLevel[]).map((item) => (
           <button key={item} className={level === item ? 'active' : ''} onClick={() => onLevel(item)}>
             {outlineLevelLabel(item)}
           </button>
         ))}
       </div>
-      <div className="writing-grid">
+      <div
+        ref={gridRef}
+        className="writing-grid"
+        style={{ gridTemplateColumns: `${overviewWidth}% 10px minmax(0, 1fr)` }}
+      >
         <div className="overview-pane">
           <div className="overview-head">
             <div>
               <span className="badge ok">{leftMode === 'read' ? '阅读' : outlineLevelLabel(level)}</span>
-              <h2>{leftMode === 'read' ? '已定稿内容' : levelOverviewTitle(level, selectedOutline)}</h2>
+              <h2>
+                {leftMode === 'read'
+                  ? '已定稿内容'
+                  : childLabels
+                    ? `规划${childLabels}`
+                    : levelOverviewTitle(level, selectedOutline)}
+              </h2>
             </div>
-            <button
-              className="icon-button"
-              onClick={() => onCreate(level, selectedOutline?.data.parent as string | null | undefined)}
-              disabled={level === 'book'}
-              title={`新增${outlineLevelLabel(level)}`}
-            >
-              <Plus size={17} />
-            </button>
+            <div className="outline-child-actions">
+              {(level === 'overview' || level === 'book') && selectedOutline?.data.level !== level && (
+                <button
+                  className="icon-button"
+                  onClick={() => void onCreate(level, null)}
+                  title={`新建${outlineLevelLabel(level)}`}
+                >
+                  <Plus size={17} /> <span>新建{outlineLevelLabel(level)}</span>
+                </button>
+              )}
+              {childWorkLevels(level).map((child) => (
+                <button
+                  key={child}
+                  className="icon-button"
+                  onClick={() => void onCreate(child, selectedOutline?.data.id ?? null)}
+                  disabled={!selectedOutline}
+                  title={`规划${outlineLevelLabel(child)}`}
+                >
+                  <Plus size={17} /> <span>{outlineLevelLabel(child)}</span>
+                </button>
+              ))}
+            </div>
           </div>
           <div className="overview-tools">
             <label className="search-box">
@@ -148,6 +169,17 @@ export function WritingWorkspace({
             selected={selectedOutline}
             contextPacket={contextPacket}
           />
+          {leftMode === 'write' && !items.length && childWorkLevels(level).length > 0 && (
+            <button
+              className="outline-child-empty"
+              onClick={() => onCreate(childWorkLevels(level)[0], selectedOutline?.data.id ?? null)}
+              disabled={!selectedOutline}
+            >
+              <Plus size={18} />
+              <strong>规划第一个{outlineLevelLabel(childWorkLevels(level)[0])}</strong>
+              <span>它将作为“{selectedOutline?.data.title ?? outlineLevelLabel(level)}”的直属下一级。</span>
+            </button>
+          )}
           <div className={viewMode === 'tile' ? 'outline-tile-grid' : 'outline-list'}>
             {items.map((item) => (
               <button
@@ -160,8 +192,15 @@ export function WritingWorkspace({
                 <span>
                   <b>{item.data.title}</b>
                   <small>
-                    {item.data.type === 'scene' ? '正文' : outlineLevelLabel(String(item.data.level))} ·{' '}
-                    {String(item.data.status ?? 'draft')}
+                    {item.data.type === 'scene'
+                      ? language === 'zh'
+                        ? '正文'
+                        : 'Prose'
+                      : outlineLevelDisplayLabel(String(item.data.level), language)}{' '}
+                    ·{' '}
+                    {enumChoiceLabel('status', String(item.data.status ?? 'draft'), language, {
+                      documentType: String(item.data.type)
+                    })}
                   </small>
                 </span>
                 {viewMode === 'list' && <em>{structuredLine(item)}</em>}
@@ -170,60 +209,90 @@ export function WritingWorkspace({
             ))}
           </div>
         </div>
+        <SplitHandle
+          orientation="vertical"
+          className="writing-editor-handle"
+          label={language === 'zh' ? '调整总览与编辑器宽度' : 'Resize overview and editor'}
+          onResize={(delta) => {
+            const width = gridRef.current?.clientWidth ?? 1
+            setOverviewWidth((current) => clampPaneSize(current + (delta / width) * 100, 28, 72))
+          }}
+        />
         <div className="detail-pane">
           {selected ? (
             <>
               <div className="detail-head">
                 <div>
                   <span className="badge ok">
-                    {selected.data.type === 'scene' ? '正文' : outlineLevelLabel(String(selected.data.level))}
+                    {selected.data.type === 'scene'
+                      ? language === 'zh'
+                        ? '正文'
+                        : 'Prose'
+                      : outlineLevelDisplayLabel(String(selected.data.level), language)}
                   </span>
-                  <h2>{selected.data.title}</h2>
+                  <EditableDocumentTitle
+                    value={doc?.data.title ?? selected.data.title}
+                    language={language}
+                    disabled={leftMode === 'read'}
+                    onChange={(title) => {
+                      if (!doc) return
+                      onDocChange({ ...doc, data: { ...doc.data, title } })
+                    }}
+                  />
                 </div>
-                <button onClick={onSave} disabled={busy || !dirty}>
-                  <Save size={15} /> {dirty ? `${t(language, 'save')} *` : t(language, 'saved')}
-                </button>
+                <div className="detail-head-actions">
+                  {canDelete && (
+                    <button className="danger" onClick={onDelete} disabled={busy}>
+                      <Trash2 size={15} /> 删除
+                    </button>
+                  )}
+                  <button onClick={onSave} disabled={busy || !dirty || !String(doc?.data.title ?? '').trim()}>
+                    <Save size={15} /> {dirty ? `${t(language, 'save')} *` : t(language, 'saved')}
+                  </button>
+                </div>
               </div>
-              <MarkdownPreview content={doc?.content ?? selected.content} />
-              <label className="detail-editor">
-                Markdown
-                <textarea
-                  value={doc?.content ?? ''}
-                  onChange={(event) => {
+              {selected.data.type === 'scene' ? (
+                <label className="detail-editor prose-text-editor">
+                  <span className="markdown-editor-label">
+                    <span>节工作稿 · 纯文字</span>
+                    <small>{[...(doc?.content ?? '').replace(/\s/gu, '')].length} 字</small>
+                  </span>
+                  <textarea
+                    value={doc?.content ?? ''}
+                    onChange={(event) => {
+                      if (!doc) return
+                      onDocChange({ ...doc, content: event.target.value })
+                    }}
+                    readOnly={leftMode === 'read' || Boolean(selected.data.accepted_at)}
+                    spellCheck
+                  />
+                </label>
+              ) : (
+                <MarkdownBodyEditor
+                  value={doc?.content ?? selected.content}
+                  onChange={(content) => {
                     if (!doc) return
-                    onDocChange({ ...doc, content: event.target.value })
+                    onDocChange({ ...doc, content })
                   }}
                   readOnly={leftMode === 'read'}
+                  language={language}
                 />
-              </label>
+              )}
               <div className="detail-actions">
+                {selected.data.type === 'scene' && !selected.data.accepted_at && (
+                  <button
+                    className="primary"
+                    onClick={() => void onAcceptScene(selected.data.id, doc?.content ?? '')}
+                    disabled={busy || !doc?.content.trim()}
+                  >
+                    <CheckCircle2 size={15} /> 接受并加入章正文
+                  </button>
+                )}
                 <button onClick={onCheck} disabled={busy || !selectedTarget}>
                   <CheckCircle2 size={15} /> {t(language, 'checkAction')}
                 </button>
-                <button
-                  onClick={onSemanticCheck}
-                  disabled={busy || !selectedScene}
-                  title={
-                    selectedScene ? t(language, 'semanticCheckHint') : t(language, 'semanticCheckNeedsScene')
-                  }
-                >
-                  <BrainCircuit size={15} /> {t(language, 'semanticCheckAction')}
-                </button>
-                {level === 'chapter' && (
-                  <>
-                    <button onClick={onDryRun} disabled={busy || !selectedScene}>
-                      <Sparkles size={15} /> 草稿记录
-                    </button>
-                    <button onClick={onGenerate} disabled={busy || !selectedTarget}>
-                      <WandSparkles size={15} /> 章节撰写
-                    </button>
-                    <button onClick={onRewrite} disabled={busy || !selectedScene}>
-                      <PenLine size={15} /> 改写
-                    </button>
-                  </>
-                )}
                 <button onClick={onImportPanel}>
-                  <Upload size={15} /> 粘贴导入
+                  <Upload size={15} /> {language === 'zh' ? 'AI 辅助导入' : 'AI-assisted import'}
                 </button>
               </div>
             </>
@@ -251,13 +320,16 @@ export function OutlineSummary({
   contextPacket: ContextPacketSummary | null
 }) {
   const tasks = levelTasks(level)
-  const child = nextWorkLevel(level)
-  const childCount = child
-    ? docs.filter(
-        (item) =>
-          item.data.type === 'outline' && item.data.level === child && item.data.parent === selected?.data.id
+  const children = childWorkLevels(level)
+  const hierarchy = buildOutlineHierarchy(docs)
+  const childCount = children.length
+    ? (hierarchy.children.get(selected?.data.id ?? '') ?? []).filter((item) =>
+        children.includes((item.data.level === 'arc' ? 'part' : item.data.level) as WorkLevel)
       ).length
-    : docs.filter((item) => item.data.type === 'scene' && item.data.section === selected?.data.id).length
+    : docs.filter(
+        (item) =>
+          item.data.type === 'scene' && (item.data.chapter_id ?? item.data.section) === selected?.data.id
+      ).length
   return (
     <article className="overview-summary">
       <p>{tasks.summary}</p>

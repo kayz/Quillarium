@@ -1,16 +1,25 @@
 import {
   assembleContext,
   assembleContextPacket,
+  assertChapterAllowsAI,
+  assertPlainProse,
+  acceptSceneIntoChapter,
+  buildEditableScenePromptPlan,
   buildChapterWritingPlan,
   buildFinalizeReviewPrompt,
   confirmFinalizeImpact,
   createFinalizeReviewSession,
   createRun,
   createScene,
+  finalizeChapter,
   listDocs,
   loadFinalizeReviewSession,
+  loadChapterLifecycle,
+  publishChapter,
   readMarkdown,
   renderContextPacket,
+  timelineIdsForOutline,
+  writeMarkdown,
   writeRunFile,
   type CharacterDoc,
   type LocationDoc,
@@ -29,6 +38,7 @@ import {
 } from '@quillarium/checks'
 import {
   createGenerationRun,
+  buildSectionPrompt,
   generateIntoRun,
   generateText,
   isAIConfigured,
@@ -46,6 +56,10 @@ export function registerSceneHandlers(): void {
       markdown: renderContextPacket(packet)
     }
   })
+  typedHandle('target:writingPrompt', async (_event, root, outlineId) => {
+    const packet = await assembleContextPacket(root, { type: 'outline', id: outlineId })
+    return buildSectionPrompt(renderContextPacket(packet))
+  })
   typedHandle('target:check', async (_event, root, target) => {
     const report = await checkTarget(root, contextTarget(target))
     return { report, markdown: formatCheckReport(report) }
@@ -54,32 +68,37 @@ export function registerSceneHandlers(): void {
     const report = await checkScene(root, sceneId)
     return { report, markdown: formatCheckReport(report) }
   })
-  typedHandle('scene:semanticCheck', async (_event, root, sceneId) =>
-    createSemanticCheckReport(root, sceneId)
+  typedHandle('scene:semanticCheck', async (_event, root, sceneId, content) =>
+    createSemanticCheckReport(root, sceneId, semanticCheckDependencies, content)
   )
-  typedHandle('scene:checkIntoRun', async (_event, root, sceneId) => {
-    const report = await checkScene(root, sceneId)
+  typedHandle('scene:checkIntoRun', async (_event, root, sceneId, content) => {
+    const report = await createSemanticCheckReport(root, sceneId, semanticCheckDependencies, content)
     const markdown = formatCheckReport(report)
     const run = await createRun(root, sceneId, { provider: 'none', model: 'none', status: 'checked' })
     await writeRunFile(root, run, 'check-report.md', markdown)
     return { run, report, markdown }
   })
   typedHandle('scene:generateDryRun', async (_event, root, sceneId) => {
+    const scene = await requireScene(root, sceneId)
+    await assertChapterAllowsAI(root, scene.data.chapter_id)
     const packet = await assembleContextPacket(root, { type: 'scene', id: sceneId })
     const context = renderContextPacket(packet)
     const config = await loadDesktopAIProfile('prose')
     return createGenerationRun(root, sceneId, context, config, {}, packet.shared_guidance)
   })
   typedHandle('scene:generate', async (_event, root, sceneId) => {
+    const scene = await requireScene(root, sceneId)
+    await assertChapterAllowsAI(root, scene.data.chapter_id)
     const packet = await assembleContextPacket(root, { type: 'scene', id: sceneId })
     const context = renderContextPacket(packet)
     const config = await loadDesktopAIProfile('prose')
     const run = await createGenerationRun(root, sceneId, context, config, {}, packet.shared_guidance)
-    const output = await generateIntoRun(root, run, context, config)
+    const output = await generateIntoRun(root, run, context, config, {}, undefined, assertPlainProse)
     return { run, output }
   })
-  typedHandle('outline:generate', async (_event, root, outlineId) => {
-    const scene = await ensureSceneForOutline(root, outlineId)
+  typedHandle('outline:generate', async (_event, root, outlineId, prompt, sceneId) => {
+    await assertChapterAllowsAI(root, outlineId)
+    const scene = await ensureSceneForOutline(root, outlineId, sceneId)
     const packet = await assembleContextPacket(root, { type: 'outline', id: outlineId })
     const context = renderContextPacket(packet)
     const config = await loadDesktopAIProfile('prose')
@@ -93,11 +112,28 @@ export function registerSceneHandlers(): void {
         target_id: outlineId,
         source_outline: outlineId
       },
-      packet.shared_guidance
+      packet.shared_guidance,
+      prompt
     )
-    const output = await generateIntoRun(root, run, context, config)
+    const output = await generateIntoRun(root, run, context, config, {}, prompt, assertPlainProse)
     return { run, output, scene: scene as DesktopDocEntry<SceneDoc> }
   })
+  typedHandle(
+    'scene:prepare',
+    async (_event, root, chapterId) =>
+      (await prepareSceneForOutline(root, chapterId)) as DesktopDocEntry<SceneDoc>
+  )
+  typedHandle('scene:acceptManual', async (_event, root, sceneId, content) =>
+    acceptSceneIntoChapter(root, sceneId, content)
+  )
+  typedHandle('scene:promptPlan', async (_event, root, sceneId) =>
+    buildEditableScenePromptPlan(root, { sceneId })
+  )
+  typedHandle('chapter:lifecycle', async (_event, root, chapterId) => loadChapterLifecycle(root, chapterId))
+  typedHandle('chapter:finalize', async (_event, root, chapterId) => finalizeChapter(root, chapterId))
+  typedHandle('chapter:publish', async (_event, root, chapterId, confirmation) =>
+    publishChapter(root, chapterId, confirmation)
+  )
   typedHandle('chapter:writingPlan', async (_event, root, chapterId, selectedByScene) =>
     buildChapterWritingPlan(root, chapterId, selectedByScene ?? {})
   )
@@ -139,9 +175,10 @@ const semanticCheckDependencies: SemanticCheckDependencies = {
 export async function createSemanticCheckReport(
   root: string,
   sceneId: string,
-  dependencies: SemanticCheckDependencies = semanticCheckDependencies
+  dependencies: SemanticCheckDependencies = semanticCheckDependencies,
+  contentOverride?: string
 ): Promise<CheckReport> {
-  const deterministic = await dependencies.checkScene(root, sceneId)
+  const deterministic = await dependencies.checkScene(root, sceneId, contentOverride)
   let config: AIConfig
   try {
     config = await dependencies.loadAIProfile('check')
@@ -157,9 +194,12 @@ export async function createSemanticCheckReport(
       'Semantic checks were not run because the desktop check AI profile is not configured.'
     )
   }
-  const semanticIssues = await dependencies.runSemanticChecks(root, sceneId, (prompt) =>
+  const invoke = (prompt: string) =>
     dependencies.generateText(prompt, config, undefined, { timeoutMs: SEMANTIC_CHECK_TIMEOUT_MS })
-  )
+  const semanticIssues =
+    contentOverride === undefined
+      ? await dependencies.runSemanticChecks(root, sceneId, invoke)
+      : await dependencies.runSemanticChecks(root, sceneId, invoke, contentOverride)
   return {
     ...deterministic,
     semantic_status: semanticStatusFromIssues(semanticIssues),
@@ -189,42 +229,168 @@ function contextTarget(target: TargetInput): { type: 'outline' | 'scene'; id: st
   return { type: target.type, id: target.id }
 }
 
-async function ensureSceneForOutline(root: string, outlineId: string) {
-  const existing = (await listDocs<SceneDoc>(root, 'scene')).find((scene) => scene.data.section === outlineId)
-  if (existing) return existing
+export async function ensureSceneForOutline(root: string, outlineId: string, preferredSceneId?: string) {
   const outline = (await listDocs<OutlineDoc>(root, 'outline')).find((doc) => doc.data.id === outlineId)
   if (!outline) throw new Error(`Outline not found: ${outlineId}`)
-  const timeline =
-    outline.data.related_timeline?.[0] ??
-    (await listDocs<TimelineEventDoc>(root, 'timeline_event')).find(Boolean)?.data.id
-  const location =
-    (await listDocs<LocationDoc>(root, 'location')).find(Boolean)?.data.id ??
-    (await listDocs<TimelineEventDoc>(root, 'timeline_event')).find((event) => event.data.location)?.data
-      .location
-  const pov =
-    outline.data.related_characters?.[0] ??
-    outline.data.povs?.[0] ??
-    (await listDocs<CharacterDoc>(root, 'character')).find(Boolean)?.data.id
+  if (outline.data.level !== 'chapter')
+    throw new Error('AI writing can only create a scene under a chapter outline.')
+  await assertChapterAllowsAI(root, outlineId)
+  const chapterScenes = (await listDocs<SceneDoc>(root, 'scene'))
+    .filter((scene) => (scene.data.chapter_id || scene.data.section) === outlineId)
+    .sort((a, b) => a.data.order - b.data.order)
+  const existing =
+    chapterScenes.find((scene) => scene.data.id === preferredSceneId && !scene.data.accepted_at) ??
+    chapterScenes.find((scene) => !scene.data.accepted_at)
+  const bindings = await inferSceneBindings(root, outline, existing)
+  const { timeline, location, pov, relatedCharacters } = bindings
   if (!timeline || !location || !pov) {
-    throw new Error(
-      'Cannot create a chapter scene before timeline, location, and POV character are available.'
+    const missing = [!timeline && 'timeline', !location && 'location', !pov && 'POV character'].filter(
+      Boolean
     )
+    throw new Error(`Cannot create a chapter scene; missing ${missing.join(', ')}.`)
+  }
+  if (existing) {
+    if (!isGeneratedPlaceholder(existing)) return existing
+    const data = {
+      ...existing.data,
+      timeline_node: timeline ?? '',
+      location: location ?? '',
+      pov: pov ?? '',
+      characters: [...new Set([pov, ...relatedCharacters].filter(Boolean) as string[])]
+    }
+    if (
+      data.timeline_node !== existing.data.timeline_node ||
+      data.location !== existing.data.location ||
+      data.pov !== existing.data.pov ||
+      data.characters.join('\n') !== existing.data.characters.join('\n')
+    ) {
+      await writeMarkdown(existing.path, data as unknown as Record<string, unknown>, existing.content)
+    }
+    return { ...existing, data }
   }
   const file = await createScene(
     root,
-    `${outline.data.title} 正文`,
+    `${outline.data.title} · 第${chapterScenes.length + 1}节`,
     {
+      chapter_id: outline.data.id,
       section: outline.data.id,
-      timeline_node: timeline,
-      location,
-      pov,
-      characters: [...new Set([pov, ...(outline.data.related_characters ?? [])])],
+      order: nextSceneOrder(chapterScenes),
+      writing_focus: outline.data.chapter_goal || outline.data.chapter_change || '',
+      timeline_node: timeline ?? '',
+      location: location ?? '',
+      pov: pov ?? '',
+      characters: [...new Set([pov, ...relatedCharacters].filter(Boolean) as string[])],
       target_words: Number(outline.data.target_words ?? 1000),
       chapter_hook: Boolean(outline.data.chapter_hook),
-      tags: ['volume-01', `chapter-${String(outline.data.order + 1).padStart(3, '0')}`]
+      previous_scene: chapterScenes.at(-1)?.data.id ?? null,
+      tags: [`chapter-${String(outline.data.order + 1).padStart(3, '0')}`]
     },
-    '## Draft\n'
+    ''
   )
   const parsed = await readMarkdown<Record<string, unknown>>(file)
   return { path: file, data: parsed.data as unknown as SceneDoc, content: parsed.content }
+}
+
+export async function prepareSceneForOutline(root: string, outlineId: string) {
+  const outline = (await listDocs<OutlineDoc>(root, 'outline')).find((doc) => doc.data.id === outlineId)
+  if (!outline) throw new Error(`Outline not found: ${outlineId}`)
+  if (outline.data.level !== 'chapter') {
+    throw new Error('AI writing can only create a scene under a chapter outline.')
+  }
+  await assertChapterAllowsAI(root, outlineId)
+  const chapterScenes = (await listDocs<SceneDoc>(root, 'scene'))
+    .filter((scene) => (scene.data.chapter_id || scene.data.section) === outlineId)
+    .sort((a, b) => a.data.order - b.data.order)
+  const { timeline, location, pov, relatedCharacters } = await inferSceneBindings(root, outline)
+  const order = nextSceneOrder(chapterScenes)
+  const file = await createScene(
+    root,
+    `${outline.data.title} · 第${order + 1}节`,
+    {
+      chapter_id: outline.data.id,
+      section: outline.data.id,
+      order,
+      writing_focus: outline.data.chapter_goal || outline.data.chapter_change || '',
+      timeline_node: timeline ?? '',
+      location: location ?? '',
+      pov: pov ?? '',
+      characters: [...new Set([pov, ...relatedCharacters].filter(Boolean) as string[])],
+      target_words: Number(outline.data.target_words ?? 1000),
+      chapter_hook: Boolean(outline.data.chapter_hook),
+      previous_scene: chapterScenes.at(-1)?.data.id ?? null,
+      tags: [`chapter-${String(outline.data.order + 1).padStart(3, '0')}`]
+    },
+    ''
+  )
+  const parsed = await readMarkdown<Record<string, unknown>>(file)
+  return { path: file, data: parsed.data as unknown as SceneDoc, content: parsed.content }
+}
+
+async function inferSceneBindings(
+  root: string,
+  outline: { data: OutlineDoc },
+  existing?: { data: SceneDoc }
+): Promise<{
+  timeline?: string
+  location?: string
+  pov?: string
+  relatedCharacters: string[]
+}> {
+  const [timelineEvents, characters, locations, packet] = await Promise.all([
+    listDocs<TimelineEventDoc>(root, 'timeline_event'),
+    listDocs<CharacterDoc>(root, 'character'),
+    listDocs<LocationDoc>(root, 'location'),
+    assembleContextPacket(root, { type: 'outline', id: outline.data.id })
+  ])
+  const timeline = timelineIdsForOutline(outline.data, timelineEvents)[0] ?? existing?.data.timeline_node
+  const timelineEvent = timelineEvents.find((event) => event.data.id === timeline)
+  const location =
+    (timelineEvent?.data.location && resolveDocId(timelineEvent.data.location, locations)) ??
+    packet.locations[0]?.data.id ??
+    locations[0]?.data.id ??
+    existing?.data.location
+  const pov =
+    resolveFirstDocId(outline.data.related_characters, characters) ??
+    resolveFirstDocId(outline.data.povs, characters) ??
+    resolveFirstDocId(timelineEvent?.data.characters, characters) ??
+    packet.characters[0]?.data.id ??
+    characters[0]?.data.id ??
+    existing?.data.pov
+  const relatedCharacters = (outline.data.related_characters ?? [])
+    .map((value) => resolveDocId(value, characters))
+    .filter((value): value is string => Boolean(value))
+  return { timeline, location, pov, relatedCharacters }
+}
+
+function nextSceneOrder(scenes: Array<{ data: SceneDoc }>): number {
+  return scenes.reduce((maximum, scene) => Math.max(maximum, scene.data.order), -1) + 1
+}
+
+function isGeneratedPlaceholder(scene: { data: SceneDoc; content: string }): boolean {
+  const content = scene.content.trim()
+  return scene.data.status === 'draft' && !scene.data.accepted_at && (!content || content === '## Draft')
+}
+
+async function requireScene(root: string, sceneId: string) {
+  const scene = (await listDocs<SceneDoc>(root, 'scene')).find((item) => item.data.id === sceneId)
+  if (!scene) throw new Error(`Scene not found: ${sceneId}`)
+  return scene
+}
+
+function resolveFirstDocId<T extends { id: string; title: string }>(
+  values: string[] | undefined,
+  docs: Array<{ data: T }>
+): string | undefined {
+  for (const value of values ?? []) {
+    const id = resolveDocId(value, docs)
+    if (id) return id
+  }
+  return undefined
+}
+
+function resolveDocId<T extends { id: string; title: string }>(
+  value: string,
+  docs: Array<{ data: T }>
+): string | undefined {
+  return docs.find((doc) => doc.data.id === value || doc.data.title === value)?.data.id
 }

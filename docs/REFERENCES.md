@@ -5,6 +5,17 @@ used only to study abstract product and orchestration patterns. They are not run
 compatibility targets, or sources of copied code, comments, prompts, interface assets, or command
 syntax.
 
+## Implementation Status
+
+The entries below register independently designed **target abstractions**, not a claim that every
+mechanism is already implemented. As of `0.2.0-alpha.1` (2026-08-13), Quillarium has deterministic
+document selection, editable prompt-source cards, document-level context traces, immutable shared-
+guidance snapshots, and a single raw/accepted output per run. Tokenizer-aware `ContextPolicy`
+compilation, complete `PromptBlock`/`ContextTrace` artifacts, candidate branches, versioned
+`WritingPreset` snapshots, lifecycle events, scoped notes, rolling summaries, recipes, and a plugin
+system remain roadmap work. Current behavior is described in [DESIGN.md](DESIGN.md), and delivery
+status is tracked in the root [ROADMAP.md](../ROADMAP.md).
+
 ## SillyTavern Research Baseline
 
 - Source project: [SillyTavern](https://github.com/SillyTavern/SillyTavern)
@@ -23,7 +34,7 @@ form a stable reference.
   [`public/scripts/world-info.js`](https://github.com/SillyTavern/SillyTavern/blob/8172dcd0ee672d3cd9a5e5f7af134f91a45cd2b8/public/scripts/world-info.js)
 - Abstract mechanism studied: trigger-based selection, ordering, recursion controls, and a bounded
   context budget.
-- Quillarium design: deterministic `ContextPolicy` selection by writing scope, explicit pins,
+- Target Quillarium design: deterministic `ContextPolicy` selection by writing scope, explicit pins,
   keywords, document relationships, authority, and importance; cycle detection and hard recursion
   limits; model-aware token accounting; a complete `ContextTrace`.
 - Material difference: probability, sticky activation, and cooldown never select authoritative
@@ -37,7 +48,8 @@ form a stable reference.
   [`public/scripts/openai.js`](https://github.com/SillyTavern/SillyTavern/blob/8172dcd0ee672d3cd9a5e5f7af134f91a45cd2b8/public/scripts/openai.js)
 - Abstract mechanism studied: ordered prompt components with role information and explicit token
   budgeting.
-- Quillarium design: typed `PromptBlock` values record source, purpose, authority, priority, token
+- Target Quillarium design: typed `PromptBlock` values record source, purpose, authority, priority,
+  token
   count, truncation rule, content hash, and selection reason. A pre-generation preview exposes the
   exact compiled order and budget.
 - Material difference: blocks represent fiction-domain evidence and instructions, not a chat
@@ -51,7 +63,8 @@ form a stable reference.
   [`public/scripts/bookmarks.js`](https://github.com/SillyTavern/SillyTavern/blob/8172dcd0ee672d3cd9a5e5f7af134f91a45cd2b8/public/scripts/bookmarks.js)
 - Abstract mechanism studied: retaining alternatives, comparing them, selecting one, and creating a
   branch from a chosen alternative.
-- Quillarium design: runs record candidate group, parent run, branch, checks, and selection time;
+- Target Quillarium design: runs record candidate group, parent run, branch, checks, and selection
+  time;
   alternatives remain auditable and can seed a new fiction branch.
 - Material difference: selecting a candidate is not scene acceptance, chapter publication, or a
   continuity update. Candidate lineage belongs to the run model, not a sequence of chat records.
@@ -63,7 +76,7 @@ form a stable reference.
   [`public/scripts/preset-manager.js`](https://github.com/SillyTavern/SillyTavern/blob/8172dcd0ee672d3cd9a5e5f7af134f91a45cd2b8/public/scripts/preset-manager.js),
   [`public/scripts/extensions/connection-manager/index.js`](https://github.com/SillyTavern/SillyTavern/blob/8172dcd0ee672d3cd9a5e5f7af134f91a45cd2b8/public/scripts/extensions/connection-manager/index.js)
 - Abstract mechanism studied: reusable model connection settings and prompt presets.
-- Quillarium design: versioned `WritingPreset` values bind model configuration, prompt stack,
+- Target Quillarium design: versioned `WritingPreset` values bind model configuration, prompt stack,
   `ContextPolicy`, and check policy; every run records a sanitized snapshot or reproducible hash.
 - Material difference: credentials remain in machine-local configuration and are never serialized
   into a preset, workspace, project, or run.
@@ -74,7 +87,8 @@ form a stable reference.
 - Reference files:
   [`public/scripts/events.js`](https://github.com/SillyTavern/SillyTavern/blob/8172dcd0ee672d3cd9a5e5f7af134f91a45cd2b8/public/scripts/events.js)
 - Abstract mechanism studied: named events around completed lifecycle transitions.
-- Quillarium design: strongly typed domain events are published only after core service writes
+- Target Quillarium design: strongly typed domain events are published only after core service
+  writes
   succeed, including `context.assembled`, `candidate.selected`, `scene.accepted`, and
   `finalization.applied`.
 - Material difference: event names and payloads follow chapter and continuity semantics, and event
@@ -87,7 +101,8 @@ form a stable reference.
   [`public/scripts/extensions/memory/index.js`](https://github.com/SillyTavern/SillyTavern/blob/8172dcd0ee672d3cd9a5e5f7af134f91a45cd2b8/public/scripts/extensions/memory/index.js),
   [`public/scripts/world-info.js`](https://github.com/SillyTavern/SillyTavern/blob/8172dcd0ee672d3cd9a5e5f7af134f91a45cd2b8/public/scripts/world-info.js)
 - Abstract mechanism studied: injecting scoped authorial guidance and summarized prior context.
-- Quillarium design: writing notes have an explicit fiction scope and optional expiry; rolling
+- Target Quillarium design: writing notes have an explicit fiction scope and optional expiry;
+  rolling
   summaries are derived, rebuildable, and cite their source chapters.
 - Material difference: a summary is never a substitute for accepted prose, and notes cannot override
   hard project facts.
@@ -99,7 +114,8 @@ form a stable reference.
   [`public/scripts/extensions/quick-reply/index.js`](https://github.com/SillyTavern/SillyTavern/blob/8172dcd0ee672d3cd9a5e5f7af134f91a45cd2b8/public/scripts/extensions/quick-reply/index.js),
   [`public/scripts/extensions/quick-reply/src/QuickReply.js`](https://github.com/SillyTavern/SillyTavern/blob/8172dcd0ee672d3cd9a5e5f7af134f91a45cd2b8/public/scripts/extensions/quick-reply/src/QuickReply.js)
 - Abstract mechanism studied: composing repeatable actions into a user-triggered workflow.
-- Quillarium design: a future declarative chapter recipe can assemble context, generate several
+- Target Quillarium design: a future declarative chapter recipe can assemble context, generate
+  several
   candidates, check, compare, accept, and finalize through typed product commands.
 - Material difference: no general command language or arbitrary script execution is planned. Recipes
   can invoke only permission-checked Quillarium operations.
@@ -111,7 +127,8 @@ form a stable reference.
   [`public/scripts/extensions.js`](https://github.com/SillyTavern/SillyTavern/blob/8172dcd0ee672d3cd9a5e5f7af134f91a45cd2b8/public/scripts/extensions.js)
 - Abstract mechanism studied: extension discovery, manifests, version requirements, and dependency
   declarations.
-- Quillarium design: if a plugin system is later justified, manifests will declare versions and
+- Target Quillarium design: if a plugin system is later justified, manifests will declare versions
+  and
   capabilities, while isolated execution requires explicit file, network, and AI permissions.
 - Material difference: plugins are deferred until the chapter lifecycle is stable; arbitrary
   JavaScript installation and implicit privileges are explicitly excluded.

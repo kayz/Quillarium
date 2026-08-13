@@ -10,7 +10,7 @@ The package has one programmatic export:
 ```ts
 import { buildProgram } from '@quillarium/cli'
 
-const projectRoot = './local-vaults/novels/My Novel'
+const projectRoot = './writing-workspace/projects/my-novel'
 const program = buildProgram()
 await program.parseAsync(['node', 'quill', 'canon', 'list', '--project', projectRoot])
 ```
@@ -24,6 +24,12 @@ runs, finalization, manuscript export, and SillyTavern interchange. See the
 pnpm cli --help
 pnpm cli <command> --help
 ```
+
+The desktop is the primary surface for the current seven-level hierarchy and timeline coordinates.
+The CLI keeps `scene create --section` as a compatibility flag name; its value is the owning chapter
+ID and core writes the current `chapter_id` field as well as the readable legacy alias.
+The `strategy` and `pattern` groups likewise remain compatibility surfaces; the current desktop
+creates unified `narrative` cards for new guidance.
 
 ## Boundaries and Tests
 

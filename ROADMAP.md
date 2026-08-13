@@ -25,21 +25,63 @@ tests.
 
 ## Completed Gate: Desktop Planning Baseline
 
-Completed on 2026-08-12 for the `0.2.0-alpha.2` milestone.
+Completed on 2026-08-12 on the `0.2.0-alpha.1` adjustment line.
 
 - Reduce the welcome surface to GitHub writing-library registration and direct project selection;
   keep legacy layout support in compatibility services rather than the primary onboarding UI.
 - Move theme, density, and language into settings, with independent save actions for display,
   GitHub, prose AI, background AI, and check AI configuration.
 - Replace blank planning-record creation with a background-AI conversation, schema-validated
-  editable proposal, and explicit atomic confirmation for nine planning document families.
+  editable proposal, and explicit atomic confirmation for ten planning document families.
 - Provide safe Markdown source/preview switching and reversible editing for nested or unknown
   frontmatter without executing raw HTML.
-- Keep Canon, outline, scene, accepted prose, and existing documents outside the AI creation flow.
+- Keep Canon, outline, scene, and accepted prose outside the AI planning flow; existing planning cards
+  require a separate explicit in-place edit action.
 
 ## Current Focus: P0 Explainable Chapter Production
 
+### Completed foundation: planning-card workbench
+
+Implemented in the 2026-08-13 `0.2.0-alpha.1` code baseline.
+
+- Treat planning records as typed cards with enablement, source-material references, and validated
+  card-to-card relations; keep reference bodies outside generation context.
+- Provide a linked time chain with concurrent events, a six-scale spatial explorer, and a draggable
+  time-filtered character relationship graph. Relationship phase cards carry start/end timeline
+  nodes; only the active phase is drawn, with its name on the edge and an arrow for directed links.
+- Activate world knowledge by keywords and explicit links, and evaluate foreshadowing reminder
+  conditions for the current writing scope.
+- Merge new style and pattern guidance into enabled narrative cards while retaining legacy readers.
+- Split scene prompts into independently removable source cards for Canon, outline, time, place,
+  people, world knowledge, foreshadowing, narrative rules, and accepted/final prose.
+- Run project AI checks only on explicit author action; skip disabled cards and source material, and
+  persist deduplicated findings as issue cards linked to repairable project records.
+- Keep every structured field localized with an explanation and preserve a restrained, resizable
+  editorial layout whose flexible space belongs to prose, diagrams, and relationship views.
+- Preserve document origin for AI conversations and file/AI imports, restore a prior conversation
+  when possible, and allow a file-derived card to locate and re-read its source for one-card
+  re-import without replacing unrelated cards.
+
+### Completed foundation: seven-level story lifecycle
+
+Implemented in the 2026-08-13 `0.2.0-alpha.1` code baseline.
+
+- Separate story overview from the book outline; use volume → part → optional act → chapter → scene.
+- Keep legacy `arc`/scene `section` readable without silent file rewrites.
+- Store authoritative chapter prose independently with draft/final/published state enforcement.
+- Generate and accept one ordered scene at a time; validate AI output as plain prose.
+- Compose prompts from removable source cards and include current-chapter continuation plus finalized
+  prose from the current part or act.
+- Require double confirmation for publication, then preserve scene outlines while deleting prompt
+  and AI run artifacts.
+- Provide large serif editors, character counts, and resizable prompt/prose panes.
+
 ### Context compiler
+
+Current code already assembles a deterministic `ContextPacket`, records document-level inclusion
+trace entries, respects pins/exclusions and enabled state, activates linked or keyword-matching
+cards, reports conflicts, and snapshots shared guidance into each generation run. It still uses
+fixed per-category document limits rather than a model tokenizer.
 
 Implement `ContextPolicy`, typed `PromptBlock` values, and `ContextTrace` using the deterministic
 pipeline defined in
@@ -55,12 +97,18 @@ inclusion reason. Bound recursive expansion and make compilation reproducible.
 
 ### Multiple candidates and branches
 
+The current run schema records one target and one raw/accepted output. The following fields and
+branch operations are not implemented yet:
+
 - Generate several candidates in one group and compare them side by side.
 - Record `candidate_group_id`, `parent_run_id`, `branch_id`, and `selected_at`.
 - Preserve unselected candidates and allow a candidate to seed a new branch.
 - Keep candidate selection distinct from scene acceptance, chapter finalization, and publication.
 
 ### Versioned writing presets
+
+Desktop AI profiles currently separate prose, background, and check responsibilities and keep
+credentials machine-local. A reusable, versioned project writing preset is still future work.
 
 Create `WritingPreset` as a versioned combination of model configuration, prompt stack, context
 policy, and check policy. Store a sanitized snapshot or reproducible hash in every run; credentials

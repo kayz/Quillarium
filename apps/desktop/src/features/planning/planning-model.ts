@@ -2,15 +2,22 @@ import type { ModuleName, OutlineHomeSection, PlanningDocumentKind, VolumeSectio
 
 export const PLANNING_KIND_LABELS: Record<PlanningDocumentKind, { zh: string; en: string }> = {
   character: { zh: '人物', en: 'Character' },
+  character_relation: { zh: '人物关系', en: 'Character relationship' },
   world_entry: { zh: '世界书', en: 'World entry' },
+  timeline_node: { zh: '时间节点', en: 'Timeline node' },
   timeline_event: { zh: '时间线', en: 'Timeline event' },
   location: { zh: '地点', en: 'Location' },
   foreshadowing: { zh: '伏笔', en: 'Foreshadowing' },
-  strategy: { zh: '策略 / 文风', en: 'Strategy / style' },
-  pattern: { zh: '模式', en: 'Pattern' },
+  strategy: { zh: '旧策略（兼容）', en: 'Legacy strategy' },
+  pattern: { zh: '旧模式（兼容）', en: 'Legacy pattern' },
+  narrative: { zh: '叙事', en: 'Narrative' },
   issue: { zh: '问题', en: 'Issue' },
   reference: { zh: '参考', en: 'Reference' }
 }
+
+export const CREATABLE_PLANNING_KINDS: PlanningDocumentKind[] = (
+  Object.keys(PLANNING_KIND_LABELS) as PlanningDocumentKind[]
+).filter((kind) => kind !== 'strategy' && kind !== 'pattern')
 
 export function planningKindForContext(
   context: ModuleName | OutlineHomeSection | VolumeSection
@@ -21,9 +28,7 @@ export function planningKindForContext(
     timeline: 'timeline_event',
     locations: 'location',
     foreshadowing: 'foreshadowing',
-    strategy: 'strategy',
-    style: 'strategy',
-    patterns: 'pattern',
+    narrative: 'narrative',
     issues: 'issue',
     references: 'reference'
   }

@@ -421,7 +421,8 @@ export async function createGenerationRun(
   context: string,
   config: AIConfig,
   metadata: Partial<RunMetadata> = {},
-  sharedGuidance: SharedGuidanceContent[] = []
+  sharedGuidance: SharedGuidanceContent[] = [],
+  promptOverride?: string
 ): Promise<RunMetadata> {
   const run = await createRun(projectRoot, sceneId, {
     ...metadata,
@@ -429,7 +430,7 @@ export async function createGenerationRun(
     model: config.model,
     status: 'created'
   })
-  const prompt = buildSectionPrompt(context)
+  const prompt = promptOverride?.trim() ? promptOverride : buildSectionPrompt(context)
   await writeRunFile(projectRoot, run, 'context.md', context)
   await writeRunFile(projectRoot, run, 'prompt.md', prompt)
   await snapshotSharedGuidance(projectRoot, run, sharedGuidance)
@@ -441,10 +442,12 @@ export async function generateIntoRun(
   run: RunMetadata,
   context: string,
   config: AIConfig,
-  options: AIRequestOptions = {}
+  options: AIRequestOptions = {},
+  promptOverride?: string,
+  outputTransform: (output: string) => string = (output) => output
 ): Promise<string> {
-  const prompt = buildSectionPrompt(context)
-  const output = await generateText(prompt, config, undefined, options)
+  const prompt = promptOverride?.trim() ? promptOverride : buildSectionPrompt(context)
+  const output = outputTransform(await generateText(prompt, config, undefined, options))
   const next = { ...run, status: 'generated' as const }
   await writeRunFile(projectRoot, next, 'prompt.md', prompt)
   await writeRunFile(projectRoot, next, 'output-raw.md', output)
