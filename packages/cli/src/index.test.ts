@@ -609,7 +609,39 @@ describe('CLI smoke flow', () => {
     expect(context).toContain(seeded.sceneId)
   })
 
+  it('previews the exact PromptBlocks and ContextTrace without calling the provider', async () => {
+    vi.stubEnv('QUILL_AI_PROVIDER', 'deepseek')
+    vi.stubEnv('QUILL_AI_MODEL', 'deepseek-v4-flash')
+    const { root } = await initProject()
+    const seeded = await seedScene(root)
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    output = []
+
+    await run('context', seeded.sceneId, '--trace', '--project', root)
+
+    const preview = JSON.parse(output.join('\n')) as {
+      markdown: string
+      prompt_blocks: Array<{ id: string; tokenizer_id: string; token_count: number }>
+      context_trace: {
+        tokenizer: { id: string; exact: boolean }
+        budget: { selected_tokens: number; available_input_tokens: number }
+        final_block_ids: string[]
+      }
+    }
+    expect(preview.markdown).toContain(seeded.sceneId)
+    expect(preview.prompt_blocks.map((block) => block.id)).toEqual(preview.context_trace.final_block_ids)
+    expect(preview.prompt_blocks.every((block) => block.tokenizer_id === 'deepseek-v4')).toBe(true)
+    expect(preview.context_trace.tokenizer).toMatchObject({ id: 'deepseek-v4', exact: true })
+    expect(preview.context_trace.budget.selected_tokens).toBeLessThanOrEqual(
+      preview.context_trace.budget.available_input_tokens
+    )
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
   it('creates a run from context and writes a deterministic check report into it', async () => {
+    vi.stubEnv('QUILL_AI_PROVIDER', 'deepseek')
+    vi.stubEnv('QUILL_AI_MODEL', 'deepseek-v4-flash')
     const { root } = await initProject()
     const seeded = await seedScene(root)
     output = []
@@ -623,6 +655,20 @@ describe('CLI smoke flow', () => {
     expect(output.join('\n')).toContain(`# Check Report: ${seeded.sceneId}`)
     expect(await readRunFile(root, runId!, 'context.md')).toContain(seeded.sceneId)
     expect(await readRunFile(root, runId!, 'check-report.md')).toContain('## AI-Assisted Checks')
+    const blocks = JSON.parse(await readRunFile(root, runId!, 'prompt-blocks.json')) as {
+      blocks: Array<{ id: string }>
+    }
+    const trace = JSON.parse(await readRunFile(root, runId!, 'context-trace.json')) as {
+      tokenizer: { id: string; exact: boolean }
+      final_block_ids: string[]
+    }
+    expect(blocks.blocks.map((block) => block.id)).toEqual(trace.final_block_ids)
+    expect(trace.tokenizer).toMatchObject({ id: 'deepseek-v4', exact: true })
+    expect(await listRuns(root)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: runId, provider: 'deepseek', model: 'deepseek-v4-flash' })
+      ])
+    )
   })
 
   it('keeps check deterministic by default and never calls AI', async () => {

@@ -189,12 +189,15 @@ describe('shared guidance integration', () => {
       path: 'methodology/chapter-method.md',
       scope: 'chapter'
     })
-    expect(packet.context_trace).toEqual(
+    expect(packet.context_trace.entries).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ source_id: 'canon-point-of-view', priority: 400 }),
-        expect.objectContaining({ source_id: 'strategy-narration', priority: 300 }),
+        expect.objectContaining({ source_id: 'canon-point-of-view', authority_rank: 500 }),
+        expect.objectContaining({ source_id: 'strategy-narration', authority_rank: 350 }),
         expect.objectContaining({ source_id: 'chapter-method', priority: 100 })
       ])
+    )
+    expect(packet.context_trace.budget.used_tokens).toBeLessThanOrEqual(
+      packet.context_trace.policy.token_budget
     )
     expect(packet.warnings).toContain(
       '共享指导 chapter-method 与项目事实或策略存在冲突；已保留项目内容，未自动覆盖。'

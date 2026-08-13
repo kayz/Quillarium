@@ -118,6 +118,30 @@ describe('AIWritingWorkspace', () => {
       world_entries: [],
       foreshadowing: [],
       issues: [],
+      prompt_blocks: [],
+      context_trace: {
+        tokenizer: { id: 'deepseek-v4', provider: 'deepseek', model: 'deepseek-v4-flash', exact: true },
+        policy: { token_budget: 24000, max_candidates: 256, max_recursion_depth: 2 },
+        budget: {
+          total_token_budget: 24000,
+          reserved_output_tokens: 2000,
+          framing_tokens: 64,
+          available_input_tokens: 21936,
+          selected_tokens: 128,
+          unused_input_tokens: 21808,
+          token_budget: 21936,
+          used_tokens: 128,
+          remaining_tokens: 21808
+        },
+        candidates: {
+          discovered: 3,
+          eligible: 3,
+          limit: 256,
+          max_recursion_depth: 2,
+          reached_recursion_depth: 0
+        },
+        entries: []
+      },
       warnings: [],
       included_ids: ['event-opening', 'location-opening', 'character-opening'],
       excluded_ids: []

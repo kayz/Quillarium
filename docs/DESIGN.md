@@ -10,15 +10,16 @@ its design, but they are neither runtime dependencies nor parallel sources of pr
 As of 2026-08-13, the work-neutral workspace foundation and the first planning-card workbench are
 implemented. The workbench includes typed relations and material provenance, a linked timeline,
 spatial and time-aware character views, keyword-triggered world knowledge, foreshadowing reminders,
-manual AI checks that persist issue cards, and card-by-card prompt composition. The next phase in the
-root [ROADMAP](../ROADMAP.md) completes real token budgeting, multiple candidates, branches, and
-versioned presets.
+manual AI checks that persist issue cards, card-by-card prompt composition, and an explainable
+model-budgeted Context compiler. The next phase in the root [ROADMAP](../ROADMAP.md) adds multiple
+candidates, branches, and versioned presets.
 
-The implemented context layer currently returns one deterministic `ContextPacket` with selected
-documents, warnings, shared guidance, included/excluded IDs, and a document-level trace. Selection
-uses explicit links, pins and exclusions, outline ancestry, enabled state, keyword matching, and
-fixed per-category limits. It does not yet implement tokenizer-aware budgets, general recursive
-activation, candidate lineage, a versioned `WritingPreset`, or a persisted `context-trace.json`.
+The implemented context layer returns one deterministic `ContextPacket` with selected documents,
+warnings, shared guidance, typed `PromptBlock` values, and a complete `ContextTrace`. Selection uses
+explicit links, pins and exclusions, outline ancestry, enabled state, keyword matching, and
+cycle-safe bounded relationship expansion. Exact model tokenizers allocate a real input budget after
+framing and output reservations. Candidate lineage and a versioned `WritingPreset` remain future
+contracts.
 
 The desktop planning baseline also uses a deliberately small surface: the unselected-project screen
 has one active library-management entry, while display, GitHub, and the three AI profiles live in
@@ -237,12 +238,14 @@ prompt.md
 output-raw.md
 output-accepted.md
 check-report.md
+prompt-blocks.json
+context-trace.json
 ```
 
-`shared-guidance.md` and `shared-guidance.json` are added when workspace guidance is present and
-snapshotted. Candidate groups, parent runs, branches, selection timestamps, persisted context traces,
-and preset snapshots are target fields described in the roadmap; they are not part of the current
-`RunMetadata` contract.
+`prompt-blocks.json` and `context-trace.json` are immutable portable snapshots of the exact compiler
+result used by generation. `shared-guidance.md` and `shared-guidance.json` snapshot the guidance read
+for the run. Candidate groups, parent runs, branches, selection timestamps, and preset snapshots are
+target fields described in the roadmap; they are not part of the current `RunMetadata` contract.
 
 ### Prompts and Writing Presets
 
@@ -258,35 +261,28 @@ not be confused with that future project-level preset.
 
 ## Explainable Context Compiler
 
-Current context assembly is deterministic at document-selection level:
+Current context assembly is a deterministic compiler:
 
 ```text
-writing target -> outline ancestry and explicit links -> enabled cards
-               -> keyword/relationship selection -> fixed category caps
-               -> warnings + document-level trace -> rendered context
+writing scope -> enumerate candidates -> triggers and bounded relationships
+              -> authority and stable priority ordering
+              -> exact model token budget -> deterministic truncation
+              -> PromptBlocks + ContextTrace -> rendered context
 ```
 
-It records why high-authority blocks such as Canon, outlines, and shared guidance were included or
-excluded, and it snapshots the shared guidance actually used by a generation run. Its caps count
-documents, not model tokens; it does not yet provide a complete trace entry for every candidate.
+Compiler inputs combine the writing scope, explicit pins/exclusions, eligible relationships, and a
+`ContextPolicy` containing recursion, candidate, per-block, and total token limits. `PromptBlock`
+records a block's type, role, source, authority, priority, token count, truncation strategy, and
+inclusion reason. `ContextTrace` explains every candidate's outcome and the final budget calculation.
+Recursive expansion is cycle-safe and bounded by both depth and candidate count. Accepted prose and
+hard Canon cannot silently lose to project or workspace advice; if mandatory facts cannot fit,
+compilation returns an actionable error.
 
-The target compiler pipeline is:
-
-```text
-writing scope
-  -> candidate documents
-  -> trigger and relationship expansion
-  -> authority and priority ordering
-  -> model-aware token budgeting
-  -> deterministic truncation
-  -> ContextTrace
-```
-
-`ContextPolicy` defines scope, explicit pins, eligible relationships, recursion limits, token budget,
-and truncation rules. `PromptBlock` records a block's type, role, source, authority, priority, token
-count, truncation strategy, and inclusion reason. `ContextTrace` explains every candidate's outcome
-and the final budget calculation. Recursive expansion will be cycle-safe and bounded. These three
-contracts describe the next P0 compiler, not the full shape of the current packet.
+DeepSeek V4, OpenAI `o200k`, and OpenAI `cl100k` model families use packaged exact vocabularies.
+Unsupported model/tokenizer combinations fail closed for generation rather than claiming an
+estimate is exact. Desktop context inspection and CLI `context --trace` expose the same compiled
+blocks and trace. Every generation run snapshots them as `prompt-blocks.json` and
+`context-trace.json`.
 
 Probability, sticky state, and cooldown do not decide which authoritative facts enter context. Given
 the same project snapshot, policy, model tokenizer, and writing scope, compilation produces the same

@@ -4,7 +4,7 @@ import { readdir, rename, rm, writeFile } from 'node:fs/promises'
 import { ensureDir, pathExists, readText, writeText } from './fs.js'
 import { timestampId } from './ids.js'
 import { objectToYaml, parseMarkdown } from './yaml.js'
-import type { RunMetadata, SharedGuidanceContent } from './types.js'
+import type { ContextTrace, PromptBlock, RunMetadata, SharedGuidanceContent } from './types.js'
 
 export function requireNonEmptyRunOutput(content: string, runId: string): string {
   if (!content.trim()) throw new Error(`Run output is empty; refusing to overwrite a scene: ${runId}`)
@@ -116,6 +116,29 @@ export async function snapshotSharedGuidance(
   return { markdown_path: markdownPath, metadata_path: metadataPath }
 }
 
+export async function snapshotContextCompilation(
+  projectRoot: string,
+  metadata: RunMetadata,
+  blocks: PromptBlock[],
+  trace: ContextTrace
+): Promise<{ blocks_path: string; trace_path: string }> {
+  const runDir = path.resolve(projectRoot, metadata.run_dir)
+  assertRunDirectory(projectRoot, runDir)
+  const blocksPath = path.join(runDir, 'prompt-blocks.json')
+  const tracePath = path.join(runDir, 'context-trace.json')
+  if ((await pathExists(blocksPath)) || (await pathExists(tracePath))) {
+    throw new Error(`Context compilation snapshot already exists and is immutable: ${metadata.id}`)
+  }
+  assertPortableCompilationSnapshot(blocks, trace)
+  await writeImmutablePair(
+    blocksPath,
+    `${JSON.stringify({ schema_version: 1, blocks }, null, 2)}\n`,
+    tracePath,
+    `${JSON.stringify(trace, null, 2)}\n`
+  )
+  return { blocks_path: blocksPath, trace_path: tracePath }
+}
+
 export async function listRuns(projectRoot: string): Promise<RunMetadata[]> {
   const runsRoot = path.join(projectRoot, 'runs')
   if (!(await pathExists(runsRoot))) return []
@@ -178,4 +201,44 @@ function renderSharedGuidanceSnapshot(guidance: SharedGuidanceContent[]): string
       `## ${item.id}\n\npath: ${item.path}\nscope: ${item.scope}\nsha256: ${item.sha256}\nread_at: ${item.read_at}\n\n${item.content.trimEnd()}`
   )
   return `# Shared Guidance Snapshot\n\n${sections.join('\n\n')}\n`
+}
+
+async function writeImmutablePair(
+  firstPath: string,
+  firstContent: string,
+  secondPath: string,
+  secondContent: string
+): Promise<void> {
+  const nonce = randomUUID()
+  const firstTemporary = `${firstPath}.${nonce}.tmp`
+  const secondTemporary = `${secondPath}.${nonce}.tmp`
+  await writeFile(firstTemporary, firstContent, { encoding: 'utf8', flag: 'wx' })
+  try {
+    await writeFile(secondTemporary, secondContent, { encoding: 'utf8', flag: 'wx' })
+    await rename(firstTemporary, firstPath)
+    try {
+      await rename(secondTemporary, secondPath)
+    } catch (error) {
+      await rm(firstPath, { force: true })
+      throw error
+    }
+  } catch (error) {
+    await Promise.all([rm(firstTemporary, { force: true }), rm(secondTemporary, { force: true })])
+    throw error
+  }
+}
+
+function assertPortableCompilationSnapshot(blocks: PromptBlock[], trace: ContextTrace): void {
+  const paths = [
+    ...blocks.flatMap((block) => (block.source.path ? [block.source.path] : [])),
+    ...trace.entries.flatMap((entry) => (entry.source_path ? [entry.source_path] : []))
+  ]
+  for (const sourcePath of paths) {
+    if (path.isAbsolute(sourcePath) || path.win32.isAbsolute(sourcePath)) {
+      throw new Error(`Context compilation snapshots cannot contain absolute paths: ${sourcePath}`)
+    }
+    if (sourcePath.replace(/\\/gu, '/').split('/').includes('..')) {
+      throw new Error(`Context compilation snapshots cannot contain path traversal: ${sourcePath}`)
+    }
+  }
 }

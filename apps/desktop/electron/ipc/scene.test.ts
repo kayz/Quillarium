@@ -2,22 +2,25 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mkdtemp, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import type { AIConfig, AIRequestOptions } from '@quillarium/ai'
+import { contextCompileOptions, type AIConfig, type AIRequestOptions } from '@quillarium/ai'
 import { SEMANTIC_CHECK_TIMEOUT_MS, type CheckReport, type SemanticAIInvoke } from '@quillarium/checks'
 import {
   appendTimelineEvent,
+  assembleContextPacket,
   createCharacter,
   createLocation,
   createOutline,
   createProjectAt,
   createScene,
   listDocs,
+  renderContextPacket,
   type SceneDoc
 } from '@quillarium/core'
 
 vi.mock('electron', () => ({ ipcMain: { handle: vi.fn() } }))
 
 import {
+  createDesktopContextPreview,
   createSemanticCheckReport,
   ensureSceneForOutline,
   prepareSceneForOutline,
@@ -151,6 +154,39 @@ describe('desktop semantic check handler helper', () => {
       content_sha256: 'edited-content-hash',
       checked_characters: 18,
       semantic_status: 'completed'
+    })
+  })
+})
+
+describe('desktop context preview', () => {
+  it('returns the exact PromptBlocks and ContextTrace produced for the selected model', async () => {
+    const root = await projectFixture()
+    const previewConfig: AIConfig = {
+      ...configuredAI,
+      model: 'gpt-4o-mini'
+    }
+    const loadAIProfile = vi.fn(async () => previewConfig)
+
+    const preview = await createDesktopContextPreview(
+      root,
+      { type: 'outline', id: 'book-main' },
+      { loadAIProfile }
+    )
+    const direct = await assembleContextPacket(
+      root,
+      { type: 'outline', id: 'book-main' },
+      contextCompileOptions(previewConfig)
+    )
+
+    expect(loadAIProfile).toHaveBeenCalledOnce()
+    expect(preview.packet.prompt_blocks).toEqual(direct.prompt_blocks)
+    expect(preview.packet.context_trace).toEqual(direct.context_trace)
+    expect(preview.markdown).toBe(renderContextPacket(direct))
+    expect(preview.packet.context_trace.tokenizer).toMatchObject({
+      id: 'o200k',
+      provider: 'openai',
+      model: 'gpt-4o-mini',
+      exact: true
     })
   })
 })

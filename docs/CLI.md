@@ -100,8 +100,17 @@ Print the assembled scene context:
 pnpm cli context scene-opening-scene --project "./writing-workspace/projects/my-novel"
 ```
 
-Use `--run` to create a run directory and save `context.md`. A generation dry run creates the run,
-`context.md`, and `prompt.md` without calling a model:
+Use `--trace` to print one JSON object containing the rendered Markdown, exact `PromptBlock` values,
+and complete `ContextTrace` for the currently configured model. This is read-only and does not call
+the provider:
+
+```bash
+pnpm cli context scene-opening-scene --trace --project "./writing-workspace/projects/my-novel"
+```
+
+Use `--run` to create a run directory and save `context.md`, `prompt-blocks.json`, and
+`context-trace.json`. A generation dry run creates the run and immutable compiler snapshots plus
+`prompt.md` without calling a model:
 
 ```bash
 pnpm cli generate scene-opening-scene --project "./writing-workspace/projects/my-novel" --dry-run

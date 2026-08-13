@@ -5,12 +5,12 @@
 - Decision owners: Quillarium maintainers
 - Related research: [Design References](../REFERENCES.md)
 
-Implementation status as of 2026-08-13: partial. The runtime has deterministic document selection,
-typed prompt-source cards for chapter writing, pins/exclusions, keyword and relationship activation,
-authority warnings, a document-level packet trace, and immutable shared-guidance snapshots. It still
-uses fixed per-category document caps. The `ContextPolicy`, tokenizer-aware budget, complete
-candidate trace, recursive traversal limits, versioned preset, and persisted `context-trace.json`
-described below remain the accepted target rather than current API guarantees.
+Implementation status as of 2026-08-13: the Context compiler decision is implemented. The runtime
+enumerates candidates without per-category count slicing, performs deterministic pin, keyword, link,
+and typed-relation activation, bounds recursive traversal by depth and candidate count, and compiles
+typed `PromptBlock` values under an exact model token budget. It emits a complete `ContextTrace` and
+stores immutable `prompt-blocks.json`, `context-trace.json`, and shared-guidance snapshots in runs.
+The versioned `WritingPreset` and its snapshot identity are separate follow-up work.
 
 ## Context
 
@@ -48,16 +48,12 @@ The input snapshot includes the active workspace and project revision, target hi
 
 ### `ContextPolicy`
 
-The policy declares:
-
-- eligible fiction scopes and document types;
-- explicit pins and reserved mandatory blocks;
-- deterministic keyword, frontmatter-link, outline-parent, timeline, character, location, and
-  foreshadowing relationships;
-- authority tiers and stable tie-breaking order;
-- per-kind and total token budgets;
-- maximum relationship depth, maximum expanded candidates, and cycle handling; and
-- block-specific truncation or exclusion behavior.
+The first policy schema declares the total input/output budget boundary, maximum per-block tokens,
+minimum useful truncation size, maximum candidates, and maximum recursive depth. Candidate assembly
+supplies eligible fiction scopes and document types, explicit pins/exclusions, reserved mandatory
+blocks, deterministic relationship rules, authority tiers, stable tie-breaking order, and
+block-specific truncation behavior. A later schema may add optional per-kind quotas without changing
+the non-configurable authority order.
 
 Expansion tracks visited document IDs, rejects cycles, and stops at both the configured depth and
 candidate-count limits. A relationship discovered through generated text does not recursively expand
@@ -97,9 +93,9 @@ prompt composition before generation.
 ### Real token budget
 
 Budgeting uses the tokenizer associated with the selected provider/model, including prompt framing
-overhead and reserved output tokens. A counter with a different tokenizer identity cannot silently
-claim exactness. If exact counting is unavailable, compilation must fail closed for generation or use
-a named conservative fallback that is visibly marked in the trace and requires policy approval.
+overhead and reserved output tokens. Packaged exact vocabularies currently cover DeepSeek V4 and the
+OpenAI `o200k`/`cl100k` model families. A counter with a different tokenizer identity cannot silently
+claim exactness. If exact counting is unavailable, compilation fails closed for generation.
 
 Mandatory high-authority blocks reserve budget first. Optional blocks are admitted in stable order.
 Truncation is document-type-specific, records the original and retained token counts, and never cuts
@@ -110,11 +106,12 @@ compilation returns an actionable error rather than dropping facts invisibly.
 
 The trace records:
 
-- compiler, policy, preset, tokenizer, workspace, and project snapshot identifiers;
+- compiler, policy, target, and exact tokenizer identifiers;
 - total, reserved-output, framing, available-input, selected, and unused tokens;
 - every candidate and its trigger or relationship chain;
 - authority, priority, and stable tie-break values;
-- selected, truncated, excluded, conflict, or error outcome with reason; and
+- selected, truncated, or excluded outcome with reason; conflicts remain explicit warning blocks,
+  while mandatory-budget and unsupported-tokenizer failures are actionable compiler errors; and
 - the final ordered `PromptBlock` IDs and hashes.
 
 A run stores the trace and rendered context. Shared guidance is read once per generation and saved as
@@ -125,7 +122,8 @@ edits do not alter an existing run.
 
 Probability, sticky activation, cooldown, wall-clock order, and unordered filesystem iteration are
 not context-selection inputs. Stable IDs break equal-priority ties. Given the same content snapshot,
-scope, policy, preset, and tokenizer, compilation produces the same blocks, hashes, and trace.
+scope, policy, and tokenizer, compilation produces the same blocks, hashes, and trace. A future
+`WritingPreset` snapshot becomes an additional deterministic input.
 
 ## Rejected Alternatives
 
@@ -134,8 +132,8 @@ scope, policy, preset, and tokenizer, compilation produces the same blocks, hash
 - **Random or stateful activation for authoritative records:** rejected because identical inputs could
   omit different facts and make runs irreproducible.
 - **Fixed document counts or character limits as the final design:** rejected because they do not
-  represent provider context capacity and hide truncation tradeoffs. Fixed caps remain a transitional
-  safeguard until the accepted compiler is complete.
+  represent provider context capacity and hide truncation tradeoffs. The implementation enumerates
+  all activated document types before applying the policy's global candidate and token limits.
 - **Unbounded recursive retrieval:** rejected because it can explode context, loop through links, and
   obscure the source of a selected claim.
 - **Shared guidance overwriting project files:** rejected because reusable methods are advisory and

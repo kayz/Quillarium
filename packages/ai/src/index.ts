@@ -1,9 +1,13 @@
 import {
   createRun,
   loadConfig,
+  snapshotContextCompilation,
   snapshotSharedGuidance,
   writeRunFile,
   writeRunMetadata,
+  type ContextTrace,
+  type ContextCompileOptions,
+  type PromptBlock,
   type RunMetadata,
   type SharedGuidanceContent
 } from '@quillarium/core'
@@ -28,6 +32,11 @@ export interface AIRequestOptions {
   responseFormat?: 'json_object'
   /** DeepSeek thinking mode. Defaults to disabled and is ignored for other providers. */
   thinkingMode?: 'enabled' | 'disabled'
+}
+
+export interface GenerationContextCompilationSnapshot {
+  prompt_blocks: PromptBlock[]
+  context_trace: ContextTrace
 }
 
 export type AIKeyDecryptor = (encrypted: string) => string | Promise<string>
@@ -57,6 +66,7 @@ export class AIRequestError extends Error {
 
 export const DEFAULT_AI_TIMEOUT_MS = 120_000
 export const DEFAULT_AI_MAX_RETRIES = 1
+export const DEFAULT_AI_SYSTEM_PROMPT = 'You are Quillarium, a continuity-aware fiction writing assistant.'
 
 const DEFAULT_RETRY_DELAY_MS = 250
 const MAX_RETRIES = 3
@@ -164,10 +174,24 @@ export function buildSectionPrompt(context: string): string {
   ].join('\n')
 }
 
+export function contextCompileOptions(config: AIConfig): ContextCompileOptions {
+  return {
+    model: { provider: config.provider, model: config.model },
+    reserved_output_tokens: config.maxTokens,
+    framing_text: [
+      '<|system|>',
+      DEFAULT_AI_SYSTEM_PROMPT,
+      '<|user|>',
+      buildSectionPrompt(''),
+      '<|assistant|>'
+    ].join('\n')
+  }
+}
+
 export async function generateText(
   prompt: string,
   config: AIConfig,
-  systemPrompt = 'You are Quillarium, a continuity-aware fiction writing assistant.',
+  systemPrompt = DEFAULT_AI_SYSTEM_PROMPT,
   options: AIRequestOptions = {}
 ): Promise<string> {
   if (!config.apiKey && !config.baseUrl.includes('localhost')) {
@@ -422,7 +446,8 @@ export async function createGenerationRun(
   config: AIConfig,
   metadata: Partial<RunMetadata> = {},
   sharedGuidance: SharedGuidanceContent[] = [],
-  promptOverride?: string
+  promptOverride?: string,
+  compilation?: GenerationContextCompilationSnapshot
 ): Promise<RunMetadata> {
   const run = await createRun(projectRoot, sceneId, {
     ...metadata,
@@ -434,6 +459,9 @@ export async function createGenerationRun(
   await writeRunFile(projectRoot, run, 'context.md', context)
   await writeRunFile(projectRoot, run, 'prompt.md', prompt)
   await snapshotSharedGuidance(projectRoot, run, sharedGuidance)
+  if (compilation) {
+    await snapshotContextCompilation(projectRoot, run, compilation.prompt_blocks, compilation.context_trace)
+  }
   return run
 }
 

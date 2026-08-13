@@ -19,7 +19,11 @@
     "build": "tsc -b"
   },
   "dependencies": {
+    "@hypertok/vocab-cl100k": "1.0.0",
+    "@hypertok/vocab-deepseek-v4": "1.0.0",
+    "@hypertok/vocab-o200k": "1.0.0",
     "gray-matter": "^4.0.3",
+    "hypertok": "0.3.4",
     "zod": "^3.24.1"
   }
 }
