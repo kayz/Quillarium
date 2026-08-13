@@ -6,15 +6,18 @@ on:
   pull_request:
     branches: [master]
 
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
         with:
           version: 10.30.0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
@@ -24,7 +27,13 @@ jobs:
         run: pnpm build
       - name: Test
         run: pnpm test
+      - name: Test coverage
+        run: pnpm test:coverage
       - name: Lint
         run: pnpm lint
       - name: Check formatting
         run: pnpm format:check
+      - name: Build desktop renderer and main process
+        run: pnpm desktop:build
+      - name: Audit production dependencies
+        run: pnpm audit --prod --audit-level=high

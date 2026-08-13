@@ -13,8 +13,73 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  validate:
+    name: Validate immutable release tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.gate.outputs.version }}
+      prerelease: ${{ steps.gate.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Reject a reused failed tag
+        shell: bash
+        run: |
+          if [ "$GITHUB_RUN_ATTEMPT" != "1" ]; then
+            echo "Release workflow reruns are disabled. Preserve the failed tag and publish a new forward-only version." >&2
+            exit 1
+          fi
+      - name: Fetch current master without moving the tag
+        shell: bash
+        run: git fetch --no-tags origin "+refs/heads/master:refs/remotes/origin/master"
+      - name: Verify tag, package versions, and master tip
+        id: gate
+        shell: bash
+        run: |
+          node scripts/release-gate.mjs \
+            --tag "$GITHUB_REF_NAME" \
+            --tag-commit "$(git rev-parse "$GITHUB_SHA^{commit}")" \
+            --master-commit "$(git rev-parse "refs/remotes/origin/master^{commit}")" \
+            --github-output "$GITHUB_OUTPUT"
+
+  quality:
+    name: Tagged commit quality gate
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.30.0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build
+        run: pnpm build
+      - name: Test
+        run: pnpm test
+      - name: Test coverage
+        run: pnpm test:coverage
+      - name: Lint
+        run: pnpm lint
+      - name: Check formatting
+        run: pnpm format:check
+      - name: Build desktop renderer and main process
+        run: pnpm desktop:build
+      - name: Audit production dependencies
+        run: pnpm audit --prod --audit-level=high
+
   package:
     name: Package ${{ matrix.label }}
+    needs: [validate, quality]
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
@@ -26,37 +91,31 @@ jobs:
             os: windows-latest
             target: win
             artifact_name: quillarium-windows
-            artifact_path: apps/desktop/release/*.exe
+            artifact_path: apps/desktop/release/Quillarium-*-windows-x64.exe
           - label: macOS
             os: macos-latest
             target: mac
             artifact_name: quillarium-macos
-            artifact_path: apps/desktop/release/*.dmg
+            artifact_path: |
+              apps/desktop/release/Quillarium-*-macos-x64.dmg
+              apps/desktop/release/Quillarium-*-macos-arm64.dmg
     env:
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
         with:
           version: 10.30.0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: pnpm
-      - name: Verify release tag matches desktop version
-        shell: bash
-        run: >-
-          node -e "const pkg=require('./apps/desktop/package.json');
-          const expected='v'+pkg.version;
-          if(process.env.GITHUB_REF_NAME!==expected){
-          console.error('Expected tag '+expected+', received '+process.env.GITHUB_REF_NAME);
-          process.exit(1)}"
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Package desktop application
         run: pnpm --filter @quillarium/desktop package:${{ matrix.target }}
       - name: Upload packaged artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact_name }}
           path: ${{ matrix.artifact_path }}
@@ -64,33 +123,42 @@ jobs:
 
   release:
     name: Publish GitHub Release
-    needs: package
+    needs: [validate, package]
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - name: Download packaged artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: quillarium-*
           path: release
           merge-multiple: true
+      - name: Verify complete installer set
+        run: node scripts/release-assets.mjs --dir release --version "${{ needs.validate.outputs.version }}"
       - name: Publish release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          IS_PRERELEASE: ${{ needs.validate.outputs.prerelease }}
         run: |
           mapfile -t assets < <(find release -maxdepth 1 -type f -print)
-          if [ "${#assets[@]}" -eq 0 ]; then
-            echo "No packaged artifacts were downloaded." >&2
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME already exists. Version tags and releases are immutable." >&2
             exit 1
           fi
-          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$GITHUB_REF_NAME" "${assets[@]}" --clobber --repo "$GITHUB_REPOSITORY"
-          else
-            gh release create "$GITHUB_REF_NAME" "${assets[@]}" \
-              --verify-tag \
-              --generate-notes \
-              --title "Quillarium $GITHUB_REF_NAME" \
-              --repo "$GITHUB_REPOSITORY"
+
+          prerelease_args=()
+          if [ "$IS_PRERELEASE" = "true" ]; then
+            prerelease_args+=(--prerelease)
           fi
+
+          gh release create "$GITHUB_REF_NAME" "${assets[@]}" \
+            --verify-tag \
+            --generate-notes \
+            --title "Quillarium $GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            "${prerelease_args[@]}"

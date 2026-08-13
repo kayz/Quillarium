@@ -110,11 +110,12 @@ pnpm --filter @quillarium/desktop package:mac
 ```
 
 Artifacts are written under `apps/desktop/release/`. A `v<desktop-version>` tag triggers the release
-workflow, builds Windows NSIS and macOS DMG artifacts on native runners, and uploads them to the
-matching GitHub Release. Windows NSIS is the current locally validated packaging target. Native macOS
-DMG validation, a real tag/GitHub Release, and fresh-machine installation, credential migration, and
-first-launch validation are deferred; the existing commands and workflow remain configured but are
-not current acceptance gates.
+workflow only when that immutable tag matches every package version and points to the latest
+`master`. The workflow reruns the complete quality gate, builds Windows x64 NSIS plus macOS x64 and
+arm64 DMGs on native runners, verifies the complete installer set, and only then creates one GitHub
+Release. Alpha versions are marked as pre-releases automatically. A failed tag is not moved, reused,
+or rerun; release work continues with a new forward-only version. See
+[docs/RELEASING.md](docs/RELEASING.md).
 
 ## CLI Flow
 
@@ -189,9 +190,9 @@ CLI/vault MVP. It is retained for provenance and is not a current usage guide.
 ## Current Boundaries
 
 - Desktop installers are unsigned and currently use Electron's default application icon. Windows
-  NSIS packaging has been exercised locally and is the current packaging validation target, so
-  Windows SmartScreen may display a warning. macOS DMG/tag-release and fresh-machine validation are
-  deferred rather than current release blockers.
+  SmartScreen or macOS Gatekeeper may therefore display a warning. CI verifies all three installer
+  architectures, while fresh-machine installation, restart, migration, credential, and accessibility
+  checks remain explicit human release-acceptance work.
 - Manuscript export supports Markdown and plain text, not PDF, EPUB, or word-processor formats.
 - The optional retained SillyTavern import does not support CHARX archives. CCv3 cards can be imported,
   but embedded CCv3 assets are not materialized; the original card JSON is retained as a raw sidecar.
