@@ -6,6 +6,8 @@ function render(status: 'draft' | 'final' | 'published') {
   return renderToStaticMarkup(
     <ChapterProseWorkspace
       chapterTitle="第一章"
+      chapterId="chapter-one"
+      root="C:/fixture"
       doc={{
         path: 'chapters/prose.md',
         data: { id: 'prose-one', type: 'chapter_prose', title: '第一章 正文', status },
@@ -18,6 +20,7 @@ function render(status: 'draft' | 'final' | 'published') {
       onSave={async () => undefined}
       onFinalize={async () => undefined}
       onPublish={async () => undefined}
+      onContinuityApplied={async () => undefined}
       language="zh"
     />
   )
@@ -34,6 +37,7 @@ describe('ChapterProseWorkspace', () => {
 
     const final = render('final')
     expect(final).toContain('发布并清理节产物')
+    expect(final).toContain('定稿反查与回写')
     expect(final).toContain('仅允许作者小幅修改')
 
     const published = render('published')

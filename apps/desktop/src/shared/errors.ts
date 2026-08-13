@@ -64,6 +64,69 @@ export function formatDesktopError(err: unknown, language: LanguageName = 'en'):
   if (/AI writing can only create a scene under a chapter outline/i.test(message)) {
     return zh ? '只能在章节点下创建节。请先选择一章。' : 'Scenes can only be created under a chapter.'
   }
+  if (/finalize review input does not match the authoritative chapter prose/i.test(message)) {
+    return zh
+      ? '反查所用正文与当前章正文不一致。请保存章正文后重新生成定稿反查。'
+      : 'The reviewed text no longer matches the chapter prose. Save it and create a new final review.'
+  }
+  if (
+    /finalization source changed (?:while the review was running|after review|during apply|before verification)/i.test(
+      message
+    )
+  ) {
+    return zh
+      ? '章节点或已定稿正文在反查后发生了变化。为避免写入过期结论，请重新生成定稿反查。'
+      : 'The chapter or final prose changed after review. Create a new final review before applying continuity.'
+  }
+  if (/finalization source chapter prose is not final/i.test(message)) {
+    return zh
+      ? '只有已定稿正文才能执行连续性回写。请先将本章定稿。'
+      : 'Continuity apply requires finalized chapter prose. Finalize this chapter first.'
+  }
+  if (
+    /finalization source (?:chapter|chapter prose) not found|finalization review lacks a source snapshot/i.test(
+      message
+    )
+  ) {
+    return zh
+      ? '找不到本次反查所对应的章或正文快照。请刷新项目并重新生成定稿反查。'
+      : 'The source chapter or its prose snapshot is missing. Refresh and create a new final review.'
+  }
+  if (
+    /finalization review is not ready to apply|finalization review still has open decisions/i.test(message)
+  ) {
+    return zh
+      ? '定稿反查仍有待作者决定的影响项或问题，请全部确认、拒绝、答复或暂缓后再应用。'
+      : 'Resolve every open impact and question before applying this final review.'
+  }
+  if (
+    /finalize impact lacks an explicit create\/update operation|finalize impact lacks a stable target_id|finalize impact has no structured frontmatter or content change/i.test(
+      message
+    )
+  ) {
+    return zh
+      ? '此影响项缺少可执行的结构化目标或内容，不能安全回写。请拒绝此项并重新反查。'
+      : 'This impact lacks a safe structured target or change set. Reject it and create a new review.'
+  }
+  if (
+    /finalization target changed after review|target hash changed during apply|create target appeared during apply/i.test(
+      message
+    )
+  ) {
+    return zh
+      ? '目标资料在反查后已被修改。系统没有覆盖新内容；请重新生成定稿反查。'
+      : 'A target changed after review. Nothing was overwritten; create a new final review.'
+  }
+  if (/finalization apply failed and was rolled back/i.test(message)) {
+    return zh
+      ? '连续性回写失败，所有目标和反查状态已恢复。可检查审计记录后重试。'
+      : 'Continuity apply failed and every target was restored. Inspect the audit before retrying.'
+  }
+  if (/could not recover finalization application|rollback failed/i.test(message)) {
+    return zh
+      ? '自动恢复未完成。请停止继续写入，并依据定稿回写审计中的备份路径进行恢复。'
+      : 'Automatic recovery did not complete. Stop writing and recover from the backup paths in the audit.'
+  }
   if (/import session still has open issues/i.test(message)) {
     return zh ? '仍有待确认的导入问题，请处理后再导入。' : 'Resolve the remaining import questions first.'
   }

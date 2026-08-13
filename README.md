@@ -8,9 +8,9 @@ Quillarium is the sole product runtime. Obsidian is its durable manual-editing s
 workspace may register multiple projects and shared guidance, while each project directory is both
 an independent Obsidian vault and a Quillarium project root.
 
-This document describes the `0.2.0-alpha.1` code line as of 2026-08-13. “Works now” means the
-behavior is present in the repository and covered by local tests; lifecycle events and atomic
-continuity apply remain in the [roadmap](ROADMAP.md), not presented as completed features.
+This document describes the code line as of 2026-08-13. “Works now” means the behavior is present
+in the repository and covered by local tests. Strongly typed lifecycle events remain in the
+[roadmap](ROADMAP.md); atomic continuity apply is implemented as a reviewed, recoverable operation.
 
 ## What Works Now
 
@@ -40,6 +40,10 @@ continuity apply remain in the [roadmap](ROADMAP.md), not presented as completed
   group. Desktop and CLI compare candidate prose and checks, explicitly select one without writing
   prose, and create a new branch from any retained candidate. Only the separate accept action writes
   scene and chapter prose.
+- A finalized chapter can open an AI-assisted continuity review without granting the model write
+  authority. Every executable change requires an explicit author decision. Desktop and CLI use the
+  same service to validate all targets and hashes, retain complete backups, apply the set, reread and
+  verify every file, and record a recovery audit. Any failure restores the whole set.
 - Markdown and plain-text manuscript export from finalized/published chapter prose, accepted outputs,
   or final scenes, with explicit gap reporting and optional volume filtering.
 - A seven-level workflow: overview and book outline at the top, then volume, part, optional act,
@@ -100,6 +104,9 @@ editor with word-count feedback. Legacy layouts remain compatible in
 the runtime and migration services, but they are not an active welcome-screen choice. Migration is
 always an explicit dry-run, backup, apply, verify, and report operation and never moves or deletes
 the source. The context/check inspector and recorded runs make inputs and outputs reviewable.
+On a finalized chapter, **Final review & apply** presents every proposed continuity impact and
+question for an author decision, then enables atomic apply only when no decision is open. **Recovery
+check** restores an interrupted transaction from retained before images.
 Theme, density, language, GitHub credentials, each AI profile, and the project writing preset have
 explicit settings actions. A legacy project without a preset must explicitly create/select one
 before generation.
@@ -168,7 +175,8 @@ Writing Workspace/
       narrative/           strategy/         patterns/         resources/
       causality/           outlines/         chapters/         scenes/
       prompts/             presets/          runs/             imports/
-      reviews/             style/            exports/
+      reviews/             # reviews plus apply audits, backups, and staged copies
+      style/               exports/
       sillytavern/         .quillarium/
 ```
 

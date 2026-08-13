@@ -97,8 +97,9 @@ The runtime creates two to eight independent Runs in a candidate group, retains 
 and can create a new branch group from any candidate. Selecting one candidate is a recoverable
 metadata-only transaction; it does not publish the chapter, mutate Canon, update continuity, or
 write prose. The separate accept action creates authoritative prose for the selected scene. The
-current finalization review records proposed impacts and author confirmations; atomic
-continuity-apply remains planned.
+current finalization review records structured proposed impacts and author decisions. The shared
+core apply service validates, backs up, applies, verifies, and audits the complete confirmed set;
+any failure restores every affected file and leaves the review unapplied.
 
 ## Agent Responsibilities
 
@@ -132,8 +133,11 @@ Every agent operation has an explicit scope and produces reviewable artifacts.
 - Accepting prose requires an explicit author action and writes only the selected target plus its run
   metadata.
 - Finalization is a proposal until the author confirms it.
-- A future continuity-apply operation must validate the entire change set, write it atomically, and
-  record before/after evidence. A partial apply is a failure and must be recoverable.
+- Model output cannot mark its own impact confirmed. Natural-language suggestions are never
+  interpreted as executable patches.
+- Continuity apply validates the entire change set and reviewed target hashes, retains complete
+  before images, verifies every after hash, and records source chapter/scenes plus recovery paths.
+  A partial apply is a failure and is rolled back before the review may become `applied`.
 - Credentials, local indexes, UI state, and regenerable exports are never written into a project or
   workspace manifest.
 
