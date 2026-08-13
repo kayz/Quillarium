@@ -7,6 +7,8 @@ and records scene-generation artifacts in core run directories.
 
 - Configuration: `loadAIConfig`, `loadAIProfile`, `defaultBaseUrl`, `defaultModel`, and
   `isAIConfigured`.
+- Portable generation resolution: `resolveGenerationPreset` and `contextCompileOptions` combine a
+  project WritingPreset with a caller-provided machine-local connection profile.
 - Requests: `generateText`, `generateCanonText`, `AIRequestError`, `AIRequestOptions`,
   `DEFAULT_AI_TIMEOUT_MS`, and `DEFAULT_AI_MAX_RETRIES`.
 - Recorded generation: `buildSectionPrompt`, `createGenerationRun`, and `generateIntoRun`.
@@ -38,8 +40,10 @@ DeepSeek requests default to non-thinking mode to preserve the existing completi
 `{ thinkingMode: 'enabled' }` to opt in. Callers that need structured output can pass
 `{ responseFormat: 'json_object' }` to request OpenAI-compatible JSON mode.
 
-`createGenerationRun` writes context and prompt artifacts without calling a provider.
-`generateIntoRun` performs the request and records the raw output and updated metadata.
+`createGenerationRun` writes context and prompt artifacts without calling a provider and requires a
+selected WritingPreset (or its exact resolved snapshot). Every generation run records preset
+ID/version/hash and immutable `writing-preset.json`; `generateIntoRun` verifies run, snapshot, and AI
+configuration identity before calling the provider.
 
 ## Boundaries and Tests
 

@@ -22,7 +22,9 @@ import type {
   QuillariumConfig,
   RunMetadata,
   SceneDoc,
-  ScenePromptInput
+  ScenePromptInput,
+  LoadedWritingPreset,
+  WritingPresetListItem
 } from '@quillarium/core'
 import type { CheckReport } from '@quillarium/checks'
 import type {
@@ -275,6 +277,9 @@ export interface IpcContract {
   'project:create': { request: [input: ProjectCreateInput]; response: ProjectSummary }
   'project:choose': { request: []; response: ProjectSummary | null }
   'project:load': { request: [root: string]; response: LoadedProject }
+  'preset:list': { request: [root: string]; response: WritingPresetListItem[] }
+  'preset:initializeDefault': { request: [root: string]; response: LoadedWritingPreset }
+  'preset:select': { request: [root: string, id: string]; response: LoadedWritingPreset }
   'doc:read': { request: [filePath: string]; response: MarkdownDocument }
   'doc:saveBody': {
     request: [filePath: string, data: Record<string, unknown>, body: string]
@@ -453,6 +458,9 @@ export const QUILLARIUM_API_CHANNELS = {
   createProject: 'project:create',
   chooseProject: 'project:choose',
   loadProject: 'project:load',
+  listWritingPresets: 'preset:list',
+  initializeDefaultWritingPreset: 'preset:initializeDefault',
+  selectWritingPreset: 'preset:select',
   readDoc: 'doc:read',
   saveDocBody: 'doc:saveBody',
   deleteDoc: 'doc:delete',

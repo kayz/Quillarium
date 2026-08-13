@@ -67,6 +67,12 @@ export function Inspector({
                 ? `${contextPacket.context_trace.candidates.discovered} 个候选 · 递归 ${contextPacket.context_trace.candidates.reached_recursion_depth}/${contextPacket.context_trace.candidates.max_recursion_depth} 层`
                 : `${contextPacket.context_trace.candidates.discovered} candidates · recursion ${contextPacket.context_trace.candidates.reached_recursion_depth}/${contextPacket.context_trace.candidates.max_recursion_depth}`}
             </p>
+            {contextPacket.context_trace.preset && (
+              <p>
+                {language === 'zh' ? '写作预设' : 'Writing preset'} · {contextPacket.context_trace.preset.id}{' '}
+                v{contextPacket.context_trace.preset.version}
+              </p>
+            )}
           </>
         )}
       </InspectorCard>

@@ -212,4 +212,55 @@ describe('context compiler', () => {
       truncated: true
     })
   })
+
+  it('uses a complete preset block order and records the preset snapshot identity', async () => {
+    const kinds = [
+      'packet_header',
+      'target',
+      'project',
+      'accepted_prose',
+      'canon',
+      'outline',
+      'project_guidance',
+      'timeline',
+      'character',
+      'location',
+      'world',
+      'foreshadowing',
+      'issue',
+      'shared_guidance',
+      'warning',
+      'generation_target'
+    ] as const
+    const order = [...kinds]
+    const canonIndex = order.indexOf('canon')
+    const guidanceIndex = order.indexOf('project_guidance')
+    ;[order[canonIndex], order[guidanceIndex]] = [order[guidanceIndex], order[canonIndex]]
+
+    const result = await compileContextBlocks(
+      { type: 'scene', id: 'scene-preset-order' },
+      [
+        candidate('canon', 'canon', { kind: 'canon', order: 1 }),
+        candidate('guidance', 'guidance', { kind: 'project_guidance', order: 99 })
+      ],
+      {
+        token_counter: counter,
+        prompt_block_order: order,
+        preset: { id: 'focused', version: '2.0.0', snapshot_sha256: 'a'.repeat(64) }
+      }
+    )
+
+    expect(result.blocks.map((block) => block.id)).toEqual(['guidance', 'canon'])
+    expect(result.trace.preset).toEqual({
+      id: 'focused',
+      version: '2.0.0',
+      snapshot_sha256: 'a'.repeat(64)
+    })
+    await expect(
+      compileContextBlocks({ type: 'scene', id: 'scene-invalid-order' }, [candidate('only', 'content')], {
+        token_counter: counter,
+        prompt_block_order: ['canon']
+      })
+    ).rejects.toThrow('must contain every supported block kind exactly once')
+  })
 })

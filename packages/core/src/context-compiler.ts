@@ -56,6 +56,8 @@ export interface ContextCompileOptions {
   reserved_output_tokens?: number
   /** Stable text representing system/user role wrappers and non-context prompt instructions. */
   framing_text?: string
+  prompt_block_order?: PromptBlockKind[]
+  preset?: { id: string; version: string; snapshot_sha256: string }
 }
 
 export interface CompiledContext {
@@ -97,7 +99,11 @@ export async function compileContextBlocks(
     )
   }
   assertCandidateIds(candidates)
-  const normalized = candidates.map(normalizeCandidate)
+  const blockOrder = resolvePromptBlockOrder(options.prompt_block_order)
+  const normalized = candidates.map(normalizeCandidate).map((candidate) => ({
+    ...candidate,
+    order: blockOrder.get(candidate.kind)! * 1_000_000 + candidate.order
+  }))
   const tokenCounts = new Map(normalized.map((candidate) => [candidate.id, counter.count(candidate.content)]))
   const entries = new Map<string, ContextTraceEntry>()
   const selected: PromptBlock[] = []
@@ -223,6 +229,7 @@ export async function compileContextBlocks(
       schema_version: 1,
       compiler_version: CONTEXT_COMPILER_VERSION,
       target,
+      ...(options.preset ? { preset: { ...options.preset } } : {}),
       policy,
       tokenizer: counter.descriptor,
       budget: {
@@ -250,6 +257,36 @@ export async function compileContextBlocks(
       final_block_ids: blocks.map((block) => block.id)
     }
   }
+}
+
+function resolvePromptBlockOrder(order?: PromptBlockKind[]): Map<PromptBlockKind, number> {
+  const kinds: PromptBlockKind[] = [
+    'packet_header',
+    'target',
+    'project',
+    'accepted_prose',
+    'canon',
+    'outline',
+    'project_guidance',
+    'timeline',
+    'character',
+    'location',
+    'world',
+    'foreshadowing',
+    'issue',
+    'shared_guidance',
+    'warning',
+    'generation_target'
+  ]
+  const selected = order ?? kinds
+  if (
+    selected.length !== kinds.length ||
+    new Set(selected).size !== kinds.length ||
+    kinds.some((kind) => !selected.includes(kind))
+  ) {
+    throw new Error('Context prompt_block_order must contain every supported block kind exactly once.')
+  }
+  return new Map(selected.map((kind, index) => [kind, index]))
 }
 
 export function resolveContextPolicy(

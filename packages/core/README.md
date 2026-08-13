@@ -19,12 +19,15 @@ imports and runs, manages finalization review sessions, and exports accepted man
 - Context and planning: `assembleContext`, `assembleContextPacket`, `renderContextPacket`,
   `buildSceneWritingPrompt`, `buildEditableScenePromptPlan`, typed prompt-source blocks, and
   `buildChapterWritingPlan`.
+- Writing presets: `defaultWritingPreset`, `createWritingPreset`, `loadWritingPreset`,
+  `listWritingPresets`, `selectWritingPreset`, explicit v1→v2 migration, sanitized snapshot hashing,
+  and immutable run snapshot persistence.
 - Chapter lifecycle: `loadChapterLifecycle`, `acceptSceneIntoChapter`, `finalizeChapter`,
   `publishChapter`, `deleteStoryNode`, and the human/AI edit guards.
 - Import, provenance, and review: `importMarkdownPath`, import-session APIs, origin resolution and
   one-card re-import helpers, and finalization-review APIs.
-- Runs and export: `createRun`, shared-guidance snapshots, `readRunFile`, `writeRunFile`, `listRuns`,
-  `requireNonEmptyRunOutput`, and `exportManuscript`.
+- Runs and export: `createRun`, shared-guidance/compiler/writing-preset snapshots, `readRunFile`,
+  `writeRunFile`, `listRuns`, `requireNonEmptyRunOutput`, and `exportManuscript`.
 - Public schemas, document types, Markdown/YAML helpers, IDs, and filesystem helpers are re-exported
   from the package entry point.
 
@@ -49,9 +52,10 @@ prefers finalized/published chapter prose, can use accepted outputs or final sce
 projects, and reports skipped scenes as gaps.
 
 The current `ContextPacket` performs deterministic document selection with explicit links,
-pins/exclusions, enabled state, keyword activation, warnings, and fixed document caps. It is not yet
-the tokenizer-budgeted `ContextPolicy`/`PromptBlock` compiler described as future work in the product
-roadmap.
+pins/exclusions, enabled state, keyword activation, warnings, bounded relation expansion, and an
+exact tokenizer budget. It emits typed `PromptBlock` values and a complete `ContextTrace`. A selected
+versioned WritingPreset supplies its policy and block order; snapshots reject credentials, absolute
+paths, and content/hash mismatches.
 
 ## Boundaries and Tests
 

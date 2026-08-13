@@ -1,15 +1,23 @@
 import {
   createRun,
+  assertWritingPresetSnapshot,
+  createWritingPresetSnapshot,
+  loadSelectedWritingPreset,
   loadConfig,
+  readRunFile,
   snapshotContextCompilation,
   snapshotSharedGuidance,
+  snapshotWritingPreset,
   writeRunFile,
   writeRunMetadata,
   type ContextTrace,
   type ContextCompileOptions,
+  type LoadedWritingPreset,
   type PromptBlock,
+  type ResolvedWritingPresetModel,
   type RunMetadata,
-  type SharedGuidanceContent
+  type SharedGuidanceContent,
+  type WritingPresetSnapshot
 } from '@quillarium/core'
 
 export interface AIConfig {
@@ -37,7 +45,16 @@ export interface AIRequestOptions {
 export interface GenerationContextCompilationSnapshot {
   prompt_blocks: PromptBlock[]
   context_trace: ContextTrace
+  writing_preset?: WritingPresetSnapshot
 }
+
+export interface ResolvedGenerationPreset {
+  loaded: LoadedWritingPreset
+  config: AIConfig
+  snapshot: WritingPresetSnapshot
+}
+
+export type AIProfileLoader = (profile: 'prose' | 'background' | 'check') => Promise<AIConfig>
 
 export type AIKeyDecryptor = (encrypted: string) => string | Promise<string>
 
@@ -163,29 +180,74 @@ export function isAIConfigured(config: AIConfig): boolean {
   )
 }
 
-export function buildSectionPrompt(context: string): string {
-  return [
+export function buildSectionPrompt(context: string, preset?: WritingPresetSnapshot): string {
+  const instructions = preset?.prompt_stack.user_instructions ?? [
     'You are assisting with a long-form novel project.',
     'Write only the requested prose section unless the context explicitly asks for notes.',
     'Respect canon, time, location, character state, and style guardrails.',
-    'If a fact is uncertain, avoid inventing hard canon.',
-    '',
-    context
-  ].join('\n')
+    'If a fact is uncertain, avoid inventing hard canon.'
+  ]
+  return [...instructions, '', context].join('\n')
 }
 
-export function contextCompileOptions(config: AIConfig): ContextCompileOptions {
+export function contextCompileOptions(
+  config: AIConfig,
+  preset?: WritingPresetSnapshot
+): ContextCompileOptions {
   return {
-    model: { provider: config.provider, model: config.model },
+    model: {
+      provider: config.provider,
+      model: config.model,
+      ...(preset?.model.tokenizer_id ? { tokenizer_id: preset.model.tokenizer_id } : {})
+    },
+    ...(preset ? { policy: preset.context_policy } : {}),
     reserved_output_tokens: config.maxTokens,
     framing_text: [
       '<|system|>',
-      DEFAULT_AI_SYSTEM_PROMPT,
+      preset?.prompt_stack.system_prompt ?? DEFAULT_AI_SYSTEM_PROMPT,
       '<|user|>',
-      buildSectionPrompt(''),
+      buildSectionPrompt('', preset),
       '<|assistant|>'
-    ].join('\n')
+    ].join('\n'),
+    ...(preset
+      ? {
+          prompt_block_order: preset.prompt_stack.block_order,
+          preset: {
+            id: preset.preset_id,
+            version: preset.preset_version,
+            snapshot_sha256: preset.snapshot_sha256
+          }
+        }
+      : {})
   }
+}
+
+export async function resolveGenerationPreset(
+  projectRoot: string,
+  loadProfile: AIProfileLoader = (profile) => loadAIProfile(profile),
+  explicitPresetId?: string
+): Promise<ResolvedGenerationPreset> {
+  const loaded = await loadSelectedWritingPreset(projectRoot, explicitPresetId)
+  const connection = await loadProfile(loaded.preset.model.profile)
+  const config: AIConfig = {
+    ...connection,
+    provider: loaded.preset.model.provider ?? connection.provider,
+    model: loaded.preset.model.model ?? connection.model,
+    temperature: loaded.preset.model.temperature ?? connection.temperature,
+    maxTokens: loaded.preset.model.max_output_tokens ?? connection.maxTokens
+  }
+  if (loaded.preset.model.provider && loaded.preset.model.provider !== connection.provider) {
+    config.baseUrl = defaultBaseUrl(loaded.preset.model.provider)
+  }
+  const model: ResolvedWritingPresetModel = {
+    profile: loaded.preset.model.profile,
+    provider: config.provider,
+    model: config.model,
+    temperature: config.temperature,
+    max_output_tokens: config.maxTokens,
+    ...(loaded.preset.model.tokenizer_id ? { tokenizer_id: loaded.preset.model.tokenizer_id } : {})
+  }
+  return { loaded, config, snapshot: createWritingPresetSnapshot(loaded, model) }
 }
 
 export async function generateText(
@@ -449,19 +511,45 @@ export async function createGenerationRun(
   promptOverride?: string,
   compilation?: GenerationContextCompilationSnapshot
 ): Promise<RunMetadata> {
+  let writingPreset = compilation?.writing_preset
+  if (!writingPreset) {
+    const loaded = await loadSelectedWritingPreset(projectRoot)
+    writingPreset = createWritingPresetSnapshot(loaded, {
+      profile: loaded.preset.model.profile,
+      provider: config.provider,
+      model: config.model,
+      temperature: config.temperature,
+      max_output_tokens: config.maxTokens,
+      ...(loaded.preset.model.tokenizer_id ? { tokenizer_id: loaded.preset.model.tokenizer_id } : {})
+    })
+  }
+  writingPreset = assertWritingPresetSnapshot(writingPreset)
+  assertPresetMatchesConfig(writingPreset, config)
+  if (
+    compilation?.context_trace.preset &&
+    (compilation.context_trace.preset.id !== writingPreset.preset_id ||
+      compilation.context_trace.preset.version !== writingPreset.preset_version ||
+      compilation.context_trace.preset.snapshot_sha256 !== writingPreset.snapshot_sha256)
+  ) {
+    throw new Error('ContextTrace and WritingPreset snapshot do not describe the same generation input.')
+  }
   const run = await createRun(projectRoot, sceneId, {
     ...metadata,
     provider: config.provider,
     model: config.model,
+    preset_id: writingPreset.preset_id,
+    preset_version: writingPreset.preset_version,
+    preset_sha256: writingPreset.snapshot_sha256,
     status: 'created'
   })
-  const prompt = promptOverride?.trim() ? promptOverride : buildSectionPrompt(context)
+  const prompt = promptOverride?.trim() ? promptOverride : buildSectionPrompt(context, writingPreset)
   await writeRunFile(projectRoot, run, 'context.md', context)
   await writeRunFile(projectRoot, run, 'prompt.md', prompt)
   await snapshotSharedGuidance(projectRoot, run, sharedGuidance)
   if (compilation) {
     await snapshotContextCompilation(projectRoot, run, compilation.prompt_blocks, compilation.context_trace)
   }
+  await snapshotWritingPreset(projectRoot, run, writingPreset)
   return run
 }
 
@@ -472,13 +560,46 @@ export async function generateIntoRun(
   config: AIConfig,
   options: AIRequestOptions = {},
   promptOverride?: string,
-  outputTransform: (output: string) => string = (output) => output
+  outputTransform: (output: string) => string = (output) => output,
+  preset?: WritingPresetSnapshot
 ): Promise<string> {
-  const prompt = promptOverride?.trim() ? promptOverride : buildSectionPrompt(context)
-  const output = outputTransform(await generateText(prompt, config, undefined, options))
+  const effectivePreset =
+    preset ??
+    assertWritingPresetSnapshot(
+      JSON.parse(await readRunFile(projectRoot, run.id, 'writing-preset.json')) as unknown
+    )
+  const verifiedPreset = assertWritingPresetSnapshot(effectivePreset)
+  assertRunMatchesPreset(run, verifiedPreset)
+  assertPresetMatchesConfig(verifiedPreset, config)
+  const prompt = promptOverride?.trim() ? promptOverride : buildSectionPrompt(context, verifiedPreset)
+  const output = outputTransform(
+    await generateText(prompt, config, verifiedPreset.prompt_stack.system_prompt, options)
+  )
   const next = { ...run, status: 'generated' as const }
   await writeRunFile(projectRoot, next, 'prompt.md', prompt)
   await writeRunFile(projectRoot, next, 'output-raw.md', output)
   await writeRunMetadata(projectRoot, next)
   return output
+}
+
+function assertPresetMatchesConfig(snapshot: WritingPresetSnapshot, config: AIConfig): void {
+  const model = snapshot.model
+  if (
+    model.provider !== config.provider ||
+    model.model !== config.model ||
+    model.temperature !== config.temperature ||
+    model.max_output_tokens !== config.maxTokens
+  ) {
+    throw new Error('AI configuration does not match the immutable WritingPreset snapshot.')
+  }
+}
+
+function assertRunMatchesPreset(run: RunMetadata, snapshot: WritingPresetSnapshot): void {
+  if (
+    run.preset_id !== snapshot.preset_id ||
+    run.preset_version !== snapshot.preset_version ||
+    run.preset_sha256 !== snapshot.snapshot_sha256
+  ) {
+    throw new Error(`Run ${run.id} does not match the supplied WritingPreset snapshot.`)
+  }
 }

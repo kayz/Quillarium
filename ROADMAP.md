@@ -106,14 +106,20 @@ branch operations are not implemented yet:
 - Preserve unselected candidates and allow a candidate to seed a new branch.
 - Keep candidate selection distinct from scene acceptance, chapter finalization, and publication.
 
-### Versioned writing presets
+### Versioned writing presets — implemented
 
-Desktop AI profiles currently separate prose, background, and check responsibilities and keep
-credentials machine-local. A reusable, versioned project writing preset is still future work.
+Project-owned `WritingPreset` v2 files now combine a connection-profile role, portable model
+overrides, prompt instructions and complete block order, `ContextPolicy`, and check policy. Desktop
+and CLI call the same resolver; only their credential sources differ. Selection is stored in
+`project.yaml`, while endpoints, credentials, and other machine-local connection values remain
+outside the project.
 
-Create `WritingPreset` as a versioned combination of model configuration, prompt stack, context
-policy, and check policy. Store a sanitized snapshot or reproducible hash in every run; credentials
-remain machine-local.
+Every generation or dry run records preset ID/version/hash in `metadata.yaml` and writes immutable
+`writing-preset.json`. The snapshot contains the exact resolved portable generation inputs and
+source-file hash but rejects credential-shaped fields, absolute paths, and hash tampering. Updating
+a preset affects only future runs. Schema-v1 presets load read-only in memory and migrate only via
+plan → backup → apply → verify. Missing or incompatible presets fail explicitly; legacy projects can
+create and select the default preset through Desktop or `quill preset init`.
 
 ## P1: Auditable Lifecycle and Memory
 

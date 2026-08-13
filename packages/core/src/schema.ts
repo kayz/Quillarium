@@ -64,6 +64,7 @@ export const projectConfigSchema = z.object({
   section_words: z.number().int().positive().default(1000),
   current_volume: z.number().int().positive().default(1),
   current_timeline_node: z.string().nullable().default(null),
+  writing_preset: projectIdSchema.nullable().default('default'),
   default_theme: z.enum(['paper', 'ink', 'mist', 'bamboo']).default('paper'),
   schema_version: z.literal(2).default(2)
 })

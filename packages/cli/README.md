@@ -16,8 +16,8 @@ await program.parseAsync(['node', 'quill', 'canon', 'list', '--project', project
 ```
 
 `buildProgram()` returns a Commander `Command`. The user-facing groups cover configuration,
-projects, structured documents, outlines and scenes, imports, prompts, context, generation, checks,
-runs, finalization, manuscript export, and SillyTavern interchange. See the
+projects, versioned writing presets, structured documents, outlines and scenes, imports, prompts,
+context, generation, checks, runs, finalization, manuscript export, and SillyTavern interchange. See the
 [CLI guide](../../docs/CLI.md) or run:
 
 ```bash
@@ -34,7 +34,10 @@ creates unified `narrative` cards for new guidance.
 ## Boundaries and Tests
 
 This package is orchestration, argument parsing, and terminal output; domain APIs live in sibling
-packages. Commands modify the project selected by the required `--project` option. `generate` and
+packages. Commands modify the project selected by the required `--project` option. `preset` exposes
+explicit create/select/migrate operations, while context and generation resolve the same portable
+preset contract as Desktop. CLI connection values still come only from environment variables.
+`generate` and
 `check --semantic` can call an AI endpoint. Deterministic checks, `generate --dry-run`, imports,
 exports, indexing, and SillyTavern conversions do not require a network.
 

@@ -170,12 +170,13 @@ narrative cards influence drafting; neither outranks project facts.
 
 ## Auditability and Reproduction
 
-Each current AI run records target, provider/model, status, rendered context, exact prompt, raw and
-accepted output, and check report. It also stores immutable `prompt-blocks.json` and
+Each current AI run records target, provider/model, selected writing-preset ID/version/hash, status,
+rendered context, exact prompt, raw and accepted output, and check report. It also stores immutable
+`writing-preset.json`, `prompt-blocks.json`, and
 `context-trace.json` snapshots containing portable source paths, content hashes, exact tokenizer
 identity, token allocation, truncation ranges, and inclusion/exclusion reasons. Workspace guidance
-used by a run is snapshotted with its relative path, scope, SHA-256, and read time. Versioned writing
-preset snapshots and candidate lineage remain P0 targets rather than current run fields.
+used by a run is snapshotted with its relative path, scope, SHA-256, and read time. Preset updates
+affect only new runs; candidate lineage remains a P0 target rather than a current run field.
 
 External projects can inform design research, but Quillarium independently implements its product
 semantics. Design references and license boundaries are recorded in [REFERENCES.md](REFERENCES.md);

@@ -26,6 +26,7 @@ import { t } from '../../app/i18n.js'
 import { bridge } from '../../app/bridge.js'
 import { formatDesktopError } from '../../shared/errors.js'
 import { ExportModal } from './ExportModal.js'
+import type { WritingPresetListItem } from '@quillarium/core'
 
 export function TopChrome({
   theme,
@@ -269,6 +270,8 @@ function SettingsModal({
     check: 'none'
   })
   const [storage, setStorage] = useState<StorageStatus | null>(null)
+  const [writingPresets, setWritingPresets] = useState<WritingPresetListItem[]>([])
+  const [selectedPreset, setSelectedPreset] = useState('')
   const [display, setDisplay] = useState({ theme, density, language })
   const [busyAction, setBusyAction] = useState<string | null>(null)
   const [notice, setNotice] = useState<SettingsNotice | null>(null)
@@ -321,8 +324,16 @@ function SettingsModal({
     let cancelled = false
     async function loadProfiles() {
       try {
-        const config = await bridge.getConfig()
-        if (!cancelled) hydrateForms(config)
+        const [config, loadedPresets] = await Promise.all([
+          bridge.getConfig(),
+          root ? bridge.listWritingPresets(root) : Promise.resolve([])
+        ])
+        const presets = loadedPresets as WritingPresetListItem[]
+        if (!cancelled) {
+          hydrateForms(config)
+          setWritingPresets(presets)
+          setSelectedPreset(presets.find((preset) => preset.selected)?.id ?? '')
+        }
       } catch (error) {
         if (!cancelled) {
           setNotice({
@@ -336,7 +347,7 @@ function SettingsModal({
     return () => {
       cancelled = true
     }
-  }, [language])
+  }, [language, root])
 
   useEffect(() => {
     closeRef.current?.focus()
@@ -403,6 +414,52 @@ function SettingsModal({
         tone: 'danger',
         message: `${t(language, 'credentialActionFailed')} ${formatDesktopError(error, language)}`
       })
+    } finally {
+      setBusyAction(null)
+    }
+  }
+
+  const saveWritingPreset = async () => {
+    if (!root || !selectedPreset) return
+    setBusyAction('save-writing-preset')
+    setNotice(null)
+    try {
+      await bridge.selectWritingPreset(root, selectedPreset)
+      const presets = (await bridge.listWritingPresets(root)) as WritingPresetListItem[]
+      setWritingPresets(presets)
+      setSelectedPreset(presets.find((preset) => preset.selected)?.id ?? selectedPreset)
+      setNotice({
+        tone: 'success',
+        message:
+          language === 'zh'
+            ? '写作预设已选择；只影响之后创建的运行记录。'
+            : 'Writing preset selected; only future runs are affected.'
+      })
+    } catch (error) {
+      setNotice({ tone: 'danger', message: formatDesktopError(error, language) })
+    } finally {
+      setBusyAction(null)
+    }
+  }
+
+  const initializeWritingPreset = async () => {
+    if (!root) return
+    setBusyAction('initialize-writing-preset')
+    setNotice(null)
+    try {
+      await bridge.initializeDefaultWritingPreset(root)
+      const presets = (await bridge.listWritingPresets(root)) as WritingPresetListItem[]
+      setWritingPresets(presets)
+      setSelectedPreset(presets.find((preset) => preset.selected)?.id ?? 'default')
+      setNotice({
+        tone: 'success',
+        message:
+          language === 'zh'
+            ? '默认写作预设已创建并选中；项目现在可以生成新的运行记录。'
+            : 'The default writing preset was created and selected; the project can now create generation runs.'
+      })
+    } catch (error) {
+      setNotice({ tone: 'danger', message: formatDesktopError(error, language) })
     } finally {
       setBusyAction(null)
     }
@@ -683,6 +740,64 @@ function SettingsModal({
               <label>
                 {t(language, 'currentBranch')}
                 <input value={git?.branch ?? t(language, 'notInitialized')} readOnly />
+              </label>
+            </div>
+          </div>
+        )}
+        {root && (
+          <div className="settings-group">
+            <div className="settings-section-head">
+              <div>
+                <h3>{language === 'zh' ? '写作预设' : 'Writing preset'}</h3>
+                <p className="muted">
+                  {language === 'zh'
+                    ? '组合模型参数、提示词栈、上下文预算和检查策略。每次生成都会保存无密钥快照。'
+                    : 'Combines model parameters, prompt stack, context budget, and check policy. Every generation saves a credential-free snapshot.'}
+                </p>
+              </div>
+              <button
+                className="secondary"
+                type="button"
+                onClick={writingPresets.length ? saveWritingPreset : initializeWritingPreset}
+                disabled={(writingPresets.length > 0 && !selectedPreset) || busyAction !== null}
+              >
+                {busyAction === 'save-writing-preset' || busyAction === 'initialize-writing-preset'
+                  ? t(language, 'saving')
+                  : writingPresets.length === 0
+                    ? language === 'zh'
+                      ? '创建默认预设'
+                      : 'Create default preset'
+                    : language === 'zh'
+                      ? '选择预设'
+                      : 'Select preset'}
+              </button>
+            </div>
+            <div className="settings-grid two">
+              <label>
+                {language === 'zh' ? '当前预设' : 'Current preset'}
+                <select value={selectedPreset} onChange={(event) => setSelectedPreset(event.target.value)}>
+                  {writingPresets.map((preset) => (
+                    <option key={preset.id} value={preset.id}>
+                      {preset.title} · v{preset.version}
+                    </option>
+                  ))}
+                </select>
+                <small>
+                  {writingPresets.find((preset) => preset.id === selectedPreset)?.description ||
+                    (language === 'zh' ? '项目中没有可用预设。' : 'No project presets are available.')}
+                </small>
+              </label>
+              <label>
+                {language === 'zh' ? '预设文件' : 'Preset file'}
+                <input
+                  value={writingPresets.find((preset) => preset.id === selectedPreset)?.source_path ?? ''}
+                  readOnly
+                />
+                <small>
+                  {language === 'zh'
+                    ? '预设是项目内可版本控制的纯 YAML 数据，不含连接地址或密钥。'
+                    : 'Presets are versioned project YAML data and contain no endpoint or credentials.'}
+                </small>
               </label>
             </div>
           </div>

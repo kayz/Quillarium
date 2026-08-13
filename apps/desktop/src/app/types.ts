@@ -161,6 +161,7 @@ export interface ContextPacketSummary {
     selection_reason: string
   }>
   context_trace: {
+    preset?: { id: string; version: string; snapshot_sha256: string }
     tokenizer: { id: string; provider: string; model: string; exact: true }
     policy: { token_budget: number; max_candidates: number; max_recursion_depth: number }
     budget: {

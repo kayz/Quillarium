@@ -28,12 +28,14 @@ the global Quillarium config at `~/.quillarium/config.json`; they are never writ
 The desktop app reads and writes the same Markdown + YAML frontmatter files as the CLI:
 
 - `project.yaml` v2 stores the stable path-safe `id`, display `title`, legacy `aliases`, and project
-  defaults including `default_theme`.
+  defaults including `default_theme` and the selected `writing_preset` ID.
 - `canon/`, `characters/`, `timeline/`, `locations/`, `outlines/`, `chapters/`, and `scenes/` remain
   Obsidian-readable.
-- `runs/` stores AI context, prompt, raw/accepted output, checks, immutable `PromptBlock` and
-  `ContextTrace` snapshots, and shared-guidance snapshots with source path, scope, SHA-256, and read
-  time.
+- `presets/` stores portable versioned WritingPreset YAML. It contains no endpoint, credential, or
+  executable script.
+- `runs/` stores AI context, prompt, raw/accepted output, checks, immutable WritingPreset,
+  `PromptBlock`, and `ContextTrace` snapshots, and shared-guidance snapshots with source path, scope,
+  SHA-256, and read time.
 - Imported or AI-created cards may carry `quillarium_origin`. File-backed origins record source
   paths and SHA-256 values; AI-import origins also retain the import-session and candidate index.
   Origin metadata is hidden from ordinary field editing and drives explicit source/re-import actions.
@@ -90,6 +92,19 @@ Bulk source ingestion is a different reviewed workflow: the author pastes text o
 candidate list and resolves questions; confirmation lands only the approved candidates. A landed
 file-derived card can later show its source status and re-import exactly that card. Missing or changed
 sources are reported instead of silently replacing content.
+
+## Writing Presets
+
+Desktop settings list the current project's presets and explicitly select one for future runs. The
+main process combines the selected portable preset with the referenced machine-local AI profile;
+the renderer never receives the profile credential. A project created by current Quillarium starts
+with `default`; a legacy project without any preset displays a “create default preset” action and
+generation otherwise fails clearly.
+
+All Desktop generation, dry-run, context-preview, prompt-plan, and outline-generation paths use the
+same resolver as the CLI. Every run records preset ID/version/hash and immutable
+`writing-preset.json`. Editing a preset only changes later runs; old runs remain explainable from
+their snapshots.
 
 ## Planning Card Workbench
 
@@ -149,7 +164,7 @@ The implemented desktop baseline supports:
 
 1. register a GitHub-backed writing workspace and create/open a direct project-vault
 2. keep legacy vault compatibility and migration outside the primary welcome path
-3. configure display, GitHub, and each AI profile with independent save actions
+3. configure display, GitHub, each AI profile, and the project WritingPreset with explicit actions
 4. browse planning modules and create new planning records through a review-before-write AI dialog
 5. edit schema-aware metadata without serialization syntax, inspect cross-type tag matches, and
    switch Markdown bodies between safe Source and Preview modes
