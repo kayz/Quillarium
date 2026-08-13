@@ -76,15 +76,10 @@ Implemented in the 2026-08-13 `0.2.0-alpha.1` code baseline.
   and AI run artifacts.
 - Provide large serif editors, character counts, and resizable prompt/prose panes.
 
-### Context compiler
+### Context compiler — implemented
 
-Current code already assembles a deterministic `ContextPacket`, records document-level inclusion
-trace entries, respects pins/exclusions and enabled state, activates linked or keyword-matching
-cards, reports conflicts, and snapshots shared guidance into each generation run. It still uses
-fixed per-category document limits rather than a model tokenizer.
-
-Implement `ContextPolicy`, typed `PromptBlock` values, and `ContextTrace` using the deterministic
-pipeline defined in
+The current compiler implements `ContextPolicy`, typed `PromptBlock` values, and a complete
+`ContextTrace` using the deterministic pipeline defined in
 [ADR-context-activation.md](docs/adr/ADR-context-activation.md):
 
 ```text
@@ -92,8 +87,14 @@ writing scope -> candidates -> triggers/relationships -> ordering
               -> real token budget -> truncation -> trace
 ```
 
-Provide a generation preview with source, purpose, authority, priority, token count, truncation, and
-inclusion reason. Bound recursive expansion and make compilation reproducible.
+It enumerates all candidates before applying a global candidate cap, expands links and typed
+relations with cycle-safe depth bounds, reserves framing/output tokens, and applies stable authority,
+priority, and ID ordering. Mandatory accepted prose and atomic hard Canon reserve budget ahead of
+project guidance; shared guidance remains advisory and conflicts only produce warnings. DeepSeek V4
+and supported OpenAI model families use packaged exact tokenizers, while unknown combinations fail
+closed. Desktop and `quill context --trace` preview source, purpose, authority, priority, exact token
+count, truncation, and selection/exclusion reasons. Generation runs persist immutable
+`prompt-blocks.json` and `context-trace.json` snapshots.
 
 ### Multiple candidates and branches
 

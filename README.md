@@ -46,11 +46,13 @@ in the [roadmap](ROADMAP.md), not presented as completed features.
 AI is optional for project management, import, context assembly, deterministic checks, and export.
 Generation and `check --semantic` require an OpenAI-compatible endpoint or configured provider.
 
-The current context packet is deterministic and explainable at document level: it follows the
-outline chain, explicit pins and exclusions, typed relations, timeline links, keyword activation,
-enabled-card state, and fixed per-category limits. Real tokenizer-aware budgeting, recursive
-`PromptBlock` compilation, candidate groups/branches, and versioned `WritingPreset` snapshots are
-the next P0 work rather than current runtime guarantees.
+The context compiler is deterministic, explainable, and model-budgeted. It follows the outline
+chain, explicit pins and exclusions, typed relations, timeline links, keyword activation, and
+enabled-card state; performs cycle-safe bounded relationship expansion; then emits typed
+`PromptBlock` values and a complete `ContextTrace`. DeepSeek V4 and supported OpenAI model families
+use packaged exact tokenizers. Unknown tokenizer/model combinations fail closed instead of silently
+using a character estimate. Candidate groups/branches and versioned `WritingPreset` snapshots remain
+the next P0 work.
 
 ## Quick Start
 

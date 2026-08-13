@@ -19,9 +19,33 @@ import {
   createWorldEntry
 } from './documents.js'
 import { createProjectAt } from './project.js'
+import type { ContextTokenCounter } from './tokenization.js'
 
 const temporaryVaults: string[] = []
 let projectSequence = 0
+
+const characterCounter: ContextTokenCounter = {
+  descriptor: {
+    id: 'test-character-counter',
+    provider: 'test',
+    model: 'character-count',
+    exact: true,
+    source_revision: 'fixture',
+    source_sha256: 'fixture-source',
+    vocabulary_sha256: 'fixture-vocabulary'
+  },
+  count: (text) => [...text].length,
+  truncate: (text, maximum, strategy) => {
+    const characters = [...text]
+    const kept = strategy === 'head' ? characters.slice(0, maximum) : characters.slice(-maximum)
+    return {
+      text: kept.join(''),
+      token_count: kept.length,
+      original_token_count: characters.length,
+      truncated: kept.length < characters.length
+    }
+  }
+}
 
 afterEach(async () => {
   await Promise.all(temporaryVaults.splice(0).map((root) => rm(root, { recursive: true, force: true })))
@@ -244,7 +268,7 @@ describe('context selection', () => {
     expect(packet.warnings).toContain('伏笔提醒：Broken wax（建议处理窗口：before the archive closes）。')
   })
 
-  it('caps inferred scene-level patterns while retaining pins and explicit ids', async () => {
+  it('uses the global token policy instead of a fixed per-type cap while retaining pins and exclusions', async () => {
     const root = await project()
     await createChapterHierarchy(root, 'chapter-main', 'Meteor Chapter', {
       context_pins: ['pattern-pinned'],
@@ -284,12 +308,96 @@ describe('context selection', () => {
     const patternIds = packet.patterns.map((item) => item.data.id)
     const inferred = patternIds.filter((id) => id.startsWith('pattern-inferred-'))
 
-    expect(patternIds).toHaveLength(10)
-    expect(inferred).toHaveLength(8)
+    expect(patternIds).toHaveLength(22)
+    expect(inferred).toHaveLength(20)
     expect(patternIds).toEqual(expect.arrayContaining(['pattern-pinned', 'pattern-explicit']))
     expect(patternIds).not.toContain('pattern-excluded')
     expect(new Set(patternIds).size).toBe(patternIds.length)
-    expect(packet.included_ids.filter((id) => id.startsWith('pattern-'))).toHaveLength(10)
+    expect(packet.included_ids.filter((id) => id.startsWith('pattern-'))).toHaveLength(22)
+    expect(packet.context_trace.budget.used_tokens).toBeLessThanOrEqual(
+      packet.context_trace.policy.token_budget
+    )
+    expect(packet.context_trace.entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ source_id: 'pattern-pinned', outcome: 'included' }),
+        expect.objectContaining({
+          source_id: 'pattern-excluded',
+          outcome: 'excluded',
+          reason: 'explicit project context exclusion'
+        })
+      ])
+    )
+  })
+
+  it('expands document links and typed relations with a cycle-safe depth limit', async () => {
+    const root = await project()
+    await createOutline(root, 'book', 'Book', { id: 'book-links' })
+    await createOutline(root, 'volume', 'Volume', { id: 'volume-links', parent: 'book-links' })
+    await createOutline(root, 'part', 'Part', { id: 'part-links', parent: 'volume-links' })
+    await createOutline(root, 'chapter', 'Chapter', {
+      id: 'chapter-links',
+      parent: 'part-links',
+      world_entries_used: ['world-a']
+    })
+    await createWorldEntry(root, 'World A', { id: 'world-a' }, 'See [[world-b]].')
+    await createWorldEntry(root, 'World B', {
+      id: 'world-b',
+      relations: [{ kind: 'related', target_id: 'world-c', note: 'second hop' }]
+    })
+    await createWorldEntry(root, 'World C', {
+      id: 'world-c',
+      relations: [{ kind: 'related', target_id: 'world-a', note: 'cycle' }]
+    })
+
+    const oneHop = await assembleContextPacket(
+      root,
+      { type: 'outline', id: 'chapter-links' },
+      { policy: { max_recursion_depth: 1 } }
+    )
+    expect(oneHop.world_entries.map((item) => item.data.id)).toEqual(['world-a', 'world-b'])
+    expect(oneHop.context_trace.candidates.reached_recursion_depth).toBe(1)
+    expect(oneHop.context_trace.entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source_id: 'world-b',
+          outcome: 'included',
+          trigger_chain: expect.arrayContaining(['document-link:world-b'])
+        }),
+        expect.objectContaining({ source_id: 'world-c', outcome: 'excluded' })
+      ])
+    )
+
+    const twoHops = await assembleContextPacket(
+      root,
+      { type: 'outline', id: 'chapter-links' },
+      { policy: { max_recursion_depth: 2 } }
+    )
+    expect(twoHops.world_entries.map((item) => item.data.id)).toEqual(['world-a', 'world-b', 'world-c'])
+    expect(twoHops.context_trace.candidates.reached_recursion_depth).toBe(2)
+    expect(new Set(twoHops.context_trace.final_block_ids).size).toBe(
+      twoHops.context_trace.final_block_ids.length
+    )
+  })
+
+  it('fails explicitly instead of dropping an atomic hard Canon block for lower authority material', async () => {
+    const root = await project()
+    await createChapterHierarchy(root, 'chapter-authority', 'Authority Chapter')
+    await createCanon(root, 'Atomic Canon', 'x'.repeat(1_000), { id: 'canon-atomic', strength: 'hard' })
+
+    await expect(
+      assembleContextPacket(
+        root,
+        { type: 'outline', id: 'chapter-authority' },
+        {
+          token_counter: characterCounter,
+          policy: {
+            token_budget: 500,
+            max_block_tokens: 2_000,
+            min_truncated_block_tokens: 10
+          }
+        }
+      )
+    ).rejects.toMatchObject({ block_id: 'document:canon:canon-atomic', token_budget: 500 })
   })
 })
 

@@ -145,6 +145,52 @@ export interface ContextPacketSummary {
   world_entries: DocEntry[]
   foreshadowing: DocEntry[]
   issues: DocEntry[]
+  prompt_blocks: Array<{
+    id: string
+    kind: string
+    title: string
+    source: { type: string; id: string; path?: string }
+    authority: string
+    priority: number
+    token_count: number
+    original_token_count: number
+    content_sha256: string
+    tokenizer_id: string
+    retained_token_range: { start: number; end: number }
+    truncated: boolean
+    selection_reason: string
+  }>
+  context_trace: {
+    tokenizer: { id: string; provider: string; model: string; exact: true }
+    policy: { token_budget: number; max_candidates: number; max_recursion_depth: number }
+    budget: {
+      total_token_budget: number
+      reserved_output_tokens: number
+      framing_tokens: number
+      available_input_tokens: number
+      selected_tokens: number
+      unused_input_tokens: number
+      token_budget: number
+      used_tokens: number
+      remaining_tokens: number
+    }
+    candidates: {
+      discovered: number
+      eligible: number
+      limit: number
+      max_recursion_depth: number
+      reached_recursion_depth: number
+    }
+    entries: Array<{
+      block_id: string
+      source_type: string
+      source_id: string
+      outcome: 'included' | 'excluded' | 'truncated'
+      reason: string
+      token_count: number
+      original_token_count: number
+    }>
+  }
   warnings: string[]
   included_ids: string[]
   excluded_ids: string[]

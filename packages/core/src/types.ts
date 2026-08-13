@@ -131,12 +131,127 @@ export interface SharedGuidanceContent {
   read_at: string
 }
 
-export interface ContextTraceEntry {
-  source_type: 'accepted_prose' | 'canon' | 'project_guidance' | 'shared_guidance'
-  source_id: string
+export type PromptBlockKind =
+  | 'packet_header'
+  | 'target'
+  | 'project'
+  | 'accepted_prose'
+  | 'canon'
+  | 'outline'
+  | 'project_guidance'
+  | 'timeline'
+  | 'character'
+  | 'location'
+  | 'world'
+  | 'foreshadowing'
+  | 'issue'
+  | 'shared_guidance'
+  | 'warning'
+  | 'generation_target'
+
+export type PromptBlockAuthority = 'system' | 'accepted_prose' | 'hard_canon' | 'project' | 'advisory'
+
+export type PromptBlockTruncation = 'none' | 'head' | 'tail'
+
+export interface PromptBlockSource {
+  type: string
+  id: string
+  /** Always project/workspace relative. Absolute machine paths are forbidden. */
+  path?: string
+}
+
+export interface PromptBlock {
+  id: string
+  kind: PromptBlockKind
+  role: 'system' | 'user'
+  title: string
+  content: string
+  content_sha256: string
+  source: PromptBlockSource
+  scope: string
+  purpose: string
+  authority: PromptBlockAuthority
+  authority_rank: number
   priority: number
-  selected: boolean
+  order: number
+  token_count: number
+  original_token_count: number
+  tokenizer_id: string
+  retained_token_range: { start: number; end: number }
+  truncated: boolean
+  truncation: PromptBlockTruncation
+  selection_reason: string
+  trigger_chain: string[]
+}
+
+export interface ContextPolicy {
+  schema_version: 1
+  id: string
+  /** Exact tokenizer count for the rendered Context Packet, including packet framing. */
+  token_budget: number
+  max_block_tokens: number
+  min_truncated_block_tokens: number
+  max_candidates: number
+  max_recursion_depth: number
+}
+
+export interface ContextTokenizerTrace {
+  id: string
+  provider: string
+  model: string
+  exact: true
+  source_revision: string
+  source_sha256: string
+  vocabulary_sha256: string
+}
+
+export type ContextTraceOutcome = 'included' | 'excluded' | 'truncated'
+
+export interface ContextTraceEntry {
+  block_id: string
+  source_type: string
+  source_id: string
+  source_path?: string
+  authority: PromptBlockAuthority
+  authority_rank: number
+  priority: number
+  outcome: ContextTraceOutcome
   reason: string
+  trigger_chain: string[]
+  token_count: number
+  original_token_count: number
+  content_sha256: string
+  tokenizer_id: string
+  retained_token_range: { start: number; end: number }
+}
+
+export interface ContextTrace {
+  schema_version: 1
+  compiler_version: string
+  target: { type: 'outline' | 'scene'; id: string }
+  policy: ContextPolicy
+  tokenizer: ContextTokenizerTrace
+  budget: {
+    total_token_budget: number
+    reserved_output_tokens: number
+    framing_tokens: number
+    available_input_tokens: number
+    selected_tokens: number
+    unused_input_tokens: number
+    /** Compatibility aliases for available/selected/unused input tokens. */
+    token_budget: number
+    used_tokens: number
+    remaining_tokens: number
+  }
+  candidates: {
+    discovered: number
+    eligible: number
+    limit: number
+    max_recursion_depth: number
+    reached_recursion_depth: number
+  }
+  entries: ContextTraceEntry[]
+  final_block_ids: string[]
 }
 
 export interface ProjectPaths {

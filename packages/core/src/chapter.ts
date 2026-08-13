@@ -3,6 +3,7 @@ import { assembleContextPacket, renderContextPacket } from './context.js'
 import { listDocs, requireDoc } from './documents.js'
 import { assertChapterAllowsAI, sceneChapterId } from './chapter-lifecycle.js'
 import { readPrompt } from './prompts.js'
+import type { ContextCompileOptions } from './context-compiler.js'
 import type { OutlineDoc, SceneDoc } from './types.js'
 
 export interface ScenePromptInput {
@@ -47,6 +48,10 @@ export interface PromptSourceBlock {
   required: boolean
   source_id?: string
   source_type?: string
+  token_count?: number
+  selection_reason?: string
+  authority?: string
+  truncated?: boolean
 }
 
 export interface EditableScenePromptPlan extends ScenePromptPlan {
@@ -65,13 +70,18 @@ export interface ChapterPromptPlan {
 
 export async function buildSceneWritingPrompt(
   projectRoot: string,
-  input: ScenePromptInput
+  input: ScenePromptInput,
+  contextOptions: ContextCompileOptions = {}
 ): Promise<ScenePromptPlan> {
   const scene = await requireDoc<SceneDoc>(projectRoot, input.sceneId)
   const chapterId = sceneChapterId(scene.data)
   await assertChapterAllowsAI(projectRoot, chapterId)
   const chapter = await requireDoc<OutlineDoc>(projectRoot, chapterId)
-  const packet = await assembleContextPacket(projectRoot, { type: 'scene', id: scene.data.id })
+  const packet = await assembleContextPacket(
+    projectRoot,
+    { type: 'scene', id: scene.data.id },
+    contextOptions
+  )
   const systemPrompt = await readPrompt(projectRoot, 'prose-scene-draft')
   const style = await latestFinalSceneStyle(projectRoot, scene.data.id)
   const selected = input.selectedElements ?? {}
@@ -115,17 +125,18 @@ export async function buildSceneWritingPrompt(
 
 export async function buildEditableScenePromptPlan(
   projectRoot: string,
-  input: ScenePromptInput
+  input: ScenePromptInput,
+  contextOptions: ContextCompileOptions = {}
 ): Promise<EditableScenePromptPlan> {
   const scene = await requireDoc<SceneDoc>(projectRoot, input.sceneId)
   const chapterId = sceneChapterId(scene.data)
   await assertChapterAllowsAI(projectRoot, chapterId)
   const chapter = await requireDoc<OutlineDoc>(projectRoot, chapterId)
-  const packet = await assembleContextPacket(projectRoot, { type: 'scene', id: scene.data.id })
-  const sameBranchProse = await finalizedProseInBranch(projectRoot, chapter.data)
-  const currentChapterProse = (
-    await listDocs<import('./types.js').ChapterProseDoc>(projectRoot, 'chapter_prose')
-  ).find((item) => item.data.chapter_id === chapterId)
+  const packet = await assembleContextPacket(
+    projectRoot,
+    { type: 'scene', id: scene.data.id },
+    contextOptions
+  )
   const sources: PromptSourceBlock[] = [
     {
       id: 'instruction',
@@ -148,25 +159,7 @@ export async function buildEditableScenePromptPlan(
       content: renderSceneOutline(scene.data),
       required: true
     },
-    ...contextPromptSourceBlocks(packet),
-    ...sameBranchProse.map((item) => ({
-      id: `prose:${item.data.id}`,
-      kind: 'finalized-prose' as const,
-      title: `同篇/幕已定稿正文 · ${item.data.title}`,
-      content: item.content,
-      required: false
-    })),
-    ...(currentChapterProse?.content.trim()
-      ? [
-          {
-            id: `continuation:${currentChapterProse.data.id}`,
-            kind: 'continuation' as const,
-            title: '本章已接受正文',
-            content: currentChapterProse.content,
-            required: true
-          }
-        ]
-      : [])
+    ...contextPromptSourceBlocks(packet)
   ]
   if (input.previousOutput?.trim()) {
     sources.push({
@@ -187,6 +180,32 @@ export async function buildEditableScenePromptPlan(
 export function contextPromptSourceBlocks(
   packet: Awaited<ReturnType<typeof assembleContextPacket>>
 ): PromptSourceBlock[] {
+  if (packet.prompt_blocks?.length) {
+    const skipped = new Set(['packet_header', 'target', 'project', 'generation_target'])
+    return packet.prompt_blocks
+      .filter((block) => !skipped.has(block.kind))
+      .filter(
+        (block) =>
+          block.source.id !== packet.target.id &&
+          (packet.scene === null || block.source.id !== packet.scene.data.id)
+      )
+      .map((block) => ({
+        id: block.id,
+        kind: promptSourceKindForBlock(block.kind),
+        title: block.title,
+        content: block.content,
+        required:
+          block.authority === 'accepted_prose' ||
+          block.authority === 'hard_canon' ||
+          block.kind === 'outline',
+        source_id: block.source.id,
+        source_type: block.source.type,
+        token_count: block.token_count,
+        selection_reason: block.selection_reason,
+        authority: block.authority,
+        truncated: block.truncated
+      }))
+  }
   const blocks: PromptSourceBlock[] = []
   const addDocument = (
     kind: PromptSourceBlock['kind'],
@@ -242,10 +261,43 @@ export function contextPromptSourceBlocks(
   return blocks
 }
 
+function promptSourceKindForBlock(kind: import('./types.js').PromptBlockKind): PromptSourceBlock['kind'] {
+  switch (kind) {
+    case 'accepted_prose':
+      return 'finalized-prose'
+    case 'canon':
+      return 'canon'
+    case 'outline':
+      return 'outline'
+    case 'project_guidance':
+      return 'narrative'
+    case 'timeline':
+      return 'timeline'
+    case 'character':
+      return 'character'
+    case 'location':
+      return 'location'
+    case 'world':
+      return 'world'
+    case 'foreshadowing':
+      return 'foreshadowing'
+    case 'shared_guidance':
+      return 'guidance'
+    case 'issue':
+    case 'warning':
+    case 'packet_header':
+    case 'target':
+    case 'project':
+    case 'generation_target':
+      return 'context'
+  }
+}
+
 export async function buildChapterWritingPlan(
   projectRoot: string,
   chapterId: string,
-  selectedByScene: Record<string, ScenePromptInput['selectedElements']> = {}
+  selectedByScene: Record<string, ScenePromptInput['selectedElements']> = {},
+  contextOptions: ContextCompileOptions = {}
 ): Promise<ChapterPromptPlan> {
   const scenes = (await listDocs<SceneDoc>(projectRoot, 'scene'))
     .filter((scene) => sceneChapterId(scene.data) === chapterId)
@@ -253,11 +305,15 @@ export async function buildChapterWritingPlan(
   const scene_prompts: ScenePromptPlan[] = []
   let previousOutput = ''
   for (const scene of scenes) {
-    const plan = await buildSceneWritingPrompt(projectRoot, {
-      sceneId: scene.data.id,
-      selectedElements: selectedByScene[scene.data.id],
-      previousOutput
-    })
+    const plan = await buildSceneWritingPrompt(
+      projectRoot,
+      {
+        sceneId: scene.data.id,
+        selectedElements: selectedByScene[scene.data.id],
+        previousOutput
+      },
+      contextOptions
+    )
     scene_prompts.push(plan)
     previousOutput = `【${scene.data.title}】写作完成后，将此处替换为该 scene 的输出。`
   }
@@ -267,48 +323,6 @@ export async function buildChapterWritingPlan(
     scene_prompts,
     style_reference: style
   }
-}
-
-async function finalizedProseInBranch(projectRoot: string, chapter: OutlineDoc) {
-  const outlines = await listDocs<OutlineDoc>(projectRoot, 'outline')
-  const ancestorChain = ancestorIds(
-    outlines.map((item) => item.data),
-    chapter
-  )
-  const branchRoot = ancestorChain.find((id) => {
-    const level = outlines.find((item) => item.data.id === id)?.data.level
-    return level === 'part' || level === 'act' || level === 'arc'
-  })
-  if (!branchRoot) return []
-  const siblingChapters = outlines
-    .filter((item) => item.data.level === 'chapter' && item.data.id !== chapter.id)
-    .filter((item) =>
-      ancestorIds(
-        outlines.map((entry) => entry.data),
-        item.data
-      ).includes(branchRoot)
-    )
-  const ids = new Set(siblingChapters.map((item) => item.data.id))
-  const prose = await listDocs<import('./types.js').ChapterProseDoc>(projectRoot, 'chapter_prose')
-  return prose
-    .filter(
-      (item) =>
-        (item.data.status === 'final' || item.data.status === 'published') && ids.has(item.data.chapter_id)
-    )
-    .sort((a, b) => a.data.finalized_at?.localeCompare(b.data.finalized_at ?? '') ?? 0)
-    .slice(-3)
-}
-
-function ancestorIds(outlines: OutlineDoc[], start: OutlineDoc): string[] {
-  const ids: string[] = []
-  let parent = start.parent
-  const seen = new Set<string>()
-  while (parent && !seen.has(parent)) {
-    seen.add(parent)
-    ids.push(parent)
-    parent = outlines.find((item) => item.id === parent)?.parent ?? null
-  }
-  return ids
 }
 
 function renderStructuredOutline(data: OutlineDoc, content: string): string {

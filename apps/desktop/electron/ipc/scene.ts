@@ -39,6 +39,7 @@ import {
 import {
   createGenerationRun,
   buildSectionPrompt,
+  contextCompileOptions,
   generateIntoRun,
   generateText,
   isAIConfigured,
@@ -48,16 +49,20 @@ import { loadDesktopAIProfile } from './credentials.js'
 import { typedHandle, type DesktopContextPacket, type DesktopDocEntry, type TargetInput } from './contract.js'
 
 export function registerSceneHandlers(): void {
-  typedHandle('scene:context', async (_event, root, sceneId) => assembleContext(root, sceneId))
-  typedHandle('target:context', async (_event, root, target) => {
-    const packet = await assembleContextPacket(root, contextTarget(target))
-    return {
-      packet: packet as unknown as DesktopContextPacket,
-      markdown: renderContextPacket(packet)
-    }
+  typedHandle('scene:context', async (_event, root, sceneId) => {
+    const config = await loadDesktopAIProfile('prose')
+    return assembleContext(root, sceneId, {
+      ...contextCompileOptions(config)
+    })
   })
+  typedHandle('target:context', async (_event, root, target) => createDesktopContextPreview(root, target))
   typedHandle('target:writingPrompt', async (_event, root, outlineId) => {
-    const packet = await assembleContextPacket(root, { type: 'outline', id: outlineId })
+    const config = await loadDesktopAIProfile('prose')
+    const packet = await assembleContextPacket(
+      root,
+      { type: 'outline', id: outlineId },
+      contextCompileOptions(config)
+    )
     return buildSectionPrompt(renderContextPacket(packet))
   })
   typedHandle('target:check', async (_event, root, target) => {
@@ -81,27 +86,54 @@ export function registerSceneHandlers(): void {
   typedHandle('scene:generateDryRun', async (_event, root, sceneId) => {
     const scene = await requireScene(root, sceneId)
     await assertChapterAllowsAI(root, scene.data.chapter_id)
-    const packet = await assembleContextPacket(root, { type: 'scene', id: sceneId })
-    const context = renderContextPacket(packet)
     const config = await loadDesktopAIProfile('prose')
-    return createGenerationRun(root, sceneId, context, config, {}, packet.shared_guidance)
+    const packet = await assembleContextPacket(
+      root,
+      { type: 'scene', id: sceneId },
+      contextCompileOptions(config)
+    )
+    const context = renderContextPacket(packet)
+    return createGenerationRun(root, sceneId, context, config, {}, packet.shared_guidance, undefined, {
+      prompt_blocks: packet.prompt_blocks,
+      context_trace: packet.context_trace
+    })
   })
   typedHandle('scene:generate', async (_event, root, sceneId) => {
     const scene = await requireScene(root, sceneId)
     await assertChapterAllowsAI(root, scene.data.chapter_id)
-    const packet = await assembleContextPacket(root, { type: 'scene', id: sceneId })
-    const context = renderContextPacket(packet)
     const config = await loadDesktopAIProfile('prose')
-    const run = await createGenerationRun(root, sceneId, context, config, {}, packet.shared_guidance)
+    const packet = await assembleContextPacket(
+      root,
+      { type: 'scene', id: sceneId },
+      contextCompileOptions(config)
+    )
+    const context = renderContextPacket(packet)
+    const run = await createGenerationRun(
+      root,
+      sceneId,
+      context,
+      config,
+      {},
+      packet.shared_guidance,
+      undefined,
+      {
+        prompt_blocks: packet.prompt_blocks,
+        context_trace: packet.context_trace
+      }
+    )
     const output = await generateIntoRun(root, run, context, config, {}, undefined, assertPlainProse)
     return { run, output }
   })
   typedHandle('outline:generate', async (_event, root, outlineId, prompt, sceneId) => {
     await assertChapterAllowsAI(root, outlineId)
     const scene = await ensureSceneForOutline(root, outlineId, sceneId)
-    const packet = await assembleContextPacket(root, { type: 'outline', id: outlineId })
-    const context = renderContextPacket(packet)
     const config = await loadDesktopAIProfile('prose')
+    const packet = await assembleContextPacket(
+      root,
+      { type: 'outline', id: outlineId },
+      contextCompileOptions(config)
+    )
+    const context = renderContextPacket(packet)
     const run = await createGenerationRun(
       root,
       scene.data.id,
@@ -113,7 +145,8 @@ export function registerSceneHandlers(): void {
         source_outline: outlineId
       },
       packet.shared_guidance,
-      prompt
+      prompt,
+      { prompt_blocks: packet.prompt_blocks, context_trace: packet.context_trace }
     )
     const output = await generateIntoRun(root, run, context, config, {}, prompt, assertPlainProse)
     return { run, output, scene: scene as DesktopDocEntry<SceneDoc> }
@@ -126,17 +159,19 @@ export function registerSceneHandlers(): void {
   typedHandle('scene:acceptManual', async (_event, root, sceneId, content) =>
     acceptSceneIntoChapter(root, sceneId, content)
   )
-  typedHandle('scene:promptPlan', async (_event, root, sceneId) =>
-    buildEditableScenePromptPlan(root, { sceneId })
-  )
+  typedHandle('scene:promptPlan', async (_event, root, sceneId) => {
+    const config = await loadDesktopAIProfile('prose')
+    return buildEditableScenePromptPlan(root, { sceneId }, contextCompileOptions(config))
+  })
   typedHandle('chapter:lifecycle', async (_event, root, chapterId) => loadChapterLifecycle(root, chapterId))
   typedHandle('chapter:finalize', async (_event, root, chapterId) => finalizeChapter(root, chapterId))
   typedHandle('chapter:publish', async (_event, root, chapterId, confirmation) =>
     publishChapter(root, chapterId, confirmation)
   )
-  typedHandle('chapter:writingPlan', async (_event, root, chapterId, selectedByScene) =>
-    buildChapterWritingPlan(root, chapterId, selectedByScene ?? {})
-  )
+  typedHandle('chapter:writingPlan', async (_event, root, chapterId, selectedByScene) => {
+    const config = await loadDesktopAIProfile('prose')
+    return buildChapterWritingPlan(root, chapterId, selectedByScene ?? {}, contextCompileOptions(config))
+  })
   typedHandle('finalize:reviewPlan', async (_event, root, input) => {
     const session = await createFinalizeReviewSession(root, input)
     const config = await loadDesktopAIProfile('check')
@@ -154,6 +189,27 @@ export function registerSceneHandlers(): void {
   typedHandle('finalize:confirmImpact', async (_event, root, sessionId, impactId, answer, state) =>
     confirmFinalizeImpact(root, sessionId, impactId, answer, state === 'rejected' ? 'rejected' : 'confirmed')
   )
+}
+
+export interface DesktopContextPreviewDependencies {
+  loadAIProfile: () => Promise<AIConfig>
+}
+
+const desktopContextPreviewDependencies: DesktopContextPreviewDependencies = {
+  loadAIProfile: () => loadDesktopAIProfile('prose')
+}
+
+export async function createDesktopContextPreview(
+  root: string,
+  target: TargetInput,
+  dependencies: DesktopContextPreviewDependencies = desktopContextPreviewDependencies
+): Promise<{ packet: DesktopContextPacket; markdown: string }> {
+  const config = await dependencies.loadAIProfile()
+  const packet = await assembleContextPacket(root, contextTarget(target), contextCompileOptions(config))
+  return {
+    packet: packet as unknown as DesktopContextPacket,
+    markdown: renderContextPacket(packet)
+  }
 }
 
 export interface SemanticCheckDependencies {

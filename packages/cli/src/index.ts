@@ -44,6 +44,7 @@ import {
   listDocs,
   readPrompt,
   renderContextPacket,
+  snapshotContextCompilation,
   snapshotSharedGuidance,
   searchCanon,
   setObsidianDir,
@@ -65,7 +66,13 @@ import {
   runSemanticChecks,
   semanticStatusFromIssues
 } from '@quillarium/checks'
-import { createGenerationRun, generateIntoRun, generateText, loadAIConfig } from '@quillarium/ai'
+import {
+  contextCompileOptions,
+  createGenerationRun,
+  generateIntoRun,
+  generateText,
+  loadAIConfig
+} from '@quillarium/ai'
 import { registerSillyTavernCommands } from './sillytavern.js'
 import { registerStrategyCommands } from './strategy.js'
 import { registerRunCommands } from './runs.js'
@@ -703,16 +710,31 @@ export function buildProgram(): Command {
       .command('context')
       .argument('<scene-id>', 'Scene id')
       .option('--run', 'Create a run and save context.md')
+      .option('--trace', 'Print PromptBlocks and ContextTrace as JSON')
       .description('Assemble context for a scene')
   ).action(async (sceneId, opts) => {
     const root = path.resolve(opts.project)
-    const packet = await assembleContextPacket(root, { type: 'scene', id: sceneId })
+    const config = loadAIConfig()
+    const packet = await assembleContextPacket(
+      root,
+      { type: 'scene', id: sceneId },
+      contextCompileOptions(config)
+    )
     const context = renderContextPacket(packet)
     if (opts.run) {
-      const run = await createRun(root, sceneId)
+      const run = await createRun(root, sceneId, { provider: config.provider, model: config.model })
       await writeRunFile(root, run, 'context.md', context)
       await snapshotSharedGuidance(root, run, packet.shared_guidance)
+      await snapshotContextCompilation(root, run, packet.prompt_blocks, packet.context_trace)
       console.log(run.id)
+    } else if (opts.trace) {
+      console.log(
+        JSON.stringify(
+          { markdown: context, prompt_blocks: packet.prompt_blocks, context_trace: packet.context_trace },
+          null,
+          2
+        )
+      )
     } else {
       console.log(context)
     }
@@ -726,10 +748,23 @@ export function buildProgram(): Command {
       .description('Generate a scene with configured OpenAI-compatible provider')
   ).action(async (sceneId, opts) => {
     const root = path.resolve(opts.project)
-    const packet = await assembleContextPacket(root, { type: 'scene', id: sceneId })
-    const context = renderContextPacket(packet)
     const config = loadAIConfig()
-    const run = await createGenerationRun(root, sceneId, context, config, {}, packet.shared_guidance)
+    const packet = await assembleContextPacket(
+      root,
+      { type: 'scene', id: sceneId },
+      contextCompileOptions(config)
+    )
+    const context = renderContextPacket(packet)
+    const run = await createGenerationRun(
+      root,
+      sceneId,
+      context,
+      config,
+      {},
+      packet.shared_guidance,
+      undefined,
+      { prompt_blocks: packet.prompt_blocks, context_trace: packet.context_trace }
+    )
     if (opts.dryRun) {
       console.log(`Created dry run: ${run.id}`)
       return
@@ -851,7 +886,12 @@ export function buildProgram(): Command {
       .argument('<chapter-id>', 'Chapter outline id')
       .description('Build ordered scene writing prompts for a chapter')
   ).action(async (chapterId, opts) => {
-    const plan = await buildChapterWritingPlan(path.resolve(opts.project), chapterId)
+    const plan = await buildChapterWritingPlan(
+      path.resolve(opts.project),
+      chapterId,
+      {},
+      contextCompileOptions(loadAIConfig())
+    )
     console.log(JSON.stringify(plan, null, 2))
   })
 

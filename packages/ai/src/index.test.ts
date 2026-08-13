@@ -1,4 +1,5 @@
 import {
+  compileContextBlocks,
   createProjectAt,
   loadConfig,
   migrateAIProfileApiKeys,
@@ -122,6 +123,68 @@ describe('generation run snapshots', () => {
 
       await expect(readRunFile(project.root, run.id, 'prompt.md')).resolves.toBe(prompt)
       await expect(readRunFile(project.root, run.id, 'context.md')).resolves.toBe('context')
+    } finally {
+      await rm(tmp, { recursive: true, force: true })
+    }
+  })
+
+  it('persists the exact compilation snapshot without credentials or machine paths', async () => {
+    const tmp = await mkdtemp(path.join(os.tmpdir(), 'quillarium-ai-compilation-'))
+    try {
+      const project = await createProjectAt(path.join(tmp, 'project'), {
+        id: 'compilation-sample',
+        title: 'Compilation Sample'
+      })
+      const supportedConfig: AIConfig = { ...config, model: 'gpt-4o-mini' }
+      const compilation = await compileContextBlocks(
+        { type: 'scene', id: 'scene-one' },
+        [
+          {
+            id: 'canon:sample',
+            kind: 'canon',
+            title: 'Sample Canon',
+            content: 'The gate remains closed.',
+            source: { type: 'canon', id: 'sample', path: 'canon/sample.md' },
+            scope: 'scene',
+            purpose: 'preserve a fixed fact',
+            authority: 'hard_canon',
+            authority_rank: 500,
+            priority: 500,
+            order: 0,
+            selected: true,
+            required: true,
+            selection_reason: 'active hard Canon',
+            truncation: 'none'
+          }
+        ],
+        { model: { provider: supportedConfig.provider, model: supportedConfig.model } }
+      )
+
+      const run = await createGenerationRun(
+        project.root,
+        'scene-one',
+        compilation.markdown,
+        supportedConfig,
+        {},
+        [],
+        undefined,
+        { prompt_blocks: compilation.blocks, context_trace: compilation.trace }
+      )
+      const blocks = await readRunFile(project.root, run.id, 'prompt-blocks.json')
+      const trace = await readRunFile(project.root, run.id, 'context-trace.json')
+      const serialized = `${blocks}\n${trace}`
+
+      expect(JSON.parse(blocks)).toMatchObject({
+        schema_version: 1,
+        blocks: [{ source: { path: 'canon/sample.md' }, tokenizer_id: 'o200k' }]
+      })
+      expect(JSON.parse(trace)).toMatchObject({
+        tokenizer: { id: 'o200k', model: 'gpt-4o-mini', exact: true },
+        final_block_ids: ['canon:sample']
+      })
+      expect(serialized).not.toContain(config.apiKey)
+      expect(serialized).not.toContain(tmp.replace(/\\/gu, '/'))
+      expect(serialized).not.toContain(tmp)
     } finally {
       await rm(tmp, { recursive: true, force: true })
     }

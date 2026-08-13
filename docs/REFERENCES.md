@@ -8,13 +8,13 @@ syntax.
 ## Implementation Status
 
 The entries below register independently designed **target abstractions**, not a claim that every
-mechanism is already implemented. As of `0.2.0-alpha.1` (2026-08-13), Quillarium has deterministic
-document selection, editable prompt-source cards, document-level context traces, immutable shared-
-guidance snapshots, and a single raw/accepted output per run. Tokenizer-aware `ContextPolicy`
-compilation, complete `PromptBlock`/`ContextTrace` artifacts, candidate branches, versioned
-`WritingPreset` snapshots, lifecycle events, scoped notes, rolling summaries, recipes, and a plugin
-system remain roadmap work. Current behavior is described in [DESIGN.md](DESIGN.md), and delivery
-status is tracked in the root [ROADMAP.md](../ROADMAP.md).
+mechanism is already implemented. The current development baseline has deterministic
+tokenizer-aware `ContextPolicy` compilation, complete `PromptBlock`/`ContextTrace` artifacts,
+bounded relationship activation, editable prompt-source cards, immutable compiler/shared-guidance
+snapshots, and a single raw/accepted output per run. Candidate branches, versioned `WritingPreset`
+snapshots, lifecycle events, scoped notes, rolling summaries, recipes, and a plugin system remain
+roadmap work. Current behavior is described in [DESIGN.md](DESIGN.md), and delivery status is tracked
+in the root [ROADMAP.md](../ROADMAP.md).
 
 ## SillyTavern Research Baseline
 

@@ -50,14 +50,50 @@ export function Inspector({
             : t(language, 'notAssembled')}
         </p>
         {contextPacket && (
-          <p>
-            {outlineLevelDisplayLabel(contextPacket.target.level, language)} ·{' '}
-            {language === 'zh'
-              ? `纳入 ${contextPacket.included_ids.length} 份文档 · 排除 ${contextPacket.excluded_ids.length} 份文档`
-              : `${contextPacket.included_ids.length} documents included · ${contextPacket.excluded_ids.length} excluded`}
-          </p>
+          <>
+            <p>
+              {outlineLevelDisplayLabel(contextPacket.target.level, language)} ·{' '}
+              {language === 'zh'
+                ? `纳入 ${contextPacket.included_ids.length} 份文档 · 排除 ${contextPacket.excluded_ids.length} 份文档`
+                : `${contextPacket.included_ids.length} documents included · ${contextPacket.excluded_ids.length} excluded`}
+            </p>
+            <p>
+              {language === 'zh'
+                ? `${contextPacket.context_trace.budget.selected_tokens.toLocaleString()} / ${contextPacket.context_trace.budget.available_input_tokens.toLocaleString()} 输入 token · 预留输出 ${contextPacket.context_trace.budget.reserved_output_tokens.toLocaleString()} · ${contextPacket.context_trace.tokenizer.id} 精确计数`
+                : `${contextPacket.context_trace.budget.selected_tokens.toLocaleString()} / ${contextPacket.context_trace.budget.available_input_tokens.toLocaleString()} input tokens · ${contextPacket.context_trace.budget.reserved_output_tokens.toLocaleString()} output reserved · exact ${contextPacket.context_trace.tokenizer.id}`}
+            </p>
+            <p>
+              {language === 'zh'
+                ? `${contextPacket.context_trace.candidates.discovered} 个候选 · 递归 ${contextPacket.context_trace.candidates.reached_recursion_depth}/${contextPacket.context_trace.candidates.max_recursion_depth} 层`
+                : `${contextPacket.context_trace.candidates.discovered} candidates · recursion ${contextPacket.context_trace.candidates.reached_recursion_depth}/${contextPacket.context_trace.candidates.max_recursion_depth}`}
+            </p>
+          </>
         )}
       </InspectorCard>
+      {!!contextPacket?.prompt_blocks.length && (
+        <InspectorCard
+          title={language === 'zh' ? '提示词块预览' : 'Prompt block preview'}
+          ok
+          language={language}
+        >
+          {contextPacket.prompt_blocks.map((block) => (
+            <p key={block.id}>
+              • {block.title} · {block.token_count.toLocaleString()} token · {block.authority}
+              {block.truncated ? (language === 'zh' ? ' · 已截断' : ' · truncated') : ''}
+              <small>{block.selection_reason}</small>
+            </p>
+          ))}
+          {contextPacket.context_trace.entries
+            .filter((entry) => entry.outcome === 'excluded')
+            .slice(0, 8)
+            .map((entry) => (
+              <p key={`excluded:${entry.block_id}`}>
+                • {entry.source_id} · {language === 'zh' ? '已排除' : 'excluded'}
+                <small>{entry.reason}</small>
+              </p>
+            ))}
+        </InspectorCard>
+      )}
       <InspectorCard title={t(language, 'canonConstraints')} ok language={language}>
         {(contextPacket?.canon ?? docs.filter((doc) => doc.data.type === 'canon').slice(0, 4)).map((item) => (
           <p key={item.data.id}>• {item.data.title}</p>

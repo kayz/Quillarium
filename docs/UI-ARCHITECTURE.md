@@ -31,8 +31,9 @@ The desktop app reads and writes the same Markdown + YAML frontmatter files as t
   defaults including `default_theme`.
 - `canon/`, `characters/`, `timeline/`, `locations/`, `outlines/`, `chapters/`, and `scenes/` remain
   Obsidian-readable.
-- `runs/` stores AI context, prompt, raw/accepted output, checks, and immutable shared-guidance
-  snapshots with source path, scope, SHA-256, and read time.
+- `runs/` stores AI context, prompt, raw/accepted output, checks, immutable `PromptBlock` and
+  `ContextTrace` snapshots, and shared-guidance snapshots with source path, scope, SHA-256, and read
+  time.
 - Imported or AI-created cards may carry `quillarium_origin`. File-backed origins record source
   paths and SHA-256 values; AI-import origins also retain the import-session and candidate index.
   Origin metadata is hidden from ordinary field editing and drives explicit source/re-import actions.
