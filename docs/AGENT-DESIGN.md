@@ -93,11 +93,12 @@ prepare chapter
   -> record publication feedback and retrospective
 ```
 
-The current runtime records one raw and one accepted output per run. Future candidate selection will
-only choose a draft for the next step; it will not publish the chapter, mutate Canon, or update
-continuity. Acceptance creates authoritative prose for the selected scene. The current finalization
-review records proposed impacts and author confirmations; the separate atomic continuity-apply
-operation remains planned.
+The runtime creates two to eight independent Runs in a candidate group, retains every alternative,
+and can create a new branch group from any candidate. Selecting one candidate is a recoverable
+metadata-only transaction; it does not publish the chapter, mutate Canon, update continuity, or
+write prose. The separate accept action creates authoritative prose for the selected scene. The
+current finalization review records proposed impacts and author confirmations; atomic
+continuity-apply remains planned.
 
 ## Agent Responsibilities
 
@@ -176,9 +177,12 @@ rendered context, exact prompt, raw and accepted output, and check report. It al
 `context-trace.json` snapshots containing portable source paths, content hashes, exact tokenizer
 identity, token allocation, truncation ranges, and inclusion/exclusion reasons. Workspace guidance
 used by a run is snapshotted with its relative path, scope, SHA-256, and read time. Preset updates
-affect only new runs; candidate lineage remains a P0 target rather than a current run field.
+affect only new runs. Candidate group, parent Run, branch, ordering, and selection lineage are
+current metadata fields and remain fully auditable.
 
 External projects can inform design research, but Quillarium independently implements its product
 semantics. Design references and license boundaries are recorded in [REFERENCES.md](REFERENCES.md);
 the deterministic context decision is recorded in
 [ADR-context-activation.md](adr/ADR-context-activation.md).
+Candidate selection and branch semantics are recorded in
+[ADR-candidate-branches.md](adr/ADR-candidate-branches.md).

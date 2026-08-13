@@ -143,6 +143,16 @@ After configuring AI credentials, omit `--dry-run` to call the provider and reco
 pnpm cli generate scene-opening-scene --project "./writing-workspace/projects/my-novel"
 ```
 
+Use `--candidates 3` to create two to eight independent Runs in one request. Every candidate keeps
+its own immutable context/preset snapshot, prompt, and output. Add `--parent-run <run-id>` to seed a
+new branch group from any retained candidate; if no count is supplied, a branch creates three
+candidates:
+
+```bash
+pnpm cli generate scene-opening-scene --candidates 3 --project "./writing-workspace/projects/my-novel"
+pnpm cli generate scene-opening-scene --parent-run run-example --project "./writing-workspace/projects/my-novel"
+```
+
 ### 4. Check and accept
 
 The default scene check is deterministic and does not call a model:
@@ -167,8 +177,10 @@ pnpm cli check scene-opening-scene --semantic --project "./writing-workspace/pro
 
 Semantic findings are additive: deterministic checks still run first. Missing AI configuration,
 provider errors, 30-second semantic timeouts, or malformed structured model output are reported as
-informational issues instead of discarding the deterministic report. Use `--run <run-id>` to write
-the combined report to that run's `check-report.md`. Reports expose `semantic_status` as
+informational issues instead of discarding the deterministic report. Use `--run <run-id>` to check
+that Run's `output-raw.md` rather than the scene file and write `check-report.md` plus
+`evaluation.json`. The evaluation uses a documented fixed penalty for deterministic comparison and
+includes a semantic score only when semantic checking completed or partially completed. Reports expose `semantic_status` as
 `not_requested`, `completed`, `partial`, or `unavailable`; the default command remains successful on
 semantic degradation so deterministic results are still usable.
 
@@ -178,6 +190,8 @@ Inspect and accept generated output:
 pnpm cli run list --project "./writing-workspace/projects/my-novel"
 pnpm cli run show run-example --file output-raw.md --project "./writing-workspace/projects/my-novel"
 pnpm cli run set-output run-example --file ./candidate-prose.md --project "./writing-workspace/projects/my-novel"
+pnpm cli check scene-opening-scene --run run-example --project "./writing-workspace/projects/my-novel"
+pnpm cli run select run-example --project "./writing-workspace/projects/my-novel"
 pnpm cli run accept run-example --project "./writing-workspace/projects/my-novel"
 ```
 
@@ -185,9 +199,12 @@ pnpm cli run accept run-example --project "./writing-workspace/projects/my-novel
 supports reviewing prose produced outside the configured provider while retaining the run's original
 provider, model, and creation metadata.
 
+`run select` updates only candidate-group metadata and prints that no prose was written. Selection is
+recoverable, keeps all unselected candidates, and may be changed until one group member is accepted.
+
 `run accept` copies a non-empty `output-raw.md` to `output-accepted.md`, marks the run accepted, and
 accepts the target scene into its chapter and appends it to the independent chapter prose in order.
-Empty or Markdown-formatted output is rejected. Pass `--scene <scene-id>` only when the scene
+Grouped candidates must be selected first. Empty or Markdown-formatted output is rejected. Pass `--scene <scene-id>` only when the scene
 recorded in run metadata must be overridden.
 
 The CLI exposes finalization-impact review through `finalize review-plan/show/confirm`; it does not

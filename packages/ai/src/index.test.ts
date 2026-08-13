@@ -3,10 +3,12 @@ import {
   createWritingPreset,
   createProjectAt,
   defaultWritingPreset,
+  listRuns,
   loadConfig,
   migrateAIProfileApiKeys,
   readRunFile,
   selectWritingPreset,
+  writeRunFile,
   withStoredAIProfileApiKey,
   withUpdatedAIProfileApiKey
 } from '@quillarium/core'
@@ -18,10 +20,12 @@ import {
   AIRequestError,
   DEFAULT_AI_TIMEOUT_MS,
   generateText,
+  generateCandidateGroup,
   generateIntoRun,
   loadAIConfig,
   loadAIProfile,
   createGenerationRun,
+  createGenerationCandidateRuns,
   contextCompileOptions,
   resolveGenerationPreset,
   type AIConfig
@@ -87,6 +91,129 @@ describe('loadAIConfig', () => {
 })
 
 describe('generation run snapshots', () => {
+  it('creates and retains independently reviewable candidates in one group', async () => {
+    const tmp = await mkdtemp(path.join(os.tmpdir(), 'quillarium-ai-candidates-'))
+    try {
+      const project = await createProjectAt(path.join(tmp, 'project'), {
+        id: 'candidate-sample',
+        title: 'Candidate Sample'
+      })
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(completionResponse('Candidate one.'))
+        .mockResolvedValueOnce(completionResponse('Candidate two.'))
+        .mockResolvedValueOnce(completionResponse('Candidate three.'))
+      vi.stubGlobal('fetch', fetchMock)
+
+      const group = await generateCandidateGroup({
+        projectRoot: project.root,
+        sceneId: 'scene-one',
+        context: 'Context body.',
+        config,
+        count: 3
+      })
+
+      expect(group.candidates).toHaveLength(3)
+      expect(new Set(group.candidates.map((candidate) => candidate.run.candidate_group_id))).toEqual(
+        new Set([group.id])
+      )
+      expect(group.candidates.map((candidate) => candidate.run.candidate_index)).toEqual([0, 1, 2])
+      expect(group.candidates.map((candidate) => candidate.output)).toEqual([
+        'Candidate one.',
+        'Candidate two.',
+        'Candidate three.'
+      ])
+      expect(await listRuns(project.root)).toHaveLength(3)
+      await expect(readRunFile(project.root, group.candidates[1]!.run.id, 'output-raw.md')).resolves.toBe(
+        'Candidate two.'
+      )
+    } finally {
+      await rm(tmp, { recursive: true, force: true })
+    }
+  })
+
+  it('creates a new branch group from any retained candidate', async () => {
+    const tmp = await mkdtemp(path.join(os.tmpdir(), 'quillarium-ai-branch-'))
+    try {
+      const project = await createProjectAt(path.join(tmp, 'project'), {
+        id: 'branch-sample',
+        title: 'Branch Sample'
+      })
+      const parent = await createGenerationRun(project.root, 'scene-one', 'Context body.', config)
+      await writeRunFile(project.root, parent, 'output-raw.md', 'Retained parent candidate.')
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(completionResponse('Branch one.'))
+        .mockResolvedValueOnce(completionResponse('Branch two.'))
+      vi.stubGlobal('fetch', fetchMock)
+
+      const branch = await generateCandidateGroup({
+        projectRoot: project.root,
+        sceneId: 'scene-one',
+        context: 'Current context.',
+        config,
+        count: 2,
+        parentRunId: parent.id
+      })
+
+      expect(branch.parent_run_id).toBe(parent.id)
+      expect(branch.branch_id).toMatch(/^branch-/)
+      expect(branch.candidates.every((candidate) => candidate.run.parent_run_id === parent.id)).toBe(true)
+      const request = JSON.parse(String((fetchMock.mock.calls[0] as [string, RequestInit])[1].body)) as {
+        messages: Array<{ role: string; content: string }>
+      }
+      expect(request.messages.at(-1)?.content).toContain('Retained parent candidate.')
+    } finally {
+      await rm(tmp, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects candidate groups outside the bounded generation count', async () => {
+    const tmp = await mkdtemp(path.join(os.tmpdir(), 'quillarium-ai-candidate-limit-'))
+    try {
+      const project = await createProjectAt(path.join(tmp, 'project'), {
+        id: 'candidate-limit',
+        title: 'Candidate Limit'
+      })
+      await expect(
+        createGenerationCandidateRuns({
+          projectRoot: project.root,
+          sceneId: 'scene-one',
+          context: 'Context body.',
+          config,
+          count: 1
+        })
+      ).rejects.toThrow('between 2 and 8')
+    } finally {
+      await rm(tmp, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects a branch parent from another scene', async () => {
+    const tmp = await mkdtemp(path.join(os.tmpdir(), 'quillarium-ai-branch-target-'))
+    try {
+      const project = await createProjectAt(path.join(tmp, 'project'), {
+        id: 'branch-target',
+        title: 'Branch Target'
+      })
+      const parent = await createGenerationRun(project.root, 'scene-one', 'Context body.', config)
+      await writeRunFile(project.root, parent, 'output-raw.md', 'Parent prose.')
+
+      await expect(
+        createGenerationCandidateRuns({
+          projectRoot: project.root,
+          sceneId: 'scene-two',
+          context: 'Context body.',
+          config,
+          count: 2,
+          parentRunId: parent.id
+        })
+      ).rejects.toThrow('belongs to scene scene-one, not scene-two')
+    } finally {
+      await rm(tmp, { recursive: true, force: true })
+    }
+  })
+
   it('resolves project preset overrides through one shared profile loader', async () => {
     const tmp = await mkdtemp(path.join(os.tmpdir(), 'quillarium-ai-preset-'))
     try {

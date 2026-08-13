@@ -38,6 +38,51 @@ export interface CheckReport {
   issues: CheckIssue[]
 }
 
+export interface CheckScore {
+  schema_version: 1
+  deterministic_score: number
+  semantic_score?: number
+  semantic_status: NonNullable<CheckReport['semantic_status']>
+  errors: number
+  warnings: number
+  info: number
+}
+
+/** A transparent comparison aid; it never changes acceptance or authority. */
+export function scoreCheckReport(report: CheckReport): CheckScore {
+  const deterministic = report.issues.filter((issue) => !issue.code.startsWith('semantic-'))
+  const semantic = report.issues.filter(
+    (issue) =>
+      issue.code.startsWith('semantic-') &&
+      issue.code !== 'semantic-check-unavailable' &&
+      issue.code !== 'semantic-check-unparseable'
+  )
+  const semanticStatus = report.semantic_status ?? 'not_requested'
+  const counts = report.issues.reduce(
+    (result, issue) => ({ ...result, [issue.severity]: result[issue.severity] + 1 }),
+    { error: 0, warning: 0, info: 0 }
+  )
+  return {
+    schema_version: 1,
+    deterministic_score: issueScore(deterministic),
+    ...(semanticStatus === 'completed' || semanticStatus === 'partial'
+      ? { semantic_score: issueScore(semantic) }
+      : {}),
+    semantic_status: semanticStatus,
+    errors: counts.error,
+    warnings: counts.warning,
+    info: counts.info
+  }
+}
+
+function issueScore(issues: CheckIssue[]): number {
+  const penalty = issues.reduce(
+    (total, issue) => total + (issue.severity === 'error' ? 30 : issue.severity === 'warning' ? 10 : 2),
+    0
+  )
+  return Math.max(0, 100 - penalty)
+}
+
 export async function checkTarget(
   projectRoot: string,
   target: { type: 'scene' | 'outline'; id: string }

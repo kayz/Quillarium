@@ -4,7 +4,9 @@ import {
   createWritingPresetSnapshot,
   loadSelectedWritingPreset,
   loadConfig,
+  listRuns,
   readRunFile,
+  requireNonEmptyRunOutput,
   snapshotContextCompilation,
   snapshotSharedGuidance,
   snapshotWritingPreset,
@@ -19,6 +21,7 @@ import {
   type SharedGuidanceContent,
   type WritingPresetSnapshot
 } from '@quillarium/core'
+import { randomUUID } from 'node:crypto'
 
 export interface AIConfig {
   provider: 'openai-compatible' | 'openai' | 'claude' | 'gemini' | 'deepseek' | 'ollama'
@@ -53,6 +56,35 @@ export interface ResolvedGenerationPreset {
   config: AIConfig
   snapshot: WritingPresetSnapshot
 }
+
+export interface CandidateGenerationRequest {
+  projectRoot: string
+  sceneId: string
+  context: string
+  config: AIConfig
+  count: number
+  metadata?: Partial<RunMetadata>
+  sharedGuidance?: SharedGuidanceContent[]
+  promptOverride?: string
+  compilation?: GenerationContextCompilationSnapshot
+  candidateGroupId?: string
+  branchId?: string
+  parentRunId?: string
+}
+
+export interface GeneratedCandidate {
+  run: RunMetadata
+  output: string
+}
+
+export interface GeneratedCandidateGroup {
+  id: string
+  branch_id: string
+  parent_run_id?: string
+  candidates: GeneratedCandidate[]
+}
+
+export const MAX_CANDIDATES_PER_GROUP = 8
 
 export type AIProfileLoader = (profile: 'prose' | 'background' | 'check') => Promise<AIConfig>
 
@@ -580,6 +612,107 @@ export async function generateIntoRun(
   await writeRunFile(projectRoot, next, 'output-raw.md', output)
   await writeRunMetadata(projectRoot, next)
   return output
+}
+
+export async function createGenerationCandidateRuns(
+  request: CandidateGenerationRequest
+): Promise<RunMetadata[]> {
+  const count = normalizeCandidateCount(request.count)
+  const candidateGroupId = request.candidateGroupId ?? `candidate-group-${randomUUID()}`
+  const branchId = request.branchId ?? (request.parentRunId ? `branch-${randomUUID()}` : 'main')
+  if (request.parentRunId) {
+    const parent = await requireBranchParent(request.projectRoot, request.parentRunId)
+    if (parent.scene_id !== request.sceneId) {
+      throw new Error(
+        `Parent run ${request.parentRunId} belongs to scene ${parent.scene_id}, not ${request.sceneId}.`
+      )
+    }
+    if (request.metadata?.target_id && parent.target_id !== request.metadata.target_id) {
+      throw new Error(
+        `Parent run ${request.parentRunId} belongs to target ${parent.target_id}, not ${request.metadata.target_id}.`
+      )
+    }
+  }
+  const runs: RunMetadata[] = []
+  for (let candidateIndex = 0; candidateIndex < count; candidateIndex += 1) {
+    runs.push(
+      await createGenerationRun(
+        request.projectRoot,
+        request.sceneId,
+        request.context,
+        request.config,
+        {
+          ...request.metadata,
+          candidate_group_id: candidateGroupId,
+          candidate_index: candidateIndex,
+          parent_run_id: request.parentRunId,
+          branch_id: branchId
+        },
+        request.sharedGuidance ?? [],
+        request.promptOverride,
+        request.compilation
+      )
+    )
+  }
+  return runs
+}
+
+export async function generateCandidateGroup(
+  request: CandidateGenerationRequest,
+  options: AIRequestOptions = {},
+  outputTransform: (output: string) => string = (output) => output
+): Promise<GeneratedCandidateGroup> {
+  const promptOverride = request.parentRunId
+    ? await buildBranchedPrompt(request.projectRoot, request.parentRunId, request.promptOverride)
+    : request.promptOverride
+  const runs = await createGenerationCandidateRuns({ ...request, promptOverride })
+  const candidates: GeneratedCandidate[] = []
+  for (const run of runs) {
+    const output = await generateIntoRun(
+      request.projectRoot,
+      run,
+      request.context,
+      request.config,
+      options,
+      promptOverride,
+      outputTransform,
+      request.compilation?.writing_preset
+    )
+    candidates.push({ run: { ...run, status: 'generated' }, output })
+  }
+  return {
+    id: runs[0]?.candidate_group_id ?? '',
+    branch_id: runs[0]?.branch_id ?? 'main',
+    parent_run_id: runs[0]?.parent_run_id,
+    candidates
+  }
+}
+
+function normalizeCandidateCount(count: number): number {
+  if (!Number.isInteger(count) || count < 2 || count > MAX_CANDIDATES_PER_GROUP) {
+    throw new Error(`Candidate count must be an integer between 2 and ${MAX_CANDIDATES_PER_GROUP}.`)
+  }
+  return count
+}
+
+async function requireBranchParent(projectRoot: string, parentRunId: string): Promise<RunMetadata> {
+  const parent = (await listRuns(projectRoot)).find((run) => run.id === parentRunId)
+  if (!parent) throw new Error(`Parent run not found: ${parentRunId}`)
+  requireNonEmptyRunOutput(await readRunFile(projectRoot, parentRunId, 'output-raw.md'), parentRunId)
+  return parent
+}
+
+async function buildBranchedPrompt(
+  projectRoot: string,
+  parentRunId: string,
+  promptOverride?: string
+): Promise<string> {
+  const parent = await requireBranchParent(projectRoot, parentRunId)
+  const basePrompt = promptOverride?.trim()
+    ? promptOverride
+    : await readRunFile(projectRoot, parent.id, 'prompt.md')
+  const parentOutput = await readRunFile(projectRoot, parent.id, 'output-raw.md')
+  return `${basePrompt.trimEnd()}\n\n【分支基稿】\n${parentOutput.trim()}\n\n【分支要求】\n基于以上候选稿形成一个独立分支；保持既有事实边界，只输出本节纯文字正文。`
 }
 
 function assertPresetMatchesConfig(snapshot: WritingPresetSnapshot, config: AIConfig): void {

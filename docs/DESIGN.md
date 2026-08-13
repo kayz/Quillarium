@@ -11,15 +11,16 @@ As of 2026-08-13, the work-neutral workspace foundation and the first planning-c
 implemented. The workbench includes typed relations and material provenance, a linked timeline,
 spatial and time-aware character views, keyword-triggered world knowledge, foreshadowing reminders,
 manual AI checks that persist issue cards, card-by-card prompt composition, an explainable
-model-budgeted Context compiler, and versioned writing presets with immutable run snapshots. The
-next phase in the root [ROADMAP](../ROADMAP.md) adds multiple candidates and branches.
+model-budgeted Context compiler, versioned writing presets with immutable run snapshots, and
+multi-candidate comparison, selection, and branching. The root [ROADMAP](../ROADMAP.md) tracks
+atomic finalization apply and later lifecycle work.
 
 The implemented context layer returns one deterministic `ContextPacket` with selected documents,
 warnings, shared guidance, typed `PromptBlock` values, and a complete `ContextTrace`. Selection uses
 explicit links, pins and exclusions, outline ancestry, enabled state, keyword matching, and
 cycle-safe bounded relationship expansion. Exact model tokenizers allocate a real input budget after
 framing and output reservations. The selected `WritingPreset` supplies the portable model overrides,
-prompt stack, block order, context policy, and check policy; candidate lineage remains future work.
+prompt stack, block order, context policy, and check policy; candidate lineage is stored per Run.
 
 The desktop planning baseline also uses a deliberately small surface: the unselected-project screen
 has one active library-management entry, while display, GitHub, and the three AI profiles live in
@@ -238,6 +239,7 @@ prompt.md
 output-raw.md
 output-accepted.md
 check-report.md
+evaluation.json
 prompt-blocks.json
 context-trace.json
 writing-preset.json
@@ -246,8 +248,18 @@ writing-preset.json
 `prompt-blocks.json` and `context-trace.json` are immutable portable snapshots of the exact compiler
 result used by generation. `shared-guidance.md` and `shared-guidance.json` snapshot the guidance read
 for the run. `writing-preset.json` is the sanitized immutable preset snapshot; preset ID, semantic
-version, and snapshot SHA-256 are also recorded in `metadata.yaml`. Candidate groups, parent runs,
-branches, and selection timestamps remain target fields described in the roadmap.
+version, and snapshot SHA-256 are also recorded in `metadata.yaml`.
+
+One generation action can create two to eight Runs with a shared `candidate_group_id` and distinct
+`candidate_index`. Base groups use the `main` branch; a branch group records its source candidate in
+`parent_run_id` and receives a new `branch_id`. Every candidate keeps independent raw prose, checks,
+and evaluation. `evaluation.json` contains a transparent fixed-penalty deterministic score and only
+contains a semantic score when semantic checks completed or partially completed.
+
+Selection uses a recoverable project-level journal to update exactly one `selected_at` marker in the
+group. It does not change Run status or any prose. Reselection is allowed until a group member is
+accepted; accepting a grouped candidate requires it to be selected first. See
+[ADR-candidate-branches.md](adr/ADR-candidate-branches.md).
 
 ### Prompts and Writing Presets
 

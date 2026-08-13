@@ -160,9 +160,13 @@ assemble context for one section, save generation runs, and produce consistency 
   - [x] `output-raw.md`
   - [x] `output-accepted.md`
   - [x] `check-report.md`
+  - [x] `evaluation.json`
 - [x] Implement `quill run list`.
 - [x] Implement `quill run show`.
 - [x] Implement `quill run accept`.
+- [x] Group and retain multiple candidates from one request.
+- [x] Implement recoverable candidate selection without prose writes.
+- [x] Branch from a retained candidate with explicit parent lineage.
 
 ## Milestone 11: Basic Checks
 

@@ -11,9 +11,9 @@ The entries below register independently designed **target abstractions**, not a
 mechanism is already implemented. The current development baseline has deterministic
 tokenizer-aware `ContextPolicy` compilation, complete `PromptBlock`/`ContextTrace` artifacts,
 bounded relationship activation, editable prompt-source cards, immutable compiler/shared-guidance
-snapshots, and a single raw/accepted output per run. Versioned `WritingPreset` snapshots are now
-implemented; candidate branches, lifecycle events, scoped notes, rolling summaries, recipes, and a
-plugin system remain roadmap work. Current behavior is described in
+snapshots, versioned `WritingPreset` snapshots, and independently implemented candidate groups,
+comparison, selection, and branches. Lifecycle events, scoped notes, rolling summaries, recipes,
+and a plugin system remain roadmap work. Current behavior is described in
 [DESIGN.md](DESIGN.md), and delivery status is tracked
 in the root [ROADMAP.md](../ROADMAP.md).
 
@@ -64,9 +64,10 @@ form a stable reference.
   [`public/scripts/bookmarks.js`](https://github.com/SillyTavern/SillyTavern/blob/8172dcd0ee672d3cd9a5e5f7af134f91a45cd2b8/public/scripts/bookmarks.js)
 - Abstract mechanism studied: retaining alternatives, comparing them, selecting one, and creating a
   branch from a chosen alternative.
-- Target Quillarium design: runs record candidate group, parent run, branch, checks, and selection
-  time;
-  alternatives remain auditable and can seed a new fiction branch.
+- Quillarium implementation: Runs record candidate group, parent Run, branch, checks, and selection
+  time; alternatives remain auditable and can seed a new fiction branch. Selection recovery and
+  acceptance rules are defined independently in
+  [ADR-candidate-branches.md](adr/ADR-candidate-branches.md).
 - Material difference: selecting a candidate is not scene acceptance, chapter publication, or a
   continuity update. Candidate lineage belongs to the run model, not a sequence of chat records.
 - Source code copied: No.

@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
 import type { ContextPacketSummary, DocEntry } from '../../app/types.js'
 import { AIWritingWorkspace } from './AIWritingWorkspace.js'
-import { Inspector } from './InspectorRun.js'
+import { Inspector, RunPanel } from './InspectorRun.js'
 
 vi.mock('../../app/bridge.js', () => ({ bridge: {} }))
 
@@ -99,8 +99,50 @@ describe('AIWritingWorkspace', () => {
     expect(html).toContain('2 · 上下文与检查')
     expect(html).toContain('3 · 候选稿与运行')
     expect(html).toContain('作者调整后的提示词')
-    expect(html).toContain('使用此提示词生成')
+    expect(html).toContain('生成 3 稿')
+    expect(html).toContain('候选数')
     expect(html).toContain('run/prompt.md')
+  })
+
+  it('shows grouped candidates as selectable, checkable, and branchable without implying acceptance', () => {
+    const html = renderToStaticMarkup(
+      <RunPanel
+        root="C:/project"
+        runs={[
+          {
+            id: 'run-a',
+            scene_id: 'scene-opening',
+            status: 'generated',
+            model: 'sample-model',
+            created_at: '2026-08-13T00:00:00.000Z',
+            candidate_group_id: 'candidate-group-one',
+            candidate_index: 0,
+            branch_id: 'main',
+            selected_at: '2026-08-13T00:01:00.000Z'
+          },
+          {
+            id: 'run-b',
+            scene_id: 'scene-opening',
+            status: 'checked',
+            model: 'sample-model',
+            created_at: '2026-08-13T00:00:00.000Z',
+            candidate_group_id: 'candidate-group-one',
+            candidate_index: 1,
+            branch_id: 'main'
+          }
+        ]}
+        sceneId="scene-opening"
+        onAccepted={async () => undefined}
+        onBranch={async () => undefined}
+        language="zh"
+      />
+    )
+
+    expect(html).toContain('候选对比')
+    expect(html).toContain('检查本稿')
+    expect(html).toContain('从本稿分支')
+    expect(html).toContain('已选中')
+    expect(html).toContain('采纳原文')
   })
 
   it('shows the selected timeline title in the assembled context inspector', () => {

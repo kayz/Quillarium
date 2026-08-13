@@ -336,11 +336,22 @@ export function Workspace({
     })
   }
 
-  const generateFromPrompt = async (prompt: string) => {
+  const generateFromPrompt = async (prompt: string, count = 3, parentRunId?: string) => {
     if (!writingOutline || writingOutline.data.level !== 'chapter' || !prompt.trim()) return
     await runWorkspaceAction(async () => {
-      await bridge.generateOutline(root, writingOutline.data.id, prompt, selectedScene?.data.id)
-      await load()
+      try {
+        await bridge.generateOutlineCandidates(
+          root,
+          writingOutline.data.id,
+          prompt,
+          selectedScene?.data.id,
+          count,
+          parentRunId
+        )
+      } finally {
+        // A provider can fail after earlier candidates completed; always reveal retained Runs.
+        await load()
+      }
     })
   }
 

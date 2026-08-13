@@ -48,7 +48,7 @@ export function AIWritingWorkspace({
   busy: boolean
   onPromptChange: (prompt: string) => void
   onCheck: (contentOverride?: string) => Promise<void>
-  onGenerate: (prompt: string) => Promise<void>
+  onGenerate: (prompt: string, count?: number, parentRunId?: string) => Promise<void>
   onDelete: () => Promise<void>
   onAccepted: () => Promise<void>
   onScenePrepared: (sceneId: string) => Promise<void>
@@ -66,6 +66,7 @@ export function AIWritingWorkspace({
   const promptGridRef = useRef<HTMLDivElement | null>(null)
   const [promptSourcePct, setPromptSourcePct] = useState(30)
   const [candidateDraft, setCandidateDraft] = useState('')
+  const [candidateCount, setCandidateCount] = useState(3)
   const requestedSceneId = scene?.data.id
   const requestedScene = lifecycle?.scenes.find((item) => item.data.id === requestedSceneId)
   const currentScene = requestedScene ?? (scene?.data.id === requestedSceneId ? scene : null)
@@ -225,12 +226,32 @@ export function AIWritingWorkspace({
               </button>
               <button
                 className="primary"
-                onClick={() => onGenerate(assembledPrompt)}
+                onClick={() => onGenerate(assembledPrompt, candidateCount)}
                 disabled={busy || sceneLocked || !assembledPrompt.trim()}
               >
                 <Play size={15} />{' '}
-                {busy ? (zh ? '生成中…' : 'Generating…') : zh ? '使用此提示词生成' : 'Generate'}
+                {busy
+                  ? zh
+                    ? '生成中…'
+                    : 'Generating…'
+                  : zh
+                    ? `生成 ${candidateCount} 稿`
+                    : `Generate ${candidateCount}`}
               </button>
+              <label className="candidate-count-control">
+                <span>{zh ? '候选数' : 'Candidates'}</span>
+                <select
+                  value={candidateCount}
+                  onChange={(event) => setCandidateCount(Number(event.target.value))}
+                  disabled={busy || sceneLocked}
+                >
+                  {[2, 3, 4, 5].map((count) => (
+                    <option key={count} value={count}>
+                      {count}
+                    </option>
+                  ))}
+                </select>
+              </label>
             </>
           )}
           {!chapterLocked && (
@@ -412,6 +433,7 @@ export function AIWritingWorkspace({
                   await onAccepted()
                   await refreshChapter()
                 }}
+                onBranch={(parentRunId) => onGenerate(assembledPrompt, candidateCount, parentRunId)}
                 language={language}
               />
             )}

@@ -68,6 +68,8 @@ const api: QuillariumAPI = {
   generate: (root, sceneId) => invoke('scene:generate', root, sceneId),
   generateOutline: (root, outlineId, prompt, sceneId) =>
     invoke('outline:generate', root, outlineId, prompt, sceneId),
+  generateOutlineCandidates: (root, outlineId, prompt, sceneId, count, parentRunId) =>
+    invoke('outline:generateCandidates', root, outlineId, prompt, sceneId, count, parentRunId),
   prepareScene: (root, chapterId) => invoke('scene:prepare', root, chapterId),
   acceptManualScene: (root, sceneId, content) => invoke('scene:acceptManual', root, sceneId, content),
   buildScenePromptPlan: (root, sceneId) => invoke('scene:promptPlan', root, sceneId),
@@ -81,6 +83,8 @@ const api: QuillariumAPI = {
   confirmFinalizeImpact: (root, sessionId, impactId, answer, state) =>
     invoke('finalize:confirmImpact', root, sessionId, impactId, answer, state),
   readRunFile: (root, runId, file) => invoke('run:readFile', root, runId, file),
+  selectRunCandidate: (root, runId) => invoke('run:select', root, runId),
+  checkRunCandidate: (root, runId) => invoke('run:check', root, runId),
   acceptRun: (root, runId, candidate) => invoke('run:accept', root, runId, candidate),
   exportManuscript: (root, options) => invoke('export:manuscript', root, options),
   importSillyTavernCard: (root, filePath) => invoke('st:importCard', root, filePath),

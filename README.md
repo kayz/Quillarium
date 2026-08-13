@@ -9,9 +9,8 @@ workspace may register multiple projects and shared guidance, while each project
 an independent Obsidian vault and a Quillarium project root.
 
 This document describes the `0.2.0-alpha.1` code line as of 2026-08-13. “Works now” means the
-behavior is present in the repository and covered by local tests; multi-candidate branching,
-lifecycle events, and atomic continuity apply are kept in the [roadmap](ROADMAP.md), not presented
-as completed features.
+behavior is present in the repository and covered by local tests; lifecycle events and atomic
+continuity apply remain in the [roadmap](ROADMAP.md), not presented as completed features.
 
 ## What Works Now
 
@@ -37,6 +36,10 @@ as completed features.
 - Versioned project writing presets bind a connection-profile role, model overrides, prompt stack,
   block order, deterministic context policy, and check policy. Desktop and CLI select the same preset,
   and every generation run stores its sanitized immutable snapshot and SHA-256 identity.
+- One generation action can create two to eight independently retained candidates in a shared run
+  group. Desktop and CLI compare candidate prose and checks, explicitly select one without writing
+  prose, and create a new branch from any retained candidate. Only the separate accept action writes
+  scene and chapter prose.
 - Markdown and plain-text manuscript export from finalized/published chapter prose, accepted outputs,
   or final scenes, with explicit gap reporting and optional volume filtering.
 - A seven-level workflow: overview and book outline at the top, then volume, part, optional act,
@@ -54,7 +57,8 @@ chain, explicit pins and exclusions, typed relations, timeline links, keyword ac
 enabled-card state; performs cycle-safe bounded relationship expansion; then emits typed
 `PromptBlock` values and a complete `ContextTrace`. DeepSeek V4 and supported OpenAI model families
 use packaged exact tokenizers. Unknown tokenizer/model combinations fail closed instead of silently
-using a character estimate. Candidate groups and branches remain the next P0 work.
+using a character estimate. Run metadata records candidate group, parent, branch, index, and
+selection time; every candidate keeps its own prompt, output, check report, and comparison score.
 
 ## Quick Start
 
@@ -131,9 +135,9 @@ A typical CLI workflow is:
 3. Add Canon, characters, locations, timeline events, an outline, and scenes.
 4. Assemble context or run `generate --dry-run` to inspect the recorded prompt without a network
    call.
-5. Generate a draft, run deterministic checks, and optionally add `--semantic` for AI-assisted OOC,
-   state-drift, and Canon-conflict findings.
-6. Inspect and accept a run, then export accepted prose as Markdown or plain text.
+5. Generate several candidates, run deterministic checks, and optionally add `--semantic` for
+   AI-assisted OOC, state-drift, and Canon-conflict findings.
+6. Compare candidates, explicitly select one, then separately accept it and export accepted prose.
 
 All CLI examples and the current command map are in [docs/CLI.md](docs/CLI.md). The runtime command
 help remains authoritative:

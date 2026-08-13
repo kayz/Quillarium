@@ -3105,6 +3105,24 @@ body.is-resizing-row * {
   align-items: center;
   gap: 7px;
 }
+.candidate-count-control {
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  color: var(--text-muted);
+  font-size: 12px;
+  background: var(--bg-editor);
+}
+.candidate-count-control select {
+  width: 48px;
+  height: 28px;
+  min-height: 0;
+  padding: 0 4px;
+}
 .ai-writing-tabs {
   display: flex;
   align-items: stretch;
@@ -3743,11 +3761,13 @@ body.is-resizing-row * {
 .run-panel {
   overflow: hidden;
   display: grid;
-  grid-template-rows: 38px minmax(0, 1fr);
+  grid-template-rows: 42px minmax(0, 1fr);
   min-height: 0;
 }
 .run-tabs {
   display: flex;
+  align-items: stretch;
+  overflow-x: auto;
   background: var(--bg-panel);
   border-bottom: 1px solid var(--border);
 }
@@ -3755,6 +3775,11 @@ body.is-resizing-row * {
   border: 0;
   background: transparent;
   padding: 0 18px;
+  min-height: 0;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
 }
 .run-tabs .active {
   color: var(--accent-strong);
@@ -3781,6 +3806,25 @@ body.is-resizing-row * {
   padding: 7px 0;
   border-bottom: 1px solid var(--border);
 }
+.run-row > span {
+  min-width: 0;
+}
+.run-row > span > strong,
+.run-row > span > small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.run-row > span > small,
+.candidate-selected-mark {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 500;
+}
+.candidate-selected-mark {
+  color: var(--success);
+}
 .run-row.header {
   color: var(--text-muted);
   font-weight: 700;
@@ -3800,6 +3844,102 @@ body.is-resizing-row * {
   font-family: Consolas, 'Courier New', monospace;
   font-size: 12px;
   line-height: 1.5;
+}
+.run-split:has(.candidate-comparison) {
+  grid-template-columns: minmax(230px, 0.28fr) minmax(0, 1fr);
+}
+.candidate-comparison {
+  min-width: 0;
+  min-height: 0;
+  padding: 12px;
+  border-left: 1px solid var(--border);
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(300px, 1fr);
+  gap: 10px;
+  overflow: auto;
+  background: var(--bg-muted);
+}
+.candidate-comparison article {
+  min-height: 0;
+  display: grid;
+  grid-template-rows: auto auto minmax(180px, 1fr) auto auto;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  overflow: hidden;
+  background: var(--bg-editor);
+}
+.candidate-score-strip {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--border);
+  border-bottom: 1px solid var(--border);
+}
+.candidate-score-strip > span {
+  padding: 7px 10px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: baseline;
+  gap: 4px;
+  color: var(--text-muted);
+  background: var(--bg-panel);
+  font-size: 11px;
+}
+.candidate-score-strip strong {
+  color: var(--accent-strong);
+  font-size: 16px;
+}
+.candidate-score-strip small {
+  grid-column: 1 / -1;
+  font-size: 9px;
+}
+.candidate-comparison article.selected {
+  border-color: var(--success);
+  box-shadow: inset 0 3px 0 var(--success);
+}
+.candidate-comparison article > header,
+.candidate-comparison article > footer {
+  min-height: 38px;
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.candidate-comparison article > header span {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.candidate-comparison-prose,
+.candidate-comparison details pre {
+  margin: 0;
+  padding: 12px;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-family: var(--font-reading);
+  font-size: 15px;
+  line-height: 1.75;
+}
+.candidate-comparison details {
+  border-top: 1px solid var(--border);
+}
+.candidate-comparison summary {
+  padding: 8px 10px;
+  cursor: pointer;
+  color: var(--text-muted);
+}
+.candidate-comparison details pre {
+  max-height: 180px;
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 11px;
+  line-height: 1.5;
+}
+.candidate-comparison article > footer {
+  justify-content: flex-end;
+  border-top: 1px solid var(--border);
+  border-bottom: 0;
 }
 .empty-row {
   color: var(--text-muted);

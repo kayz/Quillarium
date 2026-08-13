@@ -1,6 +1,6 @@
 import { afterAll, afterEach, describe, expect, it } from 'vitest'
 import type { CheckReport } from './index.js'
-import { checkOutline, checkScene, checkTarget, formatCheckReport } from './index.js'
+import { checkOutline, checkScene, checkTarget, formatCheckReport, scoreCheckReport } from './index.js'
 import { createTestProject, removeTestProject, writeTestDoc } from './fixtures/test-project.js'
 
 const ALL_ISSUE_CODES = [
@@ -640,6 +640,29 @@ describe('public entry points and formatting', () => {
       scene_id: 'section-main',
       target_type: 'outline',
       target_id: 'section-main'
+    })
+  })
+
+  it('produces transparent deterministic and optional semantic comparison scores', () => {
+    expect(
+      scoreCheckReport({
+        scene_id: 'scene-one',
+        generated_at: '2026-08-13T00:00:00.000Z',
+        semantic_status: 'completed',
+        issues: [
+          { severity: 'warning', code: 'missing-location', message: 'Missing location.' },
+          { severity: 'error', code: 'semantic-canon-conflict', message: 'Conflict.' },
+          { severity: 'info', code: 'semantic-ooc', message: 'Minor concern.' }
+        ]
+      })
+    ).toEqual({
+      schema_version: 1,
+      deterministic_score: 90,
+      semantic_score: 68,
+      semantic_status: 'completed',
+      errors: 1,
+      warnings: 1,
+      info: 1
     })
   })
 

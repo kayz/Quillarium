@@ -109,7 +109,7 @@ interface WorkspaceViewProps {
     runCheck: (contentOverride?: string) => Promise<void>
     runProjectPlanningCheck: () => Promise<void>
     setAssembledPrompt: Dispatch<SetStateAction<string>>
-    generateFromPrompt: (prompt: string) => Promise<void>
+    generateFromPrompt: (prompt: string, count?: number, parentRunId?: string) => Promise<void>
     setImportOpen: Dispatch<SetStateAction<boolean>>
     createDoc: (kind: string, input: Record<string, unknown>) => Promise<unknown>
     load: () => Promise<void>
