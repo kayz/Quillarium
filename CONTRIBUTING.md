@@ -10,9 +10,11 @@ plain files in an Obsidian-compatible folder.
 pnpm install
 pnpm build
 pnpm test
+pnpm test:coverage
 pnpm lint
 pnpm format:check
 pnpm desktop:build
+pnpm audit --prod --audit-level=high
 pnpm cli --help
 pnpm desktop:dev
 ```
@@ -31,3 +33,5 @@ pnpm desktop:dev
 - Include tests for core data behavior.
 - Run build, test, lint, format check, and the desktop build before submitting changes that affect
   shared types or the Electron application. `pnpm check` remains the short build-and-test gate.
+- Follow [docs/RELEASING.md](docs/RELEASING.md) for version delivery. Never move, reuse, or rerun a
+  failed version tag.
