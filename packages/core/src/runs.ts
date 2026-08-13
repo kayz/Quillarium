@@ -5,6 +5,8 @@ import { ensureDir, pathExists, readText, writeText } from './fs.js'
 import { timestampId } from './ids.js'
 import { objectToYaml, parseMarkdown } from './yaml.js'
 import type { ContextTrace, PromptBlock, RunMetadata, SharedGuidanceContent } from './types.js'
+import { assertWritingPresetSnapshot } from './writing-presets.js'
+import type { WritingPresetSnapshot } from './types.js'
 
 export function requireNonEmptyRunOutput(content: string, runId: string): string {
   if (!content.trim()) throw new Error(`Run output is empty; refusing to overwrite a scene: ${runId}`)
@@ -31,6 +33,9 @@ export async function createRun(
     created_at: metadata.created_at ?? new Date().toISOString(),
     provider: metadata.provider ?? 'none',
     model: metadata.model ?? 'none',
+    preset_id: metadata.preset_id,
+    preset_version: metadata.preset_version,
+    preset_sha256: metadata.preset_sha256,
     status: metadata.status ?? 'created',
     run_dir: path.relative(projectRoot, runDir).replace(/\\/g, '/')
   }
@@ -139,6 +144,22 @@ export async function snapshotContextCompilation(
   return { blocks_path: blocksPath, trace_path: tracePath }
 }
 
+export async function snapshotWritingPreset(
+  projectRoot: string,
+  metadata: RunMetadata,
+  snapshot: WritingPresetSnapshot
+): Promise<{ snapshot_path: string }> {
+  const runDir = path.resolve(projectRoot, metadata.run_dir)
+  assertRunDirectory(projectRoot, runDir)
+  const snapshotPath = path.join(runDir, 'writing-preset.json')
+  if (await pathExists(snapshotPath)) {
+    throw new Error(`Writing preset snapshot already exists and is immutable: ${metadata.id}`)
+  }
+  const verified = assertWritingPresetSnapshot(snapshot)
+  await writeImmutableFile(snapshotPath, `${JSON.stringify(verified, null, 2)}\n`)
+  return { snapshot_path: snapshotPath }
+}
+
 export async function listRuns(projectRoot: string): Promise<RunMetadata[]> {
   const runsRoot = path.join(projectRoot, 'runs')
   if (!(await pathExists(runsRoot))) return []
@@ -166,6 +187,9 @@ export async function listRuns(projectRoot: string): Promise<RunMetadata[]> {
       created_at: get('created_at'),
       provider: get('provider'),
       model: get('model'),
+      preset_id: get('preset_id') || undefined,
+      preset_version: get('preset_version') || undefined,
+      preset_sha256: get('preset_sha256') || undefined,
       status: isRunStatus(status) ? status : 'created',
       // The directory being enumerated is authoritative; metadata must not redirect later reads or writes.
       run_dir: `runs/${entry.name}`
@@ -224,6 +248,17 @@ async function writeImmutablePair(
     }
   } catch (error) {
     await Promise.all([rm(firstTemporary, { force: true }), rm(secondTemporary, { force: true })])
+    throw error
+  }
+}
+
+async function writeImmutableFile(filePath: string, content: string): Promise<void> {
+  const temporary = `${filePath}.${randomUUID()}.tmp`
+  await writeFile(temporary, content, { encoding: 'utf8', flag: 'wx' })
+  try {
+    await rename(temporary, filePath)
+  } catch (error) {
+    await rm(temporary, { force: true })
     throw error
   }
 }

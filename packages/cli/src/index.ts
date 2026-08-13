@@ -29,11 +29,14 @@ import {
   createImportSessionPlan,
   createWorldEntry,
   createRun,
+  createWritingPreset,
+  defaultWritingPreset,
   ensureDefaultPrompts,
   exportManuscript,
   answerImportIssue,
   getObsidianDir,
   getWorkspaceDir,
+  initializeDefaultWritingPreset,
   listWorkspaceProjects,
   importCanonFile,
   importMarkdownPath,
@@ -41,12 +44,18 @@ import {
   loadFinalizeReviewSession,
   loadImportSession,
   listRuns,
+  listWritingPresets,
   listDocs,
+  loadWritingPreset,
+  planWritingPresetMigration,
+  applyWritingPresetMigration,
   readPrompt,
   renderContextPacket,
   snapshotContextCompilation,
   snapshotSharedGuidance,
+  snapshotWritingPreset,
   searchCanon,
+  selectWritingPreset,
   setObsidianDir,
   setWorkspaceDir,
   loadWorkspace,
@@ -71,7 +80,8 @@ import {
   createGenerationRun,
   generateIntoRun,
   generateText,
-  loadAIConfig
+  loadAIConfig,
+  resolveGenerationPreset
 } from '@quillarium/ai'
 import { registerSillyTavernCommands } from './sillytavern.js'
 import { registerStrategyCommands } from './strategy.js'
@@ -118,6 +128,72 @@ export function buildProgram(): Command {
   function projectOption(cmd: Command): Command {
     return cmd.requiredOption('-p, --project <path>', 'Novel project root')
   }
+
+  const presetCmd = program.command('preset').description('Manage versioned project writing presets')
+  projectOption(
+    presetCmd.command('init').description('Create and select the default writing preset explicitly')
+  ).action(async (opts) => {
+    const initialized = await initializeDefaultWritingPreset(path.resolve(opts.project))
+    console.log(`${initialized.preset.id}\t${initialized.preset.version}\t${initialized.source_path}`)
+  })
+  projectOption(presetCmd.command('list').description('List writing presets')).action(async (opts) => {
+    for (const preset of await listWritingPresets(path.resolve(opts.project))) {
+      console.log(
+        `${preset.selected ? '*' : ' '}\t${preset.id}\t${preset.version}\t${preset.title}\t${preset.source_path}`
+      )
+    }
+  })
+  projectOption(
+    presetCmd
+      .command('show')
+      .argument('<id>', 'Writing preset id')
+      .description('Show the parsed current preset schema')
+  ).action(async (id, opts) => {
+    console.log(JSON.stringify(await loadWritingPreset(path.resolve(opts.project), id), null, 2))
+  })
+  projectOption(
+    presetCmd
+      .command('select')
+      .argument('<id>', 'Writing preset id')
+      .description('Select a preset for future generation runs')
+  ).action(async (id, opts) => {
+    const selected = await selectWritingPreset(path.resolve(opts.project), id)
+    console.log(`${selected.preset.id}\t${selected.preset.version}`)
+  })
+  projectOption(
+    presetCmd
+      .command('create')
+      .argument('<id>', 'Stable path-safe preset id')
+      .option('--title <title>', 'Display title')
+      .option('--preset-version <version>', 'Semantic preset version', '1.0.0')
+      .option('--profile <profile>', 'Connection profile: prose | background | check', 'prose')
+      .option('--provider <provider>', 'Override the connection provider')
+      .option('--model <model>', 'Override the model')
+      .description('Create a safe project writing preset')
+  ).action(async (id, opts) => {
+    const preset = defaultWritingPreset(id, opts.title ?? id)
+    preset.version = opts.presetVersion
+    preset.model.profile = opts.profile
+    if (opts.provider) preset.model.provider = opts.provider
+    if (opts.model) preset.model.model = opts.model
+    const created = await createWritingPreset(path.resolve(opts.project), preset)
+    console.log(`${created.preset.id}\t${created.preset.version}\t${created.source_path}`)
+  })
+  projectOption(
+    presetCmd
+      .command('migrate')
+      .argument('<id>', 'Writing preset id')
+      .option('--apply', 'Back up, migrate, and verify the preset')
+      .description('Plan or apply a schema-v1 to schema-v2 preset migration')
+  ).action(async (id, opts) => {
+    const root = path.resolve(opts.project)
+    const plan = await planWritingPresetMigration(root, id)
+    if (!opts.apply) {
+      console.log(JSON.stringify(plan, null, 2))
+      return
+    }
+    console.log(JSON.stringify(await applyWritingPresetMigration(root, plan), null, 2))
+  })
 
   function printPath(file: string) {
     console.log(path.resolve(file))
@@ -711,21 +787,30 @@ export function buildProgram(): Command {
       .argument('<scene-id>', 'Scene id')
       .option('--run', 'Create a run and save context.md')
       .option('--trace', 'Print PromptBlocks and ContextTrace as JSON')
+      .option('--preset <id>', 'Use a specific project writing preset')
       .description('Assemble context for a scene')
   ).action(async (sceneId, opts) => {
     const root = path.resolve(opts.project)
-    const config = loadAIConfig()
+    const resolved = await resolveGenerationPreset(root, async () => loadAIConfig(), opts.preset)
+    const config = resolved.config
     const packet = await assembleContextPacket(
       root,
       { type: 'scene', id: sceneId },
-      contextCompileOptions(config)
+      contextCompileOptions(config, resolved.snapshot)
     )
     const context = renderContextPacket(packet)
     if (opts.run) {
-      const run = await createRun(root, sceneId, { provider: config.provider, model: config.model })
+      const run = await createRun(root, sceneId, {
+        provider: config.provider,
+        model: config.model,
+        preset_id: resolved.snapshot.preset_id,
+        preset_version: resolved.snapshot.preset_version,
+        preset_sha256: resolved.snapshot.snapshot_sha256
+      })
       await writeRunFile(root, run, 'context.md', context)
       await snapshotSharedGuidance(root, run, packet.shared_guidance)
       await snapshotContextCompilation(root, run, packet.prompt_blocks, packet.context_trace)
+      await snapshotWritingPreset(root, run, resolved.snapshot)
       console.log(run.id)
     } else if (opts.trace) {
       console.log(
@@ -745,14 +830,16 @@ export function buildProgram(): Command {
       .command('generate')
       .argument('<scene-id>', 'Scene id')
       .option('--dry-run', 'Create context and prompt run but do not call AI')
+      .option('--preset <id>', 'Use a specific project writing preset')
       .description('Generate a scene with configured OpenAI-compatible provider')
   ).action(async (sceneId, opts) => {
     const root = path.resolve(opts.project)
-    const config = loadAIConfig()
+    const resolved = await resolveGenerationPreset(root, async () => loadAIConfig(), opts.preset)
+    const config = resolved.config
     const packet = await assembleContextPacket(
       root,
       { type: 'scene', id: sceneId },
-      contextCompileOptions(config)
+      contextCompileOptions(config, resolved.snapshot)
     )
     const context = renderContextPacket(packet)
     const run = await createGenerationRun(
@@ -763,13 +850,26 @@ export function buildProgram(): Command {
       {},
       packet.shared_guidance,
       undefined,
-      { prompt_blocks: packet.prompt_blocks, context_trace: packet.context_trace }
+      {
+        prompt_blocks: packet.prompt_blocks,
+        context_trace: packet.context_trace,
+        writing_preset: resolved.snapshot
+      }
     )
     if (opts.dryRun) {
       console.log(`Created dry run: ${run.id}`)
       return
     }
-    const output = await generateIntoRun(root, run, context, config)
+    const output = await generateIntoRun(
+      root,
+      run,
+      context,
+      config,
+      {},
+      undefined,
+      undefined,
+      resolved.snapshot
+    )
     console.log(output)
   })
 
@@ -884,13 +984,19 @@ export function buildProgram(): Command {
     program
       .command('chapter-plan')
       .argument('<chapter-id>', 'Chapter outline id')
+      .option('--preset <id>', 'Use a specific project writing preset')
       .description('Build ordered scene writing prompts for a chapter')
   ).action(async (chapterId, opts) => {
+    const resolved = await resolveGenerationPreset(
+      path.resolve(opts.project),
+      async () => loadAIConfig(),
+      opts.preset
+    )
     const plan = await buildChapterWritingPlan(
       path.resolve(opts.project),
       chapterId,
       {},
-      contextCompileOptions(loadAIConfig())
+      contextCompileOptions(resolved.config, resolved.snapshot)
     )
     console.log(JSON.stringify(plan, null, 2))
   })

@@ -42,6 +42,18 @@ describe('formatDesktopError', () => {
     )
   })
 
+  it('localizes missing and incompatible writing presets with an actionable next step', () => {
+    expect(formatDesktopError('Writing preset not found: focused.', 'zh')).toBe(
+      '找不到写作预设“focused”。请在设置中选择已有预设，或创建默认预设。'
+    )
+    expect(formatDesktopError('No writing preset is selected.', 'en')).toBe(
+      'No writing preset is selected. Select an existing preset or create the default in Settings.'
+    )
+    expect(formatDesktopError('Unsupported writing preset schema_version 9 for focused.', 'zh')).toBe(
+      '所选写作预设来自不兼容的版本。请先迁移该预设，再进行生成。'
+    )
+  })
+
   it('uses the selected interface language for otherwise unknown errors', () => {
     expect(formatDesktopError('Internal bridge implementation failed.', 'zh')).toBe(
       '操作未完成。请重试；若问题持续，请重启 Quillarium。'

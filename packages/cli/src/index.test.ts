@@ -384,6 +384,55 @@ describe('CLI smoke flow', () => {
     expect(output.at(-1)).toBe(`Created project: ${root}`)
   })
 
+  it('creates, selects, and snapshots one portable writing preset through the CLI', async () => {
+    vi.stubEnv('QUILL_AI_PROVIDER', 'openai')
+    vi.stubEnv('QUILL_AI_MODEL', 'gpt-4o-mini')
+    const { root } = await initProject()
+    const seeded = await seedScene(root)
+
+    output = []
+    await run(
+      'preset',
+      'create',
+      'focused',
+      '--title',
+      'Focused',
+      '--preset-version',
+      '2.0.0',
+      '--provider',
+      'openai',
+      '--model',
+      'gpt-4o-mini',
+      '--project',
+      root
+    )
+    await run('preset', 'select', 'focused', '--project', root)
+    expect(await readFile(path.join(root, 'project.yaml'), 'utf8')).toContain('writing_preset: focused')
+
+    output = []
+    await run('context', seeded.sceneId, '--trace', '--project', root)
+    const preview = JSON.parse(output.join('\n')) as {
+      context_trace: { preset: { id: string; version: string; snapshot_sha256: string } }
+    }
+    expect(preview.context_trace.preset).toMatchObject({ id: 'focused', version: '2.0.0' })
+    expect(preview.context_trace.preset.snapshot_sha256).toMatch(/^[a-f0-9]{64}$/u)
+
+    output = []
+    await run('generate', seeded.sceneId, '--dry-run', '--project', root)
+    const runId = output.at(-1)?.match(/^Created dry run: (.+)$/)?.[1]
+    const snapshot = JSON.parse(await readRunFile(root, runId!, 'writing-preset.json')) as {
+      preset_id: string
+      preset_version: string
+      snapshot_sha256: string
+    }
+    expect(snapshot).toMatchObject({
+      preset_id: 'focused',
+      preset_version: '2.0.0',
+      snapshot_sha256: preview.context_trace.preset.snapshot_sha256
+    })
+    expect(JSON.stringify(snapshot)).not.toContain('QUILL_AI_API_KEY')
+  })
+
   it('adds and lists Canon', async () => {
     const { root } = await initProject()
     await run(

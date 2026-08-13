@@ -5,6 +5,7 @@ import { objectToYaml, parseMarkdown } from './yaml.js'
 import { projectConfigSchema, projectConfigV1Schema } from './schema.js'
 import type { ProjectConfig, ProjectPaths } from './types.js'
 import { ensureDefaultPrompts } from './prompts.js'
+import { ensureDefaultWritingPreset } from './writing-presets.js'
 
 export const PROJECT_DIRS = [
   '.obsidian',
@@ -26,6 +27,7 @@ export const PROJECT_DIRS = [
   'chapters',
   'scenes',
   'prompts',
+  'presets',
   'runs',
   'imports',
   'reviews',
@@ -45,6 +47,7 @@ export interface ProjectConfigInput {
   section_words?: number
   current_volume?: number
   current_timeline_node?: string | null
+  writing_preset?: string | null
   default_theme?: ProjectConfig['default_theme']
   schema_version?: 2
 }
@@ -103,6 +106,7 @@ export async function createProjectAt(root: string, configInput: ProjectConfigIn
     `# ${config.title}\n\nCreated by Quillarium.\n\nOpen this folder in Obsidian or manage it with the \`quill\` CLI.\n`
   )
   await ensureDefaultPrompts(absoluteRoot)
+  if (config.writing_preset) await ensureDefaultWritingPreset(absoluteRoot, config.writing_preset)
   return paths
 }
 

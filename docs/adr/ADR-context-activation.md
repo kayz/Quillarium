@@ -10,7 +10,8 @@ enumerates candidates without per-category count slicing, performs deterministic
 and typed-relation activation, bounds recursive traversal by depth and candidate count, and compiles
 typed `PromptBlock` values under an exact model token budget. It emits a complete `ContextTrace` and
 stores immutable `prompt-blocks.json`, `context-trace.json`, and shared-guidance snapshots in runs.
-The versioned `WritingPreset` and its snapshot identity are separate follow-up work.
+The versioned `WritingPreset` is now implemented as an additional deterministic input and immutable
+run snapshot; its contract is recorded in [ADR-writing-presets.md](ADR-writing-presets.md).
 
 ## Context
 
@@ -122,8 +123,7 @@ edits do not alter an existing run.
 
 Probability, sticky activation, cooldown, wall-clock order, and unordered filesystem iteration are
 not context-selection inputs. Stable IDs break equal-priority ties. Given the same content snapshot,
-scope, policy, and tokenizer, compilation produces the same blocks, hashes, and trace. A future
-`WritingPreset` snapshot becomes an additional deterministic input.
+scope, WritingPreset, and tokenizer, compilation produces the same blocks, hashes, and trace.
 
 ## Rejected Alternatives
 

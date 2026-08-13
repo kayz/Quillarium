@@ -1,9 +1,12 @@
 import {
   compileContextBlocks,
+  createWritingPreset,
   createProjectAt,
+  defaultWritingPreset,
   loadConfig,
   migrateAIProfileApiKeys,
   readRunFile,
+  selectWritingPreset,
   withStoredAIProfileApiKey,
   withUpdatedAIProfileApiKey
 } from '@quillarium/core'
@@ -15,9 +18,12 @@ import {
   AIRequestError,
   DEFAULT_AI_TIMEOUT_MS,
   generateText,
+  generateIntoRun,
   loadAIConfig,
   loadAIProfile,
   createGenerationRun,
+  contextCompileOptions,
+  resolveGenerationPreset,
   type AIConfig
 } from './index.js'
 
@@ -81,6 +87,48 @@ describe('loadAIConfig', () => {
 })
 
 describe('generation run snapshots', () => {
+  it('resolves project preset overrides through one shared profile loader', async () => {
+    const tmp = await mkdtemp(path.join(os.tmpdir(), 'quillarium-ai-preset-'))
+    try {
+      const project = await createProjectAt(path.join(tmp, 'project'), {
+        id: 'preset-resolution',
+        title: 'Preset Resolution'
+      })
+      const preset = defaultWritingPreset('custom', 'Custom')
+      preset.model = {
+        profile: 'background',
+        provider: 'deepseek',
+        model: 'deepseek-v4-flash',
+        temperature: 0.1,
+        max_output_tokens: 4096,
+        tokenizer_id: 'deepseek-v4'
+      }
+      await createWritingPreset(project.root, preset)
+      await selectWritingPreset(project.root, 'custom')
+      const loadProfile = vi.fn(async () => config)
+
+      const resolved = await resolveGenerationPreset(project.root, loadProfile)
+
+      expect(loadProfile).toHaveBeenCalledWith('background')
+      expect(resolved.config).toMatchObject({
+        provider: 'deepseek',
+        baseUrl: 'https://api.deepseek.com',
+        model: 'deepseek-v4-flash',
+        temperature: 0.1,
+        maxTokens: 4096,
+        apiKey: config.apiKey
+      })
+      expect(resolved.snapshot).toMatchObject({
+        preset_id: 'custom',
+        model: { profile: 'background', provider: 'deepseek', tokenizer_id: 'deepseek-v4' }
+      })
+      expect(JSON.stringify(resolved.snapshot)).not.toContain(config.apiKey)
+      expect(JSON.stringify(resolved.snapshot)).not.toContain(resolved.config.baseUrl)
+    } finally {
+      await rm(tmp, { recursive: true, force: true })
+    }
+  })
+
   it('stores the exact shared guidance bytes and metadata used by the run', async () => {
     const tmp = await mkdtemp(path.join(os.tmpdir(), 'quillarium-ai-run-'))
     try {
@@ -128,6 +176,41 @@ describe('generation run snapshots', () => {
     }
   })
 
+  it('reuses the immutable run preset and rejects a mismatched generation config', async () => {
+    const tmp = await mkdtemp(path.join(os.tmpdir(), 'quillarium-ai-preset-replay-'))
+    try {
+      const project = await createProjectAt(path.join(tmp, 'project'), {
+        id: 'preset-replay',
+        title: 'Preset Replay'
+      })
+      const preset = defaultWritingPreset('quiet-prose', 'Quiet Prose')
+      preset.prompt_stack.system_prompt = 'Use the snapshotted quiet-prose system instruction.'
+      await createWritingPreset(project.root, preset)
+      await selectWritingPreset(project.root, preset.id)
+      const run = await createGenerationRun(project.root, 'scene-one', 'Context body.', config)
+      const fetchMock = vi.fn().mockResolvedValue(completionResponse('Generated from snapshot.'))
+      vi.stubGlobal('fetch', fetchMock)
+
+      await expect(
+        generateIntoRun(project.root, run, 'Context body.', config, { timeoutMs: 0 })
+      ).resolves.toBe('Generated from snapshot.')
+      const request = JSON.parse(String((fetchMock.mock.calls[0] as [string, RequestInit])[1].body)) as {
+        messages: Array<{ role: string; content: string }>
+      }
+      expect(request.messages[0]).toEqual({
+        role: 'system',
+        content: 'Use the snapshotted quiet-prose system instruction.'
+      })
+
+      await expect(
+        generateIntoRun(project.root, run, 'Context body.', { ...config, model: 'different-model' })
+      ).rejects.toThrow('does not match the immutable WritingPreset snapshot')
+      expect(fetchMock).toHaveBeenCalledTimes(1)
+    } finally {
+      await rm(tmp, { recursive: true, force: true })
+    }
+  })
+
   it('persists the exact compilation snapshot without credentials or machine paths', async () => {
     const tmp = await mkdtemp(path.join(os.tmpdir(), 'quillarium-ai-compilation-'))
     try {
@@ -136,6 +219,7 @@ describe('generation run snapshots', () => {
         title: 'Compilation Sample'
       })
       const supportedConfig: AIConfig = { ...config, model: 'gpt-4o-mini' }
+      const resolved = await resolveGenerationPreset(project.root, async () => supportedConfig)
       const compilation = await compileContextBlocks(
         { type: 'scene', id: 'scene-one' },
         [
@@ -157,22 +241,27 @@ describe('generation run snapshots', () => {
             truncation: 'none'
           }
         ],
-        { model: { provider: supportedConfig.provider, model: supportedConfig.model } }
+        contextCompileOptions(resolved.config, resolved.snapshot)
       )
 
       const run = await createGenerationRun(
         project.root,
         'scene-one',
         compilation.markdown,
-        supportedConfig,
+        resolved.config,
         {},
         [],
         undefined,
-        { prompt_blocks: compilation.blocks, context_trace: compilation.trace }
+        {
+          prompt_blocks: compilation.blocks,
+          context_trace: compilation.trace,
+          writing_preset: resolved.snapshot
+        }
       )
       const blocks = await readRunFile(project.root, run.id, 'prompt-blocks.json')
       const trace = await readRunFile(project.root, run.id, 'context-trace.json')
-      const serialized = `${blocks}\n${trace}`
+      const preset = await readRunFile(project.root, run.id, 'writing-preset.json')
+      const serialized = `${blocks}\n${trace}\n${preset}`
 
       expect(JSON.parse(blocks)).toMatchObject({
         schema_version: 1,
@@ -180,7 +269,18 @@ describe('generation run snapshots', () => {
       })
       expect(JSON.parse(trace)).toMatchObject({
         tokenizer: { id: 'o200k', model: 'gpt-4o-mini', exact: true },
+        preset: { id: 'default', version: '1.0.0' },
         final_block_ids: ['canon:sample']
+      })
+      expect(JSON.parse(preset)).toMatchObject({
+        preset_id: 'default',
+        preset_version: '1.0.0',
+        model: { provider: 'openai', model: 'gpt-4o-mini' }
+      })
+      expect(run).toMatchObject({
+        preset_id: 'default',
+        preset_version: '1.0.0',
+        preset_sha256: resolved.snapshot.snapshot_sha256
       })
       expect(serialized).not.toContain(config.apiKey)
       expect(serialized).not.toContain(tmp.replace(/\\/gu, '/'))

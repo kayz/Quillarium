@@ -67,6 +67,31 @@ export function formatDesktopError(err: unknown, language: LanguageName = 'en'):
   if (/import session still has open issues/i.test(message)) {
     return zh ? '仍有待确认的导入问题，请处理后再导入。' : 'Resolve the remaining import questions first.'
   }
+  const missingPreset = message.match(/writing preset not found:\s*([a-z0-9-]+)/i)
+  if (missingPreset) {
+    return zh
+      ? `找不到写作预设“${missingPreset[1]}”。请在设置中选择已有预设，或创建默认预设。`
+      : `Writing preset “${missingPreset[1]}” was not found. Select an existing preset or create the default in Settings.`
+  }
+  if (/no writing preset is selected/i.test(message)) {
+    return zh
+      ? '当前项目尚未选择写作预设。请在设置中选择已有预设，或创建默认预设。'
+      : 'No writing preset is selected. Select an existing preset or create the default in Settings.'
+  }
+  if (/unsupported writing preset schema_version/i.test(message)) {
+    return zh
+      ? '所选写作预设来自不兼容的版本。请先迁移该预设，再进行生成。'
+      : 'The selected writing preset uses an unsupported schema. Migrate it before generating.'
+  }
+  if (
+    /writingpreset snapshot|writing preset snapshot hash|contexttrace and writingpreset|AI configuration does not match the immutable writingpreset/i.test(
+      message
+    )
+  ) {
+    return zh
+      ? '写作预设快照与本次运行不一致，已停止生成以避免不可复现的结果。请重新组装上下文。'
+      : 'The WritingPreset snapshot does not match this run. Generation stopped to avoid an unreproducible result; assemble the context again.'
+  }
   if (/chapter outline not found|outline not found/i.test(message)) {
     return zh
       ? '没有找到对应的大纲节点，请刷新项目后重试。'

@@ -2,7 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mkdtemp, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { contextCompileOptions, type AIConfig, type AIRequestOptions } from '@quillarium/ai'
+import {
+  contextCompileOptions,
+  resolveGenerationPreset,
+  type AIConfig,
+  type AIRequestOptions
+} from '@quillarium/ai'
 import { SEMANTIC_CHECK_TIMEOUT_MS, type CheckReport, type SemanticAIInvoke } from '@quillarium/checks'
 import {
   appendTimelineEvent,
@@ -172,13 +177,14 @@ describe('desktop context preview', () => {
       { type: 'outline', id: 'book-main' },
       { loadAIProfile }
     )
+    const resolved = await resolveGenerationPreset(root, async () => previewConfig)
     const direct = await assembleContextPacket(
       root,
       { type: 'outline', id: 'book-main' },
-      contextCompileOptions(previewConfig)
+      contextCompileOptions(resolved.config, resolved.snapshot)
     )
 
-    expect(loadAIProfile).toHaveBeenCalledOnce()
+    expect(loadAIProfile).toHaveBeenCalledWith('prose')
     expect(preview.packet.prompt_blocks).toEqual(direct.prompt_blocks)
     expect(preview.packet.context_trace).toEqual(direct.context_trace)
     expect(preview.markdown).toBe(renderContextPacket(direct))
@@ -188,6 +194,7 @@ describe('desktop context preview', () => {
       model: 'gpt-4o-mini',
       exact: true
     })
+    expect(preview.packet.context_trace.preset).toMatchObject({ id: 'default', version: '1.0.0' })
   })
 })
 

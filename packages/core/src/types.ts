@@ -84,6 +84,7 @@ export interface ProjectConfig {
   section_words: number
   current_volume: number
   current_timeline_node: string | null
+  writing_preset: string | null
   default_theme: 'paper' | 'ink' | 'mist' | 'bamboo'
   schema_version: 2
 }
@@ -195,6 +196,86 @@ export interface ContextPolicy {
   max_recursion_depth: number
 }
 
+export type WritingPresetProvider =
+  'openai-compatible' | 'openai' | 'claude' | 'gemini' | 'deepseek' | 'ollama'
+
+export interface WritingPresetModelConfig {
+  profile: 'prose' | 'background' | 'check'
+  provider?: WritingPresetProvider
+  model?: string
+  temperature?: number
+  max_output_tokens?: number
+  tokenizer_id?: 'deepseek-v4' | 'o200k' | 'cl100k'
+}
+
+export interface WritingPresetPromptStack {
+  system_prompt: string
+  user_instructions: string[]
+  block_order: PromptBlockKind[]
+}
+
+export interface WritingPresetCheckPolicy {
+  deterministic: true
+  semantic: 'off' | 'on-demand' | 'required'
+  profile: 'check'
+}
+
+export interface WritingPresetV2 {
+  schema_version: 2
+  id: string
+  version: string
+  title: string
+  description: string
+  model: WritingPresetModelConfig
+  prompt_stack: WritingPresetPromptStack
+  context_policy: ContextPolicy
+  check_policy: WritingPresetCheckPolicy
+}
+
+export interface LoadedWritingPreset {
+  preset: WritingPresetV2
+  source_path: string
+  source_sha256: string
+  source_schema_version: 1 | 2
+}
+
+export interface ResolvedWritingPresetModel {
+  profile: WritingPresetModelConfig['profile']
+  provider: WritingPresetProvider
+  model: string
+  temperature: number
+  max_output_tokens: number
+  tokenizer_id?: WritingPresetModelConfig['tokenizer_id']
+}
+
+export interface WritingPresetSnapshot {
+  schema_version: 1
+  preset_id: string
+  preset_version: string
+  title: string
+  description: string
+  source: {
+    path: string
+    sha256: string
+    schema_version: 1 | 2
+  }
+  model: ResolvedWritingPresetModel
+  prompt_stack: WritingPresetPromptStack
+  context_policy: ContextPolicy
+  check_policy: WritingPresetCheckPolicy
+  snapshot_sha256: string
+}
+
+export interface WritingPresetListItem {
+  id: string
+  version: string
+  title: string
+  description: string
+  selected: boolean
+  source_path: string
+  source_schema_version: 1 | 2
+}
+
 export interface ContextTokenizerTrace {
   id: string
   provider: string
@@ -229,6 +310,7 @@ export interface ContextTrace {
   schema_version: 1
   compiler_version: string
   target: { type: 'outline' | 'scene'; id: string }
+  preset?: { id: string; version: string; snapshot_sha256: string }
   policy: ContextPolicy
   tokenizer: ContextTokenizerTrace
   budget: {
@@ -599,6 +681,9 @@ export interface RunMetadata {
   created_at: string
   provider: string
   model: string
+  preset_id?: string
+  preset_version?: string
+  preset_sha256?: string
   status: 'created' | 'generated' | 'checked' | 'accepted'
   run_dir: string
 }

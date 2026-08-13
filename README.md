@@ -9,9 +9,9 @@ workspace may register multiple projects and shared guidance, while each project
 an independent Obsidian vault and a Quillarium project root.
 
 This document describes the `0.2.0-alpha.1` code line as of 2026-08-13. “Works now” means the
-behavior is present in the repository and covered by local tests; planned context budgeting,
-multi-candidate branching, writing presets, lifecycle events, and atomic continuity apply are kept
-in the [roadmap](ROADMAP.md), not presented as completed features.
+behavior is present in the repository and covered by local tests; multi-candidate branching,
+lifecycle events, and atomic continuity apply are kept in the [roadmap](ROADMAP.md), not presented
+as completed features.
 
 ## What Works Now
 
@@ -34,6 +34,9 @@ in the [roadmap](ROADMAP.md), not presented as completed features.
   relationships, six-scale location exploration, reference reverse indexes, and issue-card repair.
 - Manual project AI checks exclude source material and disabled cards, then persist stable findings as
   issue cards. World keywords and foreshadowing conditions activate explainable prompt sources.
+- Versioned project writing presets bind a connection-profile role, model overrides, prompt stack,
+  block order, deterministic context policy, and check policy. Desktop and CLI select the same preset,
+  and every generation run stores its sanitized immutable snapshot and SHA-256 identity.
 - Markdown and plain-text manuscript export from finalized/published chapter prose, accepted outputs,
   or final scenes, with explicit gap reporting and optional volume filtering.
 - A seven-level workflow: overview and book outline at the top, then volume, part, optional act,
@@ -51,8 +54,7 @@ chain, explicit pins and exclusions, typed relations, timeline links, keyword ac
 enabled-card state; performs cycle-safe bounded relationship expansion; then emits typed
 `PromptBlock` values and a complete `ContextTrace`. DeepSeek V4 and supported OpenAI model families
 use packaged exact tokenizers. Unknown tokenizer/model combinations fail closed instead of silently
-using a character estimate. Candidate groups/branches and versioned `WritingPreset` snapshots remain
-the next P0 work.
+using a character estimate. Candidate groups and branches remain the next P0 work.
 
 ## Quick Start
 
@@ -94,8 +96,9 @@ editor with word-count feedback. Legacy layouts remain compatible in
 the runtime and migration services, but they are not an active welcome-screen choice. Migration is
 always an explicit dry-run, backup, apply, verify, and report operation and never moves or deletes
 the source. The context/check inspector and recorded runs make inputs and outputs reviewable.
-Theme, density, language, GitHub credentials, and each AI profile have independent save actions in
-desktop settings.
+Theme, density, language, GitHub credentials, each AI profile, and the project writing preset have
+explicit settings actions. A legacy project without a preset must explicitly create/select one
+before generation.
 
 Planning details are presented as record cards rather than serialized frontmatter. Click a tag chip
 to pull in every exactly matching project record from the right; each result shows its document
@@ -124,12 +127,13 @@ or rerun; release work continues with a new forward-only version. See
 A typical CLI workflow is:
 
 1. Configure a writing workspace and initialize a direct project-vault.
-2. Add Canon, characters, locations, timeline events, an outline, and scenes.
-3. Assemble context or run `generate --dry-run` to inspect the recorded prompt without a network
+2. Inspect or select the project's versioned writing preset.
+3. Add Canon, characters, locations, timeline events, an outline, and scenes.
+4. Assemble context or run `generate --dry-run` to inspect the recorded prompt without a network
    call.
-4. Generate a draft, run deterministic checks, and optionally add `--semantic` for AI-assisted OOC,
+5. Generate a draft, run deterministic checks, and optionally add `--semantic` for AI-assisted OOC,
    state-drift, and Canon-conflict findings.
-5. Inspect and accept a run, then export accepted prose as Markdown or plain text.
+6. Inspect and accept a run, then export accepted prose as Markdown or plain text.
 
 All CLI examples and the current command map are in [docs/CLI.md](docs/CLI.md). The runtime command
 help remains authoritative:
@@ -159,7 +163,7 @@ Writing Workspace/
       foreshadowing/       references/       issues/
       narrative/           strategy/         patterns/         resources/
       causality/           outlines/         chapters/         scenes/
-      prompts/             runs/             imports/
+      prompts/             presets/          runs/             imports/
       reviews/             style/            exports/
       sillytavern/         .quillarium/
 ```

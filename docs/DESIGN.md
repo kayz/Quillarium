@@ -10,16 +10,16 @@ its design, but they are neither runtime dependencies nor parallel sources of pr
 As of 2026-08-13, the work-neutral workspace foundation and the first planning-card workbench are
 implemented. The workbench includes typed relations and material provenance, a linked timeline,
 spatial and time-aware character views, keyword-triggered world knowledge, foreshadowing reminders,
-manual AI checks that persist issue cards, card-by-card prompt composition, and an explainable
-model-budgeted Context compiler. The next phase in the root [ROADMAP](../ROADMAP.md) adds multiple
-candidates, branches, and versioned presets.
+manual AI checks that persist issue cards, card-by-card prompt composition, an explainable
+model-budgeted Context compiler, and versioned writing presets with immutable run snapshots. The
+next phase in the root [ROADMAP](../ROADMAP.md) adds multiple candidates and branches.
 
 The implemented context layer returns one deterministic `ContextPacket` with selected documents,
 warnings, shared guidance, typed `PromptBlock` values, and a complete `ContextTrace`. Selection uses
 explicit links, pins and exclusions, outline ancestry, enabled state, keyword matching, and
 cycle-safe bounded relationship expansion. Exact model tokenizers allocate a real input budget after
-framing and output reservations. Candidate lineage and a versioned `WritingPreset` remain future
-contracts.
+framing and output reservations. The selected `WritingPreset` supplies the portable model overrides,
+prompt stack, block order, context policy, and check policy; candidate lineage remains future work.
 
 The desktop planning baseline also uses a deliberately small surface: the unselected-project screen
 has one active library-management entry, while display, GitHub, and the three AI profiles live in
@@ -240,12 +240,14 @@ output-accepted.md
 check-report.md
 prompt-blocks.json
 context-trace.json
+writing-preset.json
 ```
 
 `prompt-blocks.json` and `context-trace.json` are immutable portable snapshots of the exact compiler
 result used by generation. `shared-guidance.md` and `shared-guidance.json` snapshot the guidance read
-for the run. Candidate groups, parent runs, branches, selection timestamps, and preset snapshots are
-target fields described in the roadmap; they are not part of the current `RunMetadata` contract.
+for the run. `writing-preset.json` is the sanitized immutable preset snapshot; preset ID, semantic
+version, and snapshot SHA-256 are also recorded in `metadata.yaml`. Candidate groups, parent runs,
+branches, and selection timestamps remain target fields described in the roadmap.
 
 ### Prompts and Writing Presets
 
@@ -255,9 +257,16 @@ narrative rules, warnings, finalized prose, and continuation. The desktop lets t
 optional source cards and edit the resulting prompt; the exact adjusted text is saved as
 `prompt.md`.
 
-A versioned `WritingPreset` that binds model settings, prompt stack, context policy, and check policy
-is planned. Current desktop AI profiles are machine-local connection/configuration profiles and must
-not be confused with that future project-level preset.
+A versioned project `WritingPreset` binds a connection-profile role, optional provider/model/output
+overrides, system/user prompt instructions, complete `PromptBlock` order, context policy, and check
+policy. Desktop settings and `quill preset` select the same project value, and all generation paths
+use one resolver. Desktop AI profiles and CLI environment variables supply endpoints and credentials;
+those machine-local connection values are never serialized into a preset or run snapshot.
+
+Preset v1 files are normalized in memory without rewriting them. Explicit migration performs
+plan → backup → apply → verify. A missing or unsupported selected preset stops generation with an
+actionable error rather than reverting to hidden defaults. See
+[ADR-writing-presets.md](adr/ADR-writing-presets.md).
 
 ## Explainable Context Compiler
 
@@ -285,7 +294,7 @@ blocks and trace. Every generation run snapshots them as `prompt-blocks.json` an
 `context-trace.json`.
 
 Probability, sticky state, and cooldown do not decide which authoritative facts enter context. Given
-the same project snapshot, policy, model tokenizer, and writing scope, compilation produces the same
+the same project snapshot, preset, model tokenizer, and writing scope, compilation produces the same
 ordered blocks and trace. See
 [ADR-context-activation.md](adr/ADR-context-activation.md).
 

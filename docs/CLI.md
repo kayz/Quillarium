@@ -92,12 +92,32 @@ pnpm cli scene create "Opening Scene" \
   --chapter-hook
 ```
 
-### 3. Inspect context and generate
+### 3. Select a writing preset, inspect context, and generate
+
+New projects contain and select `presets/default.yaml`. Inspect or select a versioned project preset:
+
+```bash
+pnpm cli preset list --project "./writing-workspace/projects/my-novel"
+pnpm cli preset show default --project "./writing-workspace/projects/my-novel"
+pnpm cli preset select default --project "./writing-workspace/projects/my-novel"
+```
+
+Legacy projects without a preset fail generation explicitly. Create/select the default with
+`preset init`; no project is silently rewritten during load:
+
+```bash
+pnpm cli preset init --project "./writing-workspace/projects/my-novel"
+```
+
+`preset create` creates a safe v2 YAML preset, while `preset migrate <id>` performs a dry plan and
+`--apply` backs up, writes, and verifies a v1→v2 migration. Preset YAML contains no endpoint or
+credential. It binds a connection profile role, portable model overrides, prompt instructions and
+block order, ContextPolicy, and check policy.
 
 Print the assembled scene context:
 
 ```bash
-pnpm cli context scene-opening-scene --project "./writing-workspace/projects/my-novel"
+pnpm cli context scene-opening-scene --preset default --project "./writing-workspace/projects/my-novel"
 ```
 
 Use `--trace` to print one JSON object containing the rendered Markdown, exact `PromptBlock` values,
@@ -108,9 +128,9 @@ the provider:
 pnpm cli context scene-opening-scene --trace --project "./writing-workspace/projects/my-novel"
 ```
 
-Use `--run` to create a run directory and save `context.md`, `prompt-blocks.json`, and
-`context-trace.json`. A generation dry run creates the run and immutable compiler snapshots plus
-`prompt.md` without calling a model:
+Use `--run` to create a run directory and save `context.md`, `prompt-blocks.json`,
+`context-trace.json`, and `writing-preset.json`. A generation dry run creates the run and immutable
+compiler/preset snapshots plus `prompt.md` without calling a model:
 
 ```bash
 pnpm cli generate scene-opening-scene --project "./writing-workspace/projects/my-novel" --dry-run
@@ -213,9 +233,11 @@ This resolves to `https://api.deepseek.com` and `deepseek-v4-flash`. DeepSeek re
 non-thinking mode by default so prose and structured semantic output are returned in
 `message.content`; callers of the AI package can explicitly opt into thinking mode when needed.
 
-The CLI reads AI configuration from the environment only; it does not read or decrypt saved desktop
-AI profiles. A key is required for non-local endpoints. A `localhost` OpenAI-compatible endpoint can
-run without one. Keep `.env` and other secret-bearing files out of source control.
+The CLI reads connection values from the environment only; it does not read or decrypt saved desktop
+AI profiles. The selected WritingPreset is resolved through the same portable resolver used by
+Desktop, but its profile role maps to this one CLI environment connection. A key is required for
+non-local endpoints. A `localhost` OpenAI-compatible endpoint can run without one. Keep `.env` and
+other secret-bearing files out of source control.
 
 The desktop app has separate `prose`, `background`, and `check` profiles. For desktop AI calls,
 `QUILL_AI_API_KEY` takes precedence over a saved profile key. Desktop GitHub operations prefer
@@ -303,6 +325,7 @@ and options.
 | `workspace`      | `list`, `create-project`                                                             |
 | `config`         | Workspace configuration plus explicit legacy-vault compatibility                     |
 | `init`           | Create/register `projects/<id>`; `--vault` is legacy-only                            |
+| `preset`         | `init`, `list`, `show`, `select`, `create`, `migrate`                                |
 | `canon`          | `add`, `import`, `list`, `search`                                                    |
 | `character`      | `add`, `list`                                                                        |
 | `foreshadowing`  | `add`, `list`                                                                        |

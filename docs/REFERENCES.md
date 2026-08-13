@@ -11,9 +11,10 @@ The entries below register independently designed **target abstractions**, not a
 mechanism is already implemented. The current development baseline has deterministic
 tokenizer-aware `ContextPolicy` compilation, complete `PromptBlock`/`ContextTrace` artifacts,
 bounded relationship activation, editable prompt-source cards, immutable compiler/shared-guidance
-snapshots, and a single raw/accepted output per run. Candidate branches, versioned `WritingPreset`
-snapshots, lifecycle events, scoped notes, rolling summaries, recipes, and a plugin system remain
-roadmap work. Current behavior is described in [DESIGN.md](DESIGN.md), and delivery status is tracked
+snapshots, and a single raw/accepted output per run. Versioned `WritingPreset` snapshots are now
+implemented; candidate branches, lifecycle events, scoped notes, rolling summaries, recipes, and a
+plugin system remain roadmap work. Current behavior is described in
+[DESIGN.md](DESIGN.md), and delivery status is tracked
 in the root [ROADMAP.md](../ROADMAP.md).
 
 ## SillyTavern Research Baseline
