@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { realpath } from 'node:fs/promises'
-import { dialog } from 'electron'
+import { app, dialog } from 'electron'
 import {
   getObsidianDir,
   getWorkspaceDir,
@@ -21,6 +21,7 @@ import { typedHandle } from './contract.js'
 import { applyLegacyProjectMigration, prepareLegacyProjectMigration } from './workspace-migration.js'
 
 export function registerConfigHandlers(): void {
+  typedHandle('app:version', () => app.getVersion())
   typedHandle('config:get', async () => loadDesktopConfig())
   typedHandle('config:getVault', async () => getObsidianDir())
   typedHandle('config:getWorkspace', async () => getWorkspaceDir())

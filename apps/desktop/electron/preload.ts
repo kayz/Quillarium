@@ -9,6 +9,7 @@ function invoke<Channel extends IpcChannel>(
 }
 
 const api: QuillariumAPI = {
+  getAppVersion: () => invoke('app:version'),
   getConfig: () => invoke('config:get'),
   getVault: () => invoke('config:getVault'),
   getWorkspace: () => invoke('config:getWorkspace'),

@@ -1,4 +1,10 @@
-# Quillarium
+<h1 align="center">
+  <img src="assets/brand/quillarium-wordmark.png" alt="Quillarium" width="560" />
+</h1>
+
+<p align="center">
+  <img src="assets/brand/quillarium-q.png" alt="Quillarium Q app icon" width="88" />
+</p>
 
 Quillarium (羽笔馆) is a local-first, Obsidian-backed writing system for long-form fiction. It
 stores a novel as Markdown and YAML, keeps planning facts traceable, records AI runs, checks
@@ -8,7 +14,7 @@ Quillarium is the sole product runtime. Obsidian is its durable manual-editing s
 workspace may register multiple projects and shared guidance, while each project directory is both
 an independent Obsidian vault and a Quillarium project root.
 
-This document describes the `0.2.0-alpha.2` code line as of 2026-08-13. “Works now” means the
+This document describes the `0.2.0-alpha.2` code line as of 2026-08-14. “Works now” means the
 behavior is present in the repository and covered by local tests. Strongly typed lifecycle events
 remain in the [roadmap](ROADMAP.md); atomic continuity apply is implemented as a reviewed,
 recoverable operation.

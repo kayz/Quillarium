@@ -1,6 +1,7 @@
 const { contextBridge, ipcRenderer } = require('electron')
 
 const api = {
+  getAppVersion: () => ipcRenderer.invoke('app:version'),
   getConfig: () => ipcRenderer.invoke('config:get'),
   getVault: () => ipcRenderer.invoke('config:getVault'),
   getWorkspace: () => ipcRenderer.invoke('config:getWorkspace'),

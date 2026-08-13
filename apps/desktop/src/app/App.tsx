@@ -3,6 +3,7 @@ import { BookOpen, FolderOpen } from 'lucide-react'
 import type { AIStatus, DensityName, LanguageName, ProjectListItem, ThemeName } from './types.js'
 import { t } from './i18n.js'
 import { bridge } from './bridge.js'
+import { BrandWordmark } from './BrandWordmark.js'
 import { TopChrome } from '../features/settings/TopChrome.js'
 import { Workspace } from '../features/workspace/Workspace.js'
 import { formatDesktopError } from '../shared/errors.js'
@@ -190,7 +191,9 @@ function Welcome({
       <main className="welcome-main">
         <section className="welcome-hero">
           <span className="welcome-kicker">STRUCTURED FICTION WORKSPACE</span>
-          <h1>Quillarium</h1>
+          <h1 className="welcome-brand" aria-label="Quillarium">
+            <BrandWordmark className="welcome-brand-wordmark" decorative />
+          </h1>
           <p>{t(language, 'welcomeSubtitle')}</p>
           <div className="vault-card">
             <div>

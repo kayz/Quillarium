@@ -1,5 +1,9 @@
 # Quillarium Design
 
+<p align="right">
+  <img src="../assets/brand/quillarium-q.png" alt="" width="72" />
+</p>
+
 Quillarium is the sole product and runtime for a local-first, chapter-centered long-form fiction
 workflow. It owns the domain model, context compilation, AI orchestration, checks, acceptance,
 finalization, and Obsidian-backed files. Methodology documents and external applications may inform
@@ -7,7 +11,7 @@ its design, but they are neither runtime dependencies nor parallel sources of pr
 
 ## Implementation Status
 
-As of 2026-08-13, the work-neutral workspace foundation and the first planning-card workbench are
+As of 2026-08-14, the work-neutral workspace foundation and the first planning-card workbench are
 implemented. The workbench includes typed relations and material provenance, a linked timeline,
 spatial and time-aware character views, keyword-triggered world knowledge, foreshadowing reminders,
 manual AI checks that persist issue cards, card-by-card prompt composition, an explainable

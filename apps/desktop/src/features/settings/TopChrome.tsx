@@ -24,6 +24,7 @@ import type {
 } from '../../app/types.js'
 import { t } from '../../app/i18n.js'
 import { bridge } from '../../app/bridge.js'
+import { BrandWordmark } from '../../app/BrandWordmark.js'
 import { formatDesktopError } from '../../shared/errors.js'
 import { ExportModal } from './ExportModal.js'
 import type { WritingPresetListItem } from '@quillarium/core'
@@ -74,8 +75,8 @@ export function TopChrome({
   const gitAction = gitActionFor(language, git)
   return (
     <header className="top-chrome">
-      <button className="brand" onClick={onBack}>
-        Quillarium
+      <button className="brand" onClick={onBack} aria-label="Quillarium" title="Quillarium">
+        <BrandWordmark className="top-brand-wordmark" decorative />
       </button>
       {projectName && (
         <div className="project-label">
@@ -270,6 +271,7 @@ function SettingsModal({
     check: 'none'
   })
   const [storage, setStorage] = useState<StorageStatus | null>(null)
+  const [appVersion, setAppVersion] = useState('')
   const [writingPresets, setWritingPresets] = useState<WritingPresetListItem[]>([])
   const [selectedPreset, setSelectedPreset] = useState('')
   const [display, setDisplay] = useState({ theme, density, language })
@@ -324,13 +326,15 @@ function SettingsModal({
     let cancelled = false
     async function loadProfiles() {
       try {
-        const [config, loadedPresets] = await Promise.all([
+        const [config, loadedPresets, loadedAppVersion] = await Promise.all([
           bridge.getConfig(),
-          root ? bridge.listWritingPresets(root) : Promise.resolve([])
+          root ? bridge.listWritingPresets(root) : Promise.resolve([]),
+          bridge.getAppVersion()
         ])
         const presets = loadedPresets as WritingPresetListItem[]
         if (!cancelled) {
           hydrateForms(config)
+          setAppVersion(loadedAppVersion)
           setWritingPresets(presets)
           setSelectedPreset(presets.find((preset) => preset.selected)?.id ?? '')
         }
@@ -566,6 +570,9 @@ function SettingsModal({
           <div>
             <h2 id="settings-title">{t(language, 'settings')}</h2>
             <p>{t(language, 'privacyHint')}</p>
+            <span className="settings-version">
+              Quillarium · {language === 'zh' ? '版本' : 'Version'} {appVersion || '…'}
+            </span>
           </div>
           <button
             ref={closeRef}

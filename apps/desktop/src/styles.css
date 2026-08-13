@@ -7,6 +7,9 @@
   --ui-font-size: 14px;
   --ui-line-height: 1.55;
   --prose-font: 'PT Serif', 'Noto Serif SC', 'Source Han Serif SC', 'Songti SC', Georgia, serif;
+  --brand-navy: #002f5d;
+  --brand-gold: #d9aa43;
+  --brand-paper: #fffaf0;
 }
 
 :root[data-density='compact'] {
@@ -120,8 +123,10 @@ select:focus-visible,
 }
 
 .top-chrome {
+  width: env(titlebar-area-width, 100%);
   height: 46px;
   min-height: 46px;
+  margin-left: env(titlebar-area-x, 0px);
   display: flex;
   align-items: center;
   gap: 14px;
@@ -131,6 +136,18 @@ select:focus-visible,
   border-bottom: 1px solid rgba(0, 0, 0, 0.3);
   overflow: hidden;
   white-space: nowrap;
+  app-region: drag;
+  -webkit-app-region: drag;
+}
+.top-chrome button,
+.top-chrome input,
+.top-chrome select,
+.top-chrome textarea,
+.top-chrome a,
+.top-chrome [role='button'],
+.top-chrome .modal-backdrop {
+  app-region: no-drag;
+  -webkit-app-region: no-drag;
 }
 .brand,
 .project-pill,
@@ -203,11 +220,37 @@ select:focus-visible,
   flex: 0 0 auto;
 }
 .brand {
+  width: 122px;
+  height: 34px;
   border: 0;
   background: transparent;
   flex: 0 0 auto;
-  font-weight: 700;
-  font-size: 16px;
+  justify-content: flex-start;
+  padding: 0;
+  overflow: visible;
+  box-shadow: none;
+}
+.brand:hover {
+  border-color: transparent;
+  background: transparent;
+  opacity: 1;
+}
+.brand:focus-visible {
+  outline: 2px solid rgba(239, 195, 91, 0.95);
+  outline-offset: 3px;
+}
+.brand-wordmark {
+  display: block;
+  height: auto;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+}
+.top-brand-wordmark {
+  width: 120px;
+  max-height: 30px;
+  filter: brightness(1.88) saturate(1.12) drop-shadow(0 0 1px rgba(255, 248, 229, 0.92))
+    drop-shadow(0 0 5px rgba(226, 172, 61, 0.46)) drop-shadow(0 0 12px rgba(45, 126, 202, 0.3));
 }
 .path-label {
   min-width: 0;
@@ -287,10 +330,21 @@ select:focus-visible,
   font-weight: 800;
   letter-spacing: 0.14em;
 }
-.welcome h1 {
-  font-family: Georgia, serif;
-  font-size: 44px;
+.welcome h1.welcome-brand {
+  width: min(100%, 440px);
   margin: 18px 0 12px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  line-height: 0;
+}
+.welcome-brand-wordmark {
+  width: 100%;
+  max-height: 112px;
+}
+:root[data-theme='ink'] .welcome-brand-wordmark {
+  filter: brightness(1.62) saturate(1.04) drop-shadow(0 0 1px rgba(255, 244, 218, 0.45));
 }
 .welcome p {
   color: var(--text-muted);
@@ -4645,6 +4699,18 @@ body.is-resizing-row * {
 .settings-modal-head p {
   margin-top: 5px;
 }
+.settings-version {
+  display: inline-flex;
+  margin-top: 8px;
+  padding: 3px 8px;
+  border: 1px solid color-mix(in srgb, var(--brand-gold) 44%, var(--border));
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--brand-gold) 7%, var(--bg-panel));
+  color: var(--text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
 .export-modal {
   width: min(720px, calc(100vw - 40px));
   white-space: normal;
@@ -5983,6 +6049,9 @@ body.is-resizing-row * {
   .top-chrome {
     gap: 7px;
     padding-inline: 8px;
+  }
+  .top-brand-wordmark {
+    width: 96px;
   }
   .project-label {
     display: none;

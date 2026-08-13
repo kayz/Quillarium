@@ -257,6 +257,7 @@ export interface GitStatus {
 }
 
 export interface IpcContract {
+  'app:version': { request: []; response: string }
   'config:get': { request: []; response: DesktopConfig }
   'config:getVault': { request: []; response: string | null }
   'config:getWorkspace': { request: []; response: string | null }
@@ -478,6 +479,7 @@ export type IpcRequest<Channel extends IpcChannel> = IpcContract[Channel]['reque
 export type IpcResponse<Channel extends IpcChannel> = IpcContract[Channel]['response']
 
 export const QUILLARIUM_API_CHANNELS = {
+  getAppVersion: 'app:version',
   getConfig: 'config:get',
   getVault: 'config:getVault',
   getWorkspace: 'config:getWorkspace',

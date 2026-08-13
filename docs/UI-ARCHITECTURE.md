@@ -1,6 +1,28 @@
 # Desktop UI Architecture
 
+<p align="center">
+  <img src="../assets/brand/quillarium-wordmark.png" alt="Quillarium" width="360" />
+</p>
+
 Quillarium Desktop is an Electron + Vite + React application in `apps/desktop`.
+
+## Brand surfaces
+
+The visible product name uses the transparent horizontal wordmark directly in the top chrome and
+welcome surface, without a bookplate, border, or background fill. The close-cropped square Q emblem
+uses an opaque warm-ivory tile for small-size contrast and supplies the Electron window icon and the
+Windows/macOS package icons. UI assets are pre-sized rather than rendering the original artwork at
+runtime, while the native window title, image alternatives, and button labels preserve the
+accessible text name `Quillarium`.
+
+On Windows, Electron hides the default caption and overlays the native minimize, maximize/restore,
+and close controls on the 46 px product chrome. The renderer uses the Window Controls Overlay safe
+area variables so actions never sit beneath those controls. Empty chrome is draggable; buttons,
+forms, links, and modal surfaces are explicitly non-draggable. The transparent wordmark uses only a
+restrained pixel-level glow on the dark chrome, never a background plate.
+
+The settings dialog obtains its displayed application version from Electron's packaged metadata
+through the typed `app:version` IPC channel. It does not duplicate a hard-coded renderer version.
 
 The renderer stays focused on interaction and presentation. File system access, Git operations, and AI calls run through Electron IPC in the main process. This keeps API keys and local paths out of the browser-like renderer and matches the privacy-first model.
 
