@@ -14,6 +14,7 @@ import {
   listDocs,
   loadLocalDocumentLinkIndex,
   rebuildLocalDocumentLinkIndex,
+  relativeDocumentPath,
   type DocumentIdentity,
   type ReferenceDocument,
   type WorldEntryDoc
@@ -182,6 +183,13 @@ describe('derived forward and backlink index', () => {
     expect(formatObsidianDocumentLink(fixture('lore-0077', '女真三部'), 'C:/vault')).toBe(
       '[[world/lore-0077-女真三部|女真三部]]'
     )
+  })
+
+  it('strips a Windows-style vault root without using host path.resolve', () => {
+    expect(relativeDocumentPath('C:/vault/world/lore-0077-女真三部.md', 'C:/vault')).toBe(
+      'world/lore-0077-女真三部.md'
+    )
+    expect(relativeDocumentPath('C:\\vault\\world\\lore.md', 'C:/vault')).toBe('world/lore.md')
   })
 
   it('writes the rebuildable cache only under the ignored project cache directory', async () => {

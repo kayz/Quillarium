@@ -80,7 +80,10 @@ export const promptBlockSnapshotSchema = z
           .string()
           .min(1)
           .refine(
-            (value) => !path.isAbsolute(value) && !value.replace(/\\/gu, '/').split('/').includes('..'),
+            (value) =>
+              !path.isAbsolute(value) &&
+              !path.win32.isAbsolute(value) &&
+              !value.replace(/\\/gu, '/').split('/').includes('..'),
             'PromptBlock source path must be project-relative and contained'
           )
           .optional()
@@ -126,7 +129,10 @@ const contextTraceEntrySnapshotSchema = z
       .string()
       .min(1)
       .refine(
-        (value) => !path.isAbsolute(value) && !value.replace(/\\/gu, '/').split('/').includes('..'),
+        (value) =>
+          !path.isAbsolute(value) &&
+          !path.win32.isAbsolute(value) &&
+          !value.replace(/\\/gu, '/').split('/').includes('..'),
         'ContextTrace source path must be project-relative and contained'
       )
       .optional(),

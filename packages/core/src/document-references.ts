@@ -391,7 +391,7 @@ export function relativeDocumentPath(documentPath: string | undefined, projectRo
   if (!documentPath) return ''
   const absolute = normalizeVaultPath(documentPath)
   if (!projectRoot) return absolute
-  const root = normalizeVaultPath(path.resolve(projectRoot)).replace(/\/$/u, '')
+  const root = normalizeVaultPath(projectRoot).replace(/\/$/u, '')
   const key = normalizeLookup(absolute)
   const rootKey = normalizeLookup(root)
   if (key === rootKey) return ''
