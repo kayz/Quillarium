@@ -103,7 +103,7 @@ export function buildProgram(): Command {
   program
     .name('quill')
     .description('Quillarium CLI for Obsidian-backed long-form fiction projects')
-    .version('0.2.1')
+    .version('0.2.2')
 
   const workspace = program.command('workspace').description('Manage writing workspaces')
   workspace

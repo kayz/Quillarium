@@ -14,7 +14,7 @@ Quillarium is the sole product runtime. Obsidian is its durable manual-editing s
 workspace may register multiple projects and shared guidance, while each project directory is both
 an independent Obsidian vault and a Quillarium project root.
 
-This document describes the `0.2.1` code line as of 2026-08-18. “Works now” means the
+This document describes the `0.2.2` code line as of 2026-08-18. “Works now” means the
 behavior is present in the repository and covered by local tests. Strongly typed lifecycle events
 remain in the [roadmap](ROADMAP.md); atomic continuity apply is implemented as a reviewed,
 recoverable operation.
