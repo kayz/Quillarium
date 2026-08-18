@@ -1,10 +1,12 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   AlertTriangle,
   Check,
   FileText,
   LoaderCircle,
+  MessageCircle,
   Plus,
+  Save,
   Trash2,
   Upload,
   WandSparkles,
@@ -22,6 +24,8 @@ import {
 } from '../metadata/field-presentation.js'
 import { MetadataEditor } from '../outline/OutlineShared.js'
 import { MarkdownBodyEditor } from '../markdown/MarkdownBodyEditor.js'
+import { AIStreamPreview, useAIStreamPreview } from '../ai/AIStreamPreview.js'
+import { PlanningCardSelector } from '../planning/PlanningCardSelector.js'
 
 const IMPORT_TYPES: DocType[] = [
   'canon',
@@ -52,27 +56,47 @@ export function AIImportDialog({
   docs,
   language,
   onClose,
-  onImported
+  onImported,
+  onOpenAssistant
 }: {
   root: string
   docs: DocEntry[]
   language: LanguageName
   onClose: () => void
   onImported: () => Promise<void>
+  onOpenAssistant?: (sourceText: string) => void
 }) {
   const zh = language === 'zh'
   const [inputMode, setInputMode] = useState<'text' | 'files'>('text')
   const [sourceText, setSourceText] = useState('')
   const [sourcePaths, setSourcePaths] = useState<string[]>([])
   const [session, setSession] = useState<ImportSession | null>(null)
+  const [resumableSession, setResumableSession] = useState<ImportSession | null>(null)
   const [candidates, setCandidates] = useState<ImportCandidate[]>([])
   const [selectedIndex, setSelectedIndex] = useState(0)
   const [issueAnswers, setIssueAnswers] = useState<Record<string, string>>({})
-  const [busy, setBusy] = useState<'choose' | 'analyze' | 'save' | 'land' | 'issue' | null>(null)
+  const [busy, setBusy] = useState<'choose' | 'analyze' | 'save' | 'land' | 'issue' | 'recover' | null>(null)
+  const [resumeSessionId, setResumeSessionId] = useState<string | null>(null)
   const [error, setError] = useState('')
+  const importStream = useAIStreamPreview('import-split')
   const selected = candidates[selectedIndex] ?? null
   const openIssues = session?.issues.filter((issue) => issue.state === 'open') ?? []
   const outlines = useMemo(() => docs.filter((doc) => doc.data.type === 'outline'), [docs])
+
+  useEffect(() => {
+    let cancelled = false
+    void bridge
+      .loadLatestUnfinishedImportSession(root)
+      .then((latest: ImportSession | null) => {
+        if (!cancelled) setResumableSession(latest)
+      })
+      .catch(() => {
+        // Recovery is optional and must never block a fresh import.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [root])
 
   const chooseFiles = async () => {
     setBusy('choose')
@@ -93,14 +117,20 @@ export function AIImportDialog({
   const analyze = async () => {
     setBusy('analyze')
     setError('')
+    const clientRequestId = importStream.begin()
     try {
       const planned = await bridge.createAIImportPlan(root, {
         sourceKind: inputMode === 'text' ? 'text' : 'file',
-        ...(inputMode === 'text' ? { markdownText: sourceText } : { sourcePaths })
+        ...(inputMode === 'text' ? { markdownText: sourceText } : { sourcePaths }),
+        clientRequestId,
+        ...(resumeSessionId ? { resumeSessionId } : {})
       })
       setSession(planned)
+      setResumableSession(null)
+      setResumeSessionId(null)
       setCandidates(planned.candidates.map(withFriendlyFields))
       setSelectedIndex(0)
+      importStream.clear()
     } catch (cause) {
       setError(formatDesktopError(cause, language))
     } finally {
@@ -108,10 +138,48 @@ export function AIImportDialog({
     }
   }
 
+  const closeDialog = async () => {
+    if (busy === 'analyze') await importStream.cancel()
+    onClose()
+  }
+
   const updateCandidate = (index: number, update: Partial<ImportCandidate>) => {
     setCandidates((items) =>
       items.map((item, itemIndex) => (itemIndex === index ? { ...item, ...update } : item))
     )
+  }
+
+  const resumeLatestReview = () => {
+    if (!resumableSession) return
+    setSourceText(resumableSession.input_excerpt)
+    setInputMode(resumableSession.source_kind === 'text' ? 'text' : 'files')
+    setSourcePaths(
+      resumableSession.sources.map((source) => source.source).filter((source) => source !== 'pasted-markdown')
+    )
+    if (resumableSession.candidates.length || resumableSession.ai_response) {
+      setSession(resumableSession)
+      setCandidates(resumableSession.candidates.map(withFriendlyFields))
+      setSelectedIndex(0)
+    } else {
+      setResumeSessionId(resumableSession.id)
+    }
+    setResumableSession(null)
+    setError('')
+  }
+
+  const abandonLatestReview = async () => {
+    if (!resumableSession) return
+    setBusy('recover')
+    setError('')
+    try {
+      await bridge.abandonImportSession(root, resumableSession.id)
+      setResumableSession(null)
+      setResumeSessionId(null)
+    } catch (cause) {
+      setError(formatDesktopError(cause, language))
+    } finally {
+      setBusy(null)
+    }
   }
 
   const saveCandidates = async (): Promise<ImportSession | null> => {
@@ -131,16 +199,21 @@ export function AIImportDialog({
     }
   }
 
-  const resolveIssue = async (issueId: string) => {
+  const resolveIssue = async (issueId: string, mode: 'confirm-current' | 'supplement-candidate') => {
     if (!session) return
     setBusy('issue')
     setError('')
     try {
-      const answer =
-        issueAnswers[issueId]?.trim() ||
-        (zh ? '已按当前候选内容人工确认。' : 'Confirmed as currently edited.')
-      const next = await bridge.answerImportIssue(root, session.id, issueId, answer)
+      const note = issueAnswers[issueId]?.trim() ?? ''
+      const answer = note || (zh ? '已按当前候选内容人工确认。' : 'Confirmed as currently edited.')
+      const next = await bridge.answerImportIssue(root, session.id, issueId, answer, mode)
       setSession(next)
+      setCandidates(next.candidates.map(withFriendlyFields))
+      setIssueAnswers((answers) => {
+        const remaining = { ...answers }
+        delete remaining[issueId]
+        return remaining
+      })
     } catch (cause) {
       setError(formatDesktopError(cause, language))
     } finally {
@@ -189,8 +262,8 @@ export function AIImportDialog({
           </div>
           <button
             className="icon-button"
-            onClick={onClose}
-            disabled={Boolean(busy)}
+            onClick={() => void closeDialog()}
+            disabled={Boolean(busy && busy !== 'analyze')}
             aria-label={zh ? '关闭' : 'Close'}
           >
             <X size={18} />
@@ -220,7 +293,39 @@ export function AIImportDialog({
           </li>
         </ol>
 
-        {!session ? (
+        {!session && resumableSession ? (
+          <section className="ai-import-recovery" aria-labelledby="ai-import-recovery-title">
+            <div>
+              <AlertTriangle size={21} />
+              <span>
+                <strong id="ai-import-recovery-title">
+                  {zh ? '发现尚未完成的导入' : 'An unfinished import is available'}
+                </strong>
+                <small>
+                  {zh
+                    ? `会话 ${resumableSession.id} · ${resumableSession.candidates.length} 个候选。旧审计文件会一直保留。`
+                    : `Session ${resumableSession.id} · ${resumableSession.candidates.length} candidates. Its audit file is preserved.`}
+                </small>
+              </span>
+            </div>
+            <div>
+              <button className="primary" onClick={resumeLatestReview} disabled={Boolean(busy)}>
+                <FileText size={15} /> {zh ? '继续上一次导入' : 'Resume previous import'}
+              </button>
+              <button
+                className="secondary"
+                onClick={() => void abandonLatestReview()}
+                disabled={Boolean(busy)}
+              >
+                {busy === 'recover' ? <LoaderCircle className="spin" size={15} /> : <Trash2 size={15} />}
+                {zh ? '放弃上一次并开始新导入' : 'Abandon and start new'}
+              </button>
+              <button className="secondary" onClick={() => void closeDialog()} disabled={Boolean(busy)}>
+                {zh ? '取消' : 'Cancel'}
+              </button>
+            </div>
+          </section>
+        ) : !session ? (
           <div className="ai-import-input-grid">
             <section className="ai-import-source-choice">
               <button className={inputMode === 'text' ? 'active' : ''} onClick={() => setInputMode('text')}>
@@ -265,7 +370,7 @@ export function AIImportDialog({
                     </div>
                   ))}
                   {!sourcePaths.length && (
-                    <button onClick={() => void chooseFiles()}>
+                    <button className="secondary" onClick={() => void chooseFiles()}>
                       <Plus size={16} />
                       {zh ? '选择材料文件' : 'Choose source files'}
                     </button>
@@ -290,7 +395,7 @@ export function AIImportDialog({
               </header>
               {candidates.map((candidate, index) => (
                 <button
-                  key={`${candidate.type}-${index}`}
+                  key={candidate.id ?? `${candidate.type}-${index}`}
                   className={selectedIndex === index ? 'active' : ''}
                   onClick={() => setSelectedIndex(index)}
                 >
@@ -374,21 +479,18 @@ export function AIImportDialog({
                           language={language}
                           context={{ documentType: 'outline' }}
                         />
-                        <select
+                        <PlanningCardSelector
+                          docs={outlines}
                           value={String(selected.frontmatter.parent ?? '')}
-                          onChange={(event) =>
+                          language={language}
+                          ariaLabel={zh ? '选择父级大纲' : 'Choose parent outline'}
+                          placeholder={zh ? '根节点' : 'Root'}
+                          onChange={(stableId) =>
                             updateCandidate(selectedIndex, {
-                              frontmatter: { ...selected.frontmatter, parent: event.target.value || null }
+                              frontmatter: { ...selected.frontmatter, parent: stableId || null }
                             })
                           }
-                        >
-                          <option value="">{zh ? '根节点' : 'Root'}</option>
-                          {outlines.map((outline) => (
-                            <option key={outline.data.id} value={outline.data.id}>
-                              {outline.data.title}
-                            </option>
-                          ))}
-                        </select>
+                        />
                       </label>
                     </div>
                   )}
@@ -429,6 +531,9 @@ export function AIImportDialog({
                 <span>
                   <strong>{issue.title}</strong>
                   <small>{issue.decision_needed}</small>
+                  {issue.invalidated_reason && (
+                    <small className="confirmation-invalidated">{issue.invalidated_reason}</small>
+                  )}
                 </span>
                 <input
                   value={issueAnswers[issue.id] ?? ''}
@@ -437,14 +542,32 @@ export function AIImportDialog({
                   }
                   placeholder={zh ? '可填写确认说明' : 'Optional decision note'}
                 />
-                <button onClick={() => void resolveIssue(issue.id)} disabled={Boolean(busy)}>
-                  <Check size={14} />
-                  {zh ? '确认' : 'Resolve'}
-                </button>
+                <span className="ai-import-confirm-actions">
+                  <button
+                    className="secondary ai-import-issue-confirm"
+                    onClick={() => void resolveIssue(issue.id, 'confirm-current')}
+                    disabled={Boolean(busy)}
+                  >
+                    {busy === 'issue' ? <LoaderCircle className="spin" size={14} /> : <Check size={14} />}
+                    {zh ? '按当前候选确认' : 'Confirm current candidate'}
+                  </button>
+                  {issue.candidate_id && (
+                    <button
+                      className="secondary ai-import-issue-confirm"
+                      onClick={() => void resolveIssue(issue.id, 'supplement-candidate')}
+                      disabled={Boolean(busy) || !(issueAnswers[issue.id] ?? '').trim()}
+                    >
+                      <Plus size={14} />
+                      {zh ? '用填写内容补充并确认' : 'Add note, then confirm'}
+                    </button>
+                  )}
+                </span>
               </div>
             ))}
           </section>
         )}
+
+        <AIStreamPreview state={importStream.state} language={language} />
 
         {error && (
           <div className="error-box" role="alert">
@@ -452,7 +575,11 @@ export function AIImportDialog({
           </div>
         )}
         <footer className="modal-actions ai-import-actions">
-          <button className="secondary" onClick={onClose} disabled={Boolean(busy)}>
+          <button
+            className="secondary"
+            onClick={() => void closeDialog()}
+            disabled={Boolean(busy && busy !== 'analyze')}
+          >
             {session?.status === 'landed' || session?.status === 'partial'
               ? zh
                 ? '完成'
@@ -461,19 +588,46 @@ export function AIImportDialog({
                 ? '取消'
                 : 'Cancel'}
           </button>
-          {!session ? (
-            <button
-              className="primary"
-              onClick={() => void analyze()}
-              disabled={Boolean(busy) || (inputMode === 'text' ? !sourceText.trim() : !sourcePaths.length)}
-            >
-              {busy === 'analyze' ? <LoaderCircle className="spin" size={15} /> : <WandSparkles size={15} />}
-              {busy === 'analyze' ? (zh ? '正在拆分…' : 'Analyzing…') : zh ? '交给 AI 拆分' : 'Split with AI'}
-            </button>
-          ) : session.status !== 'landed' && session.status !== 'partial' ? (
+          {!session && !resumableSession ? (
             <>
-              <button onClick={() => void saveCandidates()} disabled={Boolean(busy) || !candidates.length}>
-                {zh ? '保存校对' : 'Save review'}
+              {inputMode === 'text' && onOpenAssistant && (
+                <button
+                  className="secondary ai-import-assistant-action"
+                  onClick={() => onOpenAssistant(sourceText)}
+                  disabled={Boolean(busy) || !sourceText.trim()}
+                >
+                  <MessageCircle size={15} />
+                  {zh ? '先与设定整理助手讨论' : 'Discuss with setting organizer'}
+                </button>
+              )}
+              <button
+                className="primary"
+                onClick={() => void analyze()}
+                disabled={Boolean(busy) || (inputMode === 'text' ? !sourceText.trim() : !sourcePaths.length)}
+              >
+                {busy === 'analyze' ? (
+                  <LoaderCircle className="spin" size={15} />
+                ) : (
+                  <WandSparkles size={15} />
+                )}
+                {busy === 'analyze'
+                  ? zh
+                    ? '正在拆分…'
+                    : 'Analyzing…'
+                  : zh
+                    ? '交给 AI 拆分'
+                    : 'Split with AI'}
+              </button>
+            </>
+          ) : session && session.status !== 'landed' && session.status !== 'partial' ? (
+            <>
+              <button
+                className="secondary"
+                onClick={() => void saveCandidates()}
+                disabled={Boolean(busy) || !candidates.length}
+              >
+                {busy === 'save' ? <LoaderCircle className="spin" size={15} /> : <Save size={15} />}
+                {busy === 'save' ? (zh ? '正在保存…' : 'Saving…') : zh ? '保存校对' : 'Save review'}
               </button>
               <button
                 className="primary"
@@ -559,7 +713,7 @@ function ImportResults({
         ))}
       </div>
       {Boolean(session.failures?.length) && (
-        <button onClick={onRetry} disabled={busy}>
+        <button className="secondary" onClick={onRetry} disabled={busy}>
           {busy ? <LoaderCircle className="spin" size={15} /> : null}
           {zh ? '重试失败项' : 'Retry failed records'}
         </button>

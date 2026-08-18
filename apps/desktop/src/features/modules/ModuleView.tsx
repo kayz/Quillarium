@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useState } from 'react'
 import { Plus } from 'lucide-react'
 import type { DocEntry, LanguageName, ModuleName, RunSummary, TargetSelection } from '../../app/types.js'
 import { I18N, t } from '../../app/i18n.js'
@@ -5,6 +6,25 @@ import { docTitle } from '../../shared/outline.js'
 import { enumChoiceLabel, fieldLabel } from '../metadata/field-presentation.js'
 import { docTypeLabel } from '../outline/outline-model.js'
 import { CanonWorkspace } from './CanonWorkspace.js'
+import { IssueWorkspace } from './IssueWorkspace.js'
+import { BoundedPager } from '../layout/BoundedPager.js'
+import { boundedPage } from '../layout/bounded-page.js'
+
+const MODULE_PAGE_SIZE = 30
+const MODULE_TYPE_MAP: Record<string, string> = {
+  canon: 'canon',
+  world: 'world_entry',
+  characters: 'character',
+  timeline: 'timeline_event',
+  foreshadowing: 'foreshadowing',
+  issues: 'issue',
+  references: 'reference',
+  narrative: 'narrative',
+  locations: 'location',
+  runs: 'scene',
+  write: 'scene',
+  assistants: 'resource'
+}
 
 export function ModuleView({
   root,
@@ -16,6 +36,7 @@ export function ModuleView({
   selectedTarget,
   onSelect,
   onOpenCard,
+  onOpenAssistant,
   onReload,
   language
 }: {
@@ -28,33 +49,45 @@ export function ModuleView({
   selectedTarget: TargetSelection | null
   onSelect: (target: TargetSelection) => void
   onOpenCard?: (doc: DocEntry) => void
+  onOpenAssistant?: (roleId: string, target: TargetSelection) => void
   onReload: () => Promise<void>
   language: LanguageName
 }) {
-  const map: Record<string, string> = {
-    canon: 'canon',
-    world: 'world_entry',
-    characters: 'character',
-    timeline: 'timeline_event',
-    foreshadowing: 'foreshadowing',
-    issues: 'issue',
-    references: 'reference',
-    narrative: 'narrative',
-    locations: 'location',
-    runs: 'scene',
-    write: 'scene'
-  }
-  const filtered = docs.filter((doc) =>
-    module === 'narrative'
-      ? ['narrative', 'strategy', 'pattern'].includes(doc.data.type)
-      : doc.data.type === map[module]
+  const [pageIndex, setPageIndex] = useState(0)
+  const filtered = useMemo(
+    () =>
+      docs.filter((doc) =>
+        module === 'narrative'
+          ? ['narrative', 'strategy', 'pattern'].includes(doc.data.type)
+          : doc.data.type === MODULE_TYPE_MAP[module]
+      ),
+    [docs, module]
   )
+  const docPage = boundedPage(filtered, pageIndex, MODULE_PAGE_SIZE)
+  const runPage = boundedPage(runs, pageIndex, MODULE_PAGE_SIZE)
+  useEffect(() => {
+    const selectedIndex =
+      module !== 'runs' && selectedTarget
+        ? filtered.findIndex(
+            (document) => document.data.id === selectedTarget.id && document.data.type === selectedTarget.type
+          )
+        : -1
+    setPageIndex(selectedIndex >= 0 ? Math.floor(selectedIndex / MODULE_PAGE_SIZE) : 0)
+  }, [filtered, module, selectedTarget?.id, selectedTarget?.type])
   if (module === 'runs') {
     return (
       <section className="module-view">
         <h2>{t(language, 'runs')}</h2>
+        <BoundedPager
+          page={runPage.page}
+          total={runPage.total}
+          pageSize={runPage.pageSize}
+          onPage={setPageIndex}
+          language={language}
+          label={language === 'zh' ? '运行记录分页' : 'Run pagination'}
+        />
         <div className="cards-grid">
-          {runs.map((run) => (
+          {runPage.items.map((run) => (
             <article key={run.id} className="info-card">
               <strong>{run.id}</strong>
               <small>
@@ -66,6 +99,14 @@ export function ModuleView({
             </article>
           ))}
         </div>
+        <BoundedPager
+          page={runPage.page}
+          total={runPage.total}
+          pageSize={runPage.pageSize}
+          onPage={setPageIndex}
+          language={language}
+          label={language === 'zh' ? '运行记录分页' : 'Run pagination'}
+        />
       </section>
     )
   }
@@ -80,12 +121,49 @@ export function ModuleView({
       />
     )
   }
+  if (module === 'issues') {
+    return (
+      <IssueWorkspace
+        root={root}
+        docs={docs}
+        selectedTarget={selectedTarget}
+        onSelect={onSelect}
+        onOpenCard={onOpenCard}
+        onReload={onReload}
+        language={language}
+      />
+    )
+  }
   return (
     <section className="module-view module-view-full">
       <ModuleCreateForm module={module} onCreate={onAIPlanningCreate} language={language} />
       <ModuleFilters module={module} docs={docs} language={language} />
+      {module === 'characters' && selectedTarget?.type === 'character' && (
+        <div className="assistant-card-shortcut">
+          <span>
+            {language === 'zh'
+              ? '用当前人物、时段关系、地点和正设开始一段非正史试戏。'
+              : 'Rehearse this character with current relationships, location, and Canon.'}
+          </span>
+          <button
+            className="primary"
+            type="button"
+            onClick={() => onOpenAssistant?.('character-rehearsal', selectedTarget)}
+          >
+            {language === 'zh' ? '人物试戏' : 'Rehearse character'}
+          </button>
+        </div>
+      )}
+      <BoundedPager
+        page={docPage.page}
+        total={docPage.total}
+        pageSize={docPage.pageSize}
+        onPage={setPageIndex}
+        language={language}
+        label={language === 'zh' ? '资料卡分页' : 'Card pagination'}
+      />
       <div className="cards-grid">
-        {filtered.map((doc) => (
+        {docPage.items.map((doc) => (
           <button
             type="button"
             key={doc.data.id}
@@ -155,6 +233,14 @@ export function ModuleView({
           </button>
         ))}
       </div>
+      <BoundedPager
+        page={docPage.page}
+        total={docPage.total}
+        pageSize={docPage.pageSize}
+        onPage={setPageIndex}
+        language={language}
+        label={language === 'zh' ? '资料卡分页' : 'Card pagination'}
+      />
     </section>
   )
 }
@@ -230,7 +316,7 @@ export function ModuleCreateForm({
   onCreate: (module: ModuleName) => void
   language: LanguageName
 }) {
-  const enabled = !['write', 'canon', 'runs'].includes(module)
+  const enabled = !['write', 'canon', 'runs', 'assistants'].includes(module)
   return (
     <div className="module-head">
       <h2>{moduleTitle(module, language)}</h2>
@@ -255,7 +341,8 @@ export function moduleTitle(module: ModuleName, language: LanguageName): string 
     references: 'references',
     narrative: 'narrative',
     locations: 'locations',
-    runs: 'runs'
+    runs: 'runs',
+    assistants: 'creatorAssistants'
   }
   return t(language, map[module])
 }

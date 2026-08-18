@@ -7,6 +7,7 @@ import {
 } from './tokenization.js'
 import type {
   ContextPolicy,
+  ContextReferenceResolution,
   ContextTrace,
   ContextTraceEntry,
   PromptBlock,
@@ -45,6 +46,7 @@ export interface PromptBlockCandidate {
   selection_reason: string
   exclusion_reason?: string
   trigger_chain?: string[]
+  reference_resolutions?: ContextReferenceResolution[]
   truncation?: PromptBlockTruncation
 }
 
@@ -53,6 +55,8 @@ export interface ContextCompileOptions {
   policy?: Partial<Omit<ContextPolicy, 'schema_version'>>
   token_counter?: ContextTokenCounter
   reached_recursion_depth?: number
+  /** Provider context window (input plus output). When present, policy.token_budget remains an input cap. */
+  context_window_tokens?: number
   reserved_output_tokens?: number
   /** Stable text representing system/user role wrappers and non-context prompt instructions. */
   framing_text?: string
@@ -79,7 +83,7 @@ export class ContextBudgetExceededError extends Error {
 }
 
 export async function compileContextBlocks(
-  target: { type: 'outline' | 'scene'; id: string },
+  target: { type: 'outline' | 'scene' | 'assistant'; id: string },
   candidates: PromptBlockCandidate[],
   options: ContextCompileOptions = {}
 ): Promise<CompiledContext> {
@@ -90,11 +94,20 @@ export async function compileContextBlocks(
     options.reserved_output_tokens ?? 0,
     'reserved_output_tokens'
   )
+  const contextWindowTokens =
+    options.context_window_tokens === undefined
+      ? undefined
+      : positiveInteger(options.context_window_tokens, 'context_window_tokens')
   const framingTokens = counter.count(options.framing_text ?? '')
-  const availableInputTokens = policy.token_budget - reservedOutputTokens - framingTokens
+  const totalTokenBudget = contextWindowTokens ?? policy.token_budget
+  const providerInputCapacity = totalTokenBudget - reservedOutputTokens - framingTokens
+  // ContextPolicy limits selected project material. A provider may support a far larger output than
+  // this input-selection cap, so subtract the output reservation from the provider context window,
+  // not from policy.token_budget, whenever the model window is known.
+  const availableInputTokens = Math.min(policy.token_budget, providerInputCapacity)
   if (availableInputTokens <= 0) {
     throw new Error(
-      `Context policy token budget ${policy.token_budget} leaves no input capacity after ` +
+      `Context window ${totalTokenBudget} leaves no input capacity after ` +
         `${reservedOutputTokens} reserved output tokens and ${framingTokens} framing tokens.`
     )
   }
@@ -233,7 +246,7 @@ export async function compileContextBlocks(
       policy,
       tokenizer: counter.descriptor,
       budget: {
-        total_token_budget: policy.token_budget,
+        total_token_budget: totalTokenBudget,
         reserved_output_tokens: reservedOutputTokens,
         framing_tokens: framingTokens,
         available_input_tokens: availableInputTokens,
@@ -329,6 +342,7 @@ function normalizeCandidate(candidate: PromptBlockCandidate): PromptBlockCandida
     content: candidate.content.trim(),
     source: { ...candidate.source, path: sourcePath },
     trigger_chain: [...(candidate.trigger_chain ?? [])],
+    reference_resolutions: [...(candidate.reference_resolutions ?? [])],
     truncation: candidate.truncation ?? 'head'
   }
 }
@@ -415,6 +429,13 @@ function fitsBudget(blocks: PromptBlock[], counter: ContextTokenCounter, budget:
   return counter.count(renderPromptBlocks(blocks)) <= budget
 }
 
+function positiveInteger(value: number, label: string): number {
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error(`${label} must be a positive integer.`)
+  }
+  return value
+}
+
 function sortForRendering<T extends Pick<PromptBlock, 'order' | 'id'>>(blocks: T[]): T[] {
   return [...blocks].sort((left, right) => left.order - right.order || left.id.localeCompare(right.id, 'en'))
 }
@@ -454,9 +475,13 @@ function traceEntry(
     authority: candidate.authority,
     authority_rank: candidate.authority_rank,
     priority: candidate.priority,
+    required: Boolean(candidate.required),
     outcome,
     reason,
     trigger_chain: [...(candidate.trigger_chain ?? [])],
+    ...(candidate.reference_resolutions?.length
+      ? { reference_resolutions: [...candidate.reference_resolutions] }
+      : {}),
     token_count: tokenCount,
     original_token_count: originalCounts.get(candidate.id) ?? 0,
     content_sha256: sha256(candidate.content),

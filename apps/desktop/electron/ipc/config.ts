@@ -1,16 +1,15 @@
 import path from 'node:path'
 import { realpath } from 'node:fs/promises'
-import { app, dialog } from 'electron'
+import { dialog } from 'electron'
 import {
   getObsidianDir,
   getWorkspaceDir,
   loadConfig,
-  loadWorkspace,
   saveConfig,
   setObsidianDir,
   setWorkspaceDir
 } from '@quillarium/core'
-import { isAIConfigured } from '@quillarium/ai'
+import { isAIConfigured, listOfficialModelCapabilities } from '@quillarium/ai'
 import {
   loadDesktopAIProfile,
   loadDesktopConfig,
@@ -19,23 +18,21 @@ import {
 } from './credentials.js'
 import { typedHandle } from './contract.js'
 import { applyLegacyProjectMigration, prepareLegacyProjectMigration } from './workspace-migration.js'
+import { registerLocalWorkspace } from './local-workspace.js'
+import { getProductVersion } from '../product-version.js'
 
 export function registerConfigHandlers(): void {
-  typedHandle('app:version', () => app.getVersion())
+  typedHandle('app:version', () => getProductVersion())
   typedHandle('config:get', async () => loadDesktopConfig())
+  typedHandle('config:modelCapabilities', () => listOfficialModelCapabilities())
   typedHandle('config:getVault', async () => getObsidianDir())
   typedHandle('config:getWorkspace', async () => getWorkspaceDir())
   typedHandle('config:chooseWorkspace', async () => {
-    const result = await dialog.showOpenDialog({ properties: ['openDirectory'] })
+    const result = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] })
     if (result.canceled || !result.filePaths[0]) return null
-    await loadWorkspace(result.filePaths[0])
-    await setWorkspaceDir(result.filePaths[0])
-    return result.filePaths[0]
+    return registerLocalWorkspace(result.filePaths[0])
   })
-  typedHandle('config:setWorkspace', async (_event, dir) => {
-    await loadWorkspace(dir)
-    return (await setWorkspaceDir(dir)).workspaceDir
-  })
+  typedHandle('config:setWorkspace', async (_event, dir) => registerLocalWorkspace(dir))
   typedHandle('config:chooseVault', async () => {
     const result = await dialog.showOpenDialog({ properties: ['openDirectory', 'createDirectory'] })
     if (result.canceled || !result.filePaths[0]) return null

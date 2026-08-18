@@ -1,6 +1,6 @@
 {
   "name": "@quillarium/cli",
-  "version": "0.2.0-alpha.2",
+  "version": "0.2.1",
   "private": true,
   "type": "module",
   "bin": {
@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@quillarium/ai": "workspace:*",
+    "@quillarium/agent-runtime": "workspace:*",
     "@quillarium/checks": "workspace:*",
     "@quillarium/core": "workspace:*",
     "@quillarium/sillytavern": "workspace:*",

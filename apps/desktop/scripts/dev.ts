@@ -7,6 +7,7 @@ import { createServer } from 'vite'
 
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const require = createRequire(import.meta.url)
+const desktopVersion = (require(path.join(appRoot, 'package.json')) as { version: string }).version
 
 const server = await createServer({
   configFile: path.join(appRoot, 'vite.config.ts'),
@@ -26,7 +27,7 @@ await run('pnpm', ['exec', 'tsc', '-p', 'tsconfig.main.json'])
 await ensureElectronBinary()
 
 const electron = spawnCommand('pnpm', ['exec', 'electron', 'dist/main/main.js'], {
-  env: { ...process.env, VITE_DEV_SERVER_URL: devUrl }
+  env: { ...process.env, VITE_DEV_SERVER_URL: devUrl, QUILLARIUM_APP_VERSION: desktopVersion }
 })
 
 electron.on('exit', (code) => {

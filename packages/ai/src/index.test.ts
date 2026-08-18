@@ -7,6 +7,7 @@ import {
   loadConfig,
   migrateAIProfileApiKeys,
   readRunFile,
+  saveBookGenerationHeader,
   selectWritingPreset,
   writeRunFile,
   withStoredAIProfileApiKey,
@@ -27,8 +28,11 @@ import {
   createGenerationRun,
   createGenerationCandidateRuns,
   contextCompileOptions,
+  getOfficialModelCapabilities,
+  listOfficialModelCapabilities,
   resolveGenerationPreset,
-  type AIConfig
+  type AIConfig,
+  type AIStreamEvent
 } from './index.js'
 
 vi.mock('@quillarium/core', async () => {
@@ -65,7 +69,8 @@ describe('loadAIConfig', () => {
       apiKey: '',
       model: 'deepseek-v4-flash',
       temperature: 0.7,
-      maxTokens: 2000
+      maxTokens: 384_000,
+      contextWindowTokens: 1_000_000
     })
   })
 
@@ -85,8 +90,21 @@ describe('loadAIConfig', () => {
       apiKey: 'environment-key',
       model: 'deepseek-v4-pro',
       temperature: 0.2,
-      maxTokens: 4096
+      maxTokens: 4096,
+      contextWindowTokens: 1_000_000
     })
+  })
+
+  it('publishes the official DeepSeek V4 model limits with their source metadata', () => {
+    expect(getOfficialModelCapabilities('deepseek', 'deepseek-v4-pro')).toMatchObject({
+      contextWindowTokens: 1_000_000,
+      maxOutputTokens: 384_000,
+      verifiedAt: '2026-08-16'
+    })
+    expect(listOfficialModelCapabilities().map((item) => item.model)).toEqual([
+      'deepseek-v4-flash',
+      'deepseek-v4-pro'
+    ])
   })
 })
 
@@ -298,6 +316,81 @@ describe('generation run snapshots', () => {
 
       await expect(readRunFile(project.root, run.id, 'prompt.md')).resolves.toBe(prompt)
       await expect(readRunFile(project.root, run.id, 'context.md')).resolves.toBe('context')
+      const envelope = JSON.parse(await readRunFile(project.root, run.id, 'prompt-envelope.json')) as {
+        manually_edited: boolean
+        compiled_prompt_sha256: string
+        sent_prompt_sha256: string
+        messages: Array<{ role: string; content: string }>
+      }
+      expect(envelope.manually_edited).toBe(true)
+      expect(envelope.compiled_prompt_sha256).not.toBe(envelope.sent_prompt_sha256)
+      expect(envelope.messages.at(-1)?.content).toBe(prompt)
+    } finally {
+      await rm(tmp, { recursive: true, force: true })
+    }
+  })
+
+  it('orders and snapshots the book header and persists the sanitized provider-visible request', async () => {
+    const tmp = await mkdtemp(path.join(os.tmpdir(), 'quillarium-ai-book-header-'))
+    try {
+      const project = await createProjectAt(path.join(tmp, 'project'), {
+        id: 'book-header-run',
+        title: 'Book Header Run'
+      })
+      const supportedConfig: AIConfig = {
+        ...config,
+        model: 'gpt-4o-mini',
+        apiKey: 'sk-must-never-be-snapshotted',
+        baseUrl: 'https://private-endpoint.example/v1'
+      }
+      const headerText = 'BOOK HEADER FIRST. {{char}} stays literal.'
+      await saveBookGenerationHeader(project.root, headerText)
+      const run = await createGenerationRun(
+        project.root,
+        'scene-one',
+        'PromptBlock context. C:\\Users\\writer\\notes.md sk-visiblecredential12345',
+        supportedConfig
+      )
+      const envelope = JSON.parse(await readRunFile(project.root, run.id, 'prompt-envelope.json')) as {
+        system_message: string
+        messages: Array<{ role: string; content: string }>
+      }
+      const headerSnapshot = JSON.parse(
+        await readRunFile(project.root, run.id, 'book-generation-header.json')
+      ) as {
+        text: string
+        relative_path: string
+        sha256: string
+        actual_tokens: number
+        tokenizer_id: string
+      }
+      const providerRequest = JSON.parse(
+        await readRunFile(project.root, run.id, 'provider-request.json')
+      ) as { messages: Array<{ role: string; content: string }> }
+      expect(envelope.system_message.indexOf(headerText)).toBeLessThan(
+        envelope.system_message.indexOf('CODE-OWNED GENERATION TASK')
+      )
+      expect(envelope.system_message.indexOf('CODE-OWNED GENERATION TASK')).toBeLessThan(
+        envelope.system_message.indexOf('WritingPreset 生文指令')
+      )
+      expect(headerSnapshot).toMatchObject({
+        text: headerText,
+        relative_path: 'prompts/book-generation-header.md',
+        sha256: expect.stringMatching(/^[a-f0-9]{64}$/u),
+        tokenizer_id: 'o200k'
+      })
+      expect(headerSnapshot.actual_tokens).toBeGreaterThan(0)
+      expect(providerRequest.messages[0]).toEqual(envelope.messages[0])
+      expect(JSON.stringify(providerRequest)).not.toMatch(
+        /sk-must-never-be-snapshotted|sk-visiblecredential12345|private-endpoint|C:\\\\Users\\\\writer/u
+      )
+      expect(JSON.stringify(providerRequest)).toContain('[LOCAL_PATH_REDACTED]')
+      expect(JSON.stringify(providerRequest)).toContain('[REDACTED_CREDENTIAL]')
+
+      await saveBookGenerationHeader(project.root, 'A later header that must not rewrite old runs.')
+      expect(
+        JSON.parse(await readRunFile(project.root, run.id, 'book-generation-header.json'))
+      ).toMatchObject({ text: headerText })
     } finally {
       await rm(tmp, { recursive: true, force: true })
     }
@@ -324,10 +417,12 @@ describe('generation run snapshots', () => {
       const request = JSON.parse(String((fetchMock.mock.calls[0] as [string, RequestInit])[1].body)) as {
         messages: Array<{ role: string; content: string }>
       }
-      expect(request.messages[0]).toEqual({
-        role: 'system',
-        content: 'Use the snapshotted quiet-prose system instruction.'
-      })
+      expect(request.messages[0]?.role).toBe('system')
+      expect(request.messages[0]?.content).toContain('CODE-OWNED GENERATION TASK AND PERMISSION BOUNDARY')
+      expect(request.messages[0]?.content).toContain('Use the snapshotted quiet-prose system instruction.')
+      expect(request.messages[0]!.content.indexOf('CODE-OWNED')).toBeLessThan(
+        request.messages[0]!.content.indexOf('Use the snapshotted quiet-prose')
+      )
 
       await expect(
         generateIntoRun(project.root, run, 'Context body.', { ...config, model: 'different-model' })
@@ -388,7 +483,9 @@ describe('generation run snapshots', () => {
       const blocks = await readRunFile(project.root, run.id, 'prompt-blocks.json')
       const trace = await readRunFile(project.root, run.id, 'context-trace.json')
       const preset = await readRunFile(project.root, run.id, 'writing-preset.json')
-      const serialized = `${blocks}\n${trace}\n${preset}`
+      const envelope = await readRunFile(project.root, run.id, 'prompt-envelope.json')
+      const execution = await readRunFile(project.root, run.id, 'agent-execution.json')
+      const serialized = `${blocks}\n${trace}\n${preset}\n${envelope}\n${execution}`
 
       expect(JSON.parse(blocks)).toMatchObject({
         schema_version: 1,
@@ -403,6 +500,18 @@ describe('generation run snapshots', () => {
         preset_id: 'default',
         preset_version: '1.0.0',
         model: { provider: 'openai', model: 'gpt-4o-mini' }
+      })
+      expect(JSON.parse(envelope)).toMatchObject({
+        schema_version: 1,
+        manually_edited: false,
+        messages: [{ role: 'system' }, { role: 'user' }]
+      })
+      expect(JSON.parse(execution)).toMatchObject({
+        schema_version: 1,
+        execution_kind: 'product_task',
+        task: { id: 'scene-generation', version: '1.0.0' },
+        target: { document_type: 'scene', document_id: 'scene-one' },
+        writing_preset: { snapshot_sha256: resolved.snapshot.snapshot_sha256 }
       })
       expect(run).toMatchObject({
         preset_id: 'default',
@@ -419,6 +528,28 @@ describe('generation run snapshots', () => {
 })
 
 describe('loadAIProfile', () => {
+  it('upgrades the legacy DeepSeek 2000-token default in memory without rewriting the profile', async () => {
+    loadConfigMock.mockResolvedValue({
+      aiProfiles: {
+        prose: {
+          provider: 'deepseek',
+          model: 'deepseek-v4-pro',
+          maxTokens: 2_000
+        }
+      }
+    })
+
+    const profile = await loadAIProfile('prose', {})
+
+    expect(profile).toMatchObject({
+      provider: 'deepseek',
+      model: 'deepseek-v4-pro',
+      maxTokens: 384_000,
+      contextWindowTokens: 1_000_000
+    })
+    expect(loadConfigMock).toHaveBeenCalledOnce()
+  })
+
   it('prefers QUILL_AI_API_KEY without invoking the decryptor', async () => {
     loadConfigMock.mockResolvedValue({
       aiProfiles: {
@@ -650,6 +781,23 @@ describe('generateText', () => {
     expect(JSON.parse(String(init.body))).toMatchObject({ thinking: { type: 'enabled' } })
   })
 
+  it('raises an actionable error when the provider reports output truncation', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse({
+        choices: [{ finish_reason: 'length', message: { content: '{"items":[' } }]
+      })
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const error = await captureRequestError(
+      generateText('Prompt', { ...config, maxTokens: 12_345 }, undefined, { timeoutMs: 0 })
+    )
+
+    expect(error).toMatchObject({ provider: 'openai', status: 200 })
+    expect(error.message).toContain('AI_OUTPUT_TRUNCATED')
+    expect(error.message).toContain('max_tokens=12345')
+  })
+
   it('throws a structured error before fetching when the API key is missing', async () => {
     const fetchMock = vi.fn()
     vi.stubGlobal('fetch', fetchMock)
@@ -774,6 +922,27 @@ describe('generateText', () => {
     expect(error.message).toContain('upstream failed')
   })
 
+  it('retains bounded provider request identity and response detail for runtime auditing', async () => {
+    const responseBody = JSON.stringify({ error: { message: 'upstream rejected request' } })
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(responseBody, {
+        status: 400,
+        headers: { 'x-request-id': 'provider-request-123' }
+      })
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const error = await captureRequestError(
+      generateText('Prompt', config, undefined, { timeoutMs: 0, maxRetries: 0 })
+    )
+
+    expect(error).toMatchObject({
+      status: 400,
+      requestId: 'provider-request-123',
+      responseBody
+    })
+  })
+
   it('reports malformed success JSON with status and parse cause', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response('not-json', { status: 200 }))
     vi.stubGlobal('fetch', fetchMock)
@@ -804,6 +973,153 @@ describe('generateText', () => {
     expect(error).toMatchObject({ provider: 'openai', status: 200 })
     expect(error.message).toContain('empty choices[0].message.content')
   })
+
+  it('assembles SSE content across arbitrary and UTF-8 byte boundaries while hiding reasoning content', async () => {
+    const encoder = new TextEncoder()
+    const payload = [
+      'data: {"choices":[{"delta":{"reasoning_content":"private chain"}}]}\n\n',
+      'data: {"choices":[{"delta":{"content":"你"}}]}\n\n',
+      'data: {"choices":[{"delta":{"content":"好"},"finish_reason":"stop"}]}\n\n',
+      'data: [DONE]\n\n'
+    ].join('')
+    const bytes = encoder.encode(payload)
+    const splitAt = bytes.indexOf(0xe4) + 1
+    const response = sseResponse([
+      bytes.slice(0, splitAt),
+      bytes.slice(splitAt, splitAt + 1),
+      bytes.slice(splitAt + 1)
+    ])
+    const fetchMock = vi.fn().mockResolvedValue(response)
+    vi.stubGlobal('fetch', fetchMock)
+    const events: AIStreamEvent[] = []
+
+    await expect(
+      generateText('Prompt', config, undefined, {
+        timeoutMs: 0,
+        onStreamEvent: (event) => events.push(event)
+      })
+    ).resolves.toBe('你好')
+
+    expect(JSON.parse(String((fetchMock.mock.calls[0] as [string, RequestInit])[1].body))).toMatchObject({
+      stream: true
+    })
+    expect(
+      events
+        .filter(
+          (event): event is Extract<AIStreamEvent, { type: 'content_delta' }> =>
+            event.type === 'content_delta'
+        )
+        .map((event) => event.delta)
+        .join('')
+    ).toBe('你好')
+    expect(JSON.stringify(events)).not.toContain('private chain')
+    expect(events.at(-1)?.type).toBe('completed')
+  })
+
+  it('rejects an interrupted SSE stream and never returns its partial content as a success', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(sseResponse(['data: {"choices":[{"delta":{"content":"partial"}}]}\n\n']))
+    )
+    const deltas: string[] = []
+
+    const error = await captureRequestError(
+      generateText('Prompt', config, undefined, {
+        timeoutMs: 0,
+        onStreamEvent: (event) => {
+          if (event.type === 'content_delta') deltas.push(event.delta)
+        }
+      })
+    )
+
+    expect(deltas).toEqual(['partial'])
+    expect(error.message).toContain('AI_STREAM_INTERRUPTED')
+  })
+
+  it('keeps concurrent stream observers isolated', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        sseResponse(['data: {"choices":[{"delta":{"content":"first"},"finish_reason":"stop"}]}\n\n'])
+      )
+      .mockResolvedValueOnce(
+        sseResponse(['data: {"choices":[{"delta":{"content":"second"},"finish_reason":"stop"}]}\n\n'])
+      )
+    vi.stubGlobal('fetch', fetchMock)
+    const first: string[] = []
+    const second: string[] = []
+
+    const [firstResult, secondResult] = await Promise.all([
+      generateText('First', config, undefined, {
+        timeoutMs: 0,
+        onStreamEvent: (event) => {
+          if (event.type === 'content_delta') first.push(event.delta)
+        }
+      }),
+      generateText('Second', config, undefined, {
+        timeoutMs: 0,
+        onStreamEvent: (event) => {
+          if (event.type === 'content_delta') second.push(event.delta)
+        }
+      })
+    ])
+
+    expect([firstResult, secondResult]).toEqual(['first', 'second'])
+    expect(first).toEqual(['first'])
+    expect(second).toEqual(['second'])
+  })
+
+  it('aborts a live stream and rejects instead of accepting its partial output', async () => {
+    const abort = new AbortController()
+    const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(
+            new TextEncoder().encode('data: {"choices":[{"delta":{"content":"partial"}}]}\n\n')
+          )
+          init.signal?.addEventListener(
+            'abort',
+            () => controller.error(new DOMException('Aborted', 'AbortError')),
+            { once: true }
+          )
+        }
+      })
+      return new Response(body, { headers: { 'Content-Type': 'text/event-stream' } })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const deltas: string[] = []
+    const result = captureRequestError(
+      generateText('Prompt', config, undefined, {
+        timeoutMs: 0,
+        signal: abort.signal,
+        onStreamEvent: (event) => {
+          if (event.type === 'content_delta') {
+            deltas.push(event.delta)
+            abort.abort()
+          }
+        }
+      })
+    )
+
+    const error = await result
+    expect(deltas).toEqual(['partial'])
+    expect(error.message).toContain('AI_REQUEST_CANCELLED')
+  })
+
+  it('falls back to a normal JSON completion while reporting real phases when streaming is unsupported', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(completionResponse('Fallback response')))
+    const events: AIStreamEvent[] = []
+
+    await expect(
+      generateText('Prompt', config, undefined, {
+        timeoutMs: 0,
+        onStreamEvent: (event) => events.push(event)
+      })
+    ).resolves.toBe('Fallback response')
+
+    expect(events.some((event) => event.type === 'phase' && event.phase === 'validating')).toBe(true)
+    expect(events.some((event) => event.type === 'content_delta')).toBe(false)
+  })
 })
 
 function completionResponse(content: string): Response {
@@ -819,6 +1135,20 @@ function jsonResponse(body: unknown, status = 200): Response {
 
 function providerErrorResponse(status: number, body: unknown): Response {
   return new Response(typeof body === 'string' ? body : JSON.stringify(body), { status })
+}
+
+function sseResponse(chunks: Array<string | Uint8Array>): Response {
+  const encoder = new TextEncoder()
+  return new Response(
+    new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const chunk of chunks)
+          controller.enqueue(typeof chunk === 'string' ? encoder.encode(chunk) : chunk)
+        controller.close()
+      }
+    }),
+    { headers: { 'Content-Type': 'text/event-stream; charset=utf-8' } }
+  )
 }
 
 async function captureRequestError(request: Promise<unknown>): Promise<AIRequestError> {

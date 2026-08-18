@@ -58,6 +58,7 @@ export const projectConfigSchema = z.object({
   id: projectIdSchema,
   aliases: z.array(z.string().min(1)).default([]),
   title: z.string().min(1),
+  synopsis: z.string().default(''),
   genre: z.string().default('general'),
   target_words: z.number().int().nonnegative().default(0),
   chapter_words: z.number().int().positive().default(3200),
@@ -66,6 +67,19 @@ export const projectConfigSchema = z.object({
   current_timeline_node: z.string().nullable().default(null),
   writing_preset: projectIdSchema.nullable().default('default'),
   default_theme: z.enum(['paper', 'ink', 'mist', 'bamboo']).default('paper'),
+  cover: z
+    .object({
+      original_path: z.string().min(1),
+      thumbnail_path: z.string().min(1),
+      export_png_path: z.string().min(1),
+      focus_x: z.number().min(0).max(1).default(0.5),
+      focus_y: z.number().min(0).max(1).default(0.5),
+      source_width: z.number().int().positive(),
+      source_height: z.number().int().positive()
+    })
+    .strict()
+    .nullable()
+    .default(null),
   schema_version: z.literal(2).default(2)
 })
 
@@ -168,15 +182,33 @@ export const characterRelationSchema = planningCardSchema.extend({
   visibility: z.enum(['public', 'private', 'secret']).default('private')
 })
 
+/**
+ * Stable story-time location used by foreshadowing plans.  The human-readable
+ * label is a snapshot only; identity is always timeline_id + target_id.
+ */
+export const foreshadowingTimePositionSchema = z
+  .object({
+    timeline_id: projectIdSchema,
+    target_type: z.enum(['timeline', 'timeline_node', 'timeline_event']),
+    target_id: z.string().min(1),
+    display_name: z.string().default(''),
+    outline_id: z.string().min(1).nullable().default(null)
+  })
+  .strict()
+
 export const foreshadowingSchema = planningCardSchema.extend({
   type: z.literal('foreshadowing'),
   code: z.string().default(''),
   level: z.enum(['L1', 'L2', 'L3', 'L4', 'L5']).default('L4'),
   summary: z.string().default(''),
+  /** Legacy free text. Kept until the author explicitly migrates it. */
   planned_plant: z.string().default(''),
+  planned_plant_ref: foreshadowingTimePositionSchema.nullable().default(null),
   planted_at: z.string().nullable().default(null),
   reinforced_at: z.array(z.string()).default([]),
+  /** Legacy free text. Kept until the author explicitly migrates it. */
   planned_resolve: z.string().default(''),
+  planned_resolve_ref: foreshadowingTimePositionSchema.nullable().default(null),
   expires_at: z.string().default(''),
   state: z.enum(['planned', 'planted', 'reinforced', 'resolved', 'abandoned']).default('planned'),
   related_characters: z.array(z.string()).default([]),
@@ -233,7 +265,8 @@ export const referenceSchema = documentIdentitySchema.extend({
 export const issueSchema = planningCardSchema.extend({
   type: z.literal('issue'),
   priority: z.enum(['high', 'medium', 'low']).default('medium'),
-  state: z.enum(['open', 'resolved', 'deferred']).default('open'),
+  /** deferred is retained as a legacy read value; new workflows write open/resolved/ignored. */
+  state: z.enum(['open', 'resolved', 'ignored', 'deferred']).default('open'),
   due: z.string().default(''),
   decision_needed: z.string().default(''),
   related_docs: z.array(z.string()).default([]),
@@ -290,6 +323,89 @@ export const characterStateSchema = planningCardSchema.extend({
 
 export const timelinePrecisionSchema = z.enum(['month', 'day', 'hour', 'minute'])
 
+export const timeUnitDefinitionV1Schema = z
+  .object({
+    id: z.string().min(1),
+    label: z.string().min(1),
+    order: z.number().int().nonnegative(),
+    radix: z.number().int().positive().nullable().default(null),
+    aliases: z.array(z.string().min(1)).default([])
+  })
+  .strict()
+
+export const timeSystemV1Schema = z
+  .object({
+    schema_version: z.literal(1),
+    id: projectIdSchema,
+    version: z.number().int().positive().default(1),
+    title: z.string().min(1),
+    kind: z.enum(['gregorian', 'fictional', 'relative', 'cyclic']),
+    units: z.array(timeUnitDefinitionV1Schema).min(1),
+    conversion: z
+      .object({
+        epoch: z.number().nullable().default(null),
+        unit_factors: z.record(z.string(), z.number().positive()).default({})
+      })
+      .strict()
+      .nullable()
+      .default(null)
+  })
+  .strict()
+
+export const timelineTrackV1Schema = z
+  .object({
+    schema_version: z.literal(1),
+    id: projectIdSchema,
+    version: z.number().int().positive().default(1),
+    title: z.string().min(1),
+    time_system_id: projectIdSchema,
+    display_order: z.number().int().nonnegative(),
+    purpose: z.string().default('')
+  })
+  .strict()
+
+export const timelineCoordinateV2Schema = z
+  .object({
+    schema_version: z.literal(2),
+    time_system_id: projectIdSchema,
+    components: z.record(z.string(), z.union([z.number(), z.string()])),
+    precision: z.string().min(1),
+    display_text: z.string().min(1),
+    sort_value: z.number().finite().nullable().default(null),
+    explicit_order: z.number().int().nonnegative().nullable().default(null),
+    uncertain: z.boolean().default(false),
+    fuzzy: z.boolean().default(false),
+    cycle: z.number().int().nullable().default(null),
+    occurrence: z.number().int().positive().default(1)
+  })
+  .strict()
+
+export const timelineNodeTrackPlacementV1Schema = z
+  .object({
+    timeline_id: projectIdSchema,
+    order: z.number().int().nonnegative(),
+    narrative_order: z.number().int().nonnegative()
+  })
+  .strict()
+
+export const timelinePlacementV1Schema = z
+  .object({
+    timeline_id: projectIdSchema,
+    start_node_id: z.string().min(1),
+    end_node_id: z.string().min(1).nullable().default(null),
+    order: z.number().int().nonnegative(),
+    narrative_order: z.number().int().nonnegative(),
+    occurrence: z.number().int().positive().default(1)
+  })
+  .strict()
+
+export const timelineEventIntervalV1Schema = z
+  .object({
+    start_node_id: z.string().min(1),
+    end_node_id: z.string().min(1)
+  })
+  .strict()
+
 export const timelineNodeSchema = planningCardSchema.extend({
   type: z.literal('timeline_node'),
   calendar: z.string().default('story'),
@@ -303,7 +419,9 @@ export const timelineNodeSchema = planningCardSchema.extend({
   display_time: z.string().default(''),
   fuzzy: z.boolean().default(false),
   previous: z.string().nullable().default(null),
-  next: z.string().nullable().default(null)
+  next: z.string().nullable().default(null),
+  coordinate_v2: timelineCoordinateV2Schema.nullable().default(null),
+  timeline_tracks: z.array(timelineNodeTrackPlacementV1Schema).default([])
 })
 
 export const timelineEventSchema = planningCardSchema.extend({
@@ -315,7 +433,8 @@ export const timelineEventSchema = planningCardSchema.extend({
   duration: z.string().default(''),
   location: z.string().nullable().default(null),
   characters: z.array(z.string()).default([]),
-  flashback_reference: z.string().nullable().optional()
+  flashback_reference: z.string().nullable().optional(),
+  placements: z.array(timelinePlacementV1Schema).default([])
 })
 
 export const locationScaleSchema = z.enum(['global', 'region', 'city', 'district', 'estate', 'interior'])

@@ -91,6 +91,7 @@ import {
   loadAIConfig,
   resolveGenerationPreset
 } from '@quillarium/ai'
+import { registerAgentCommands } from './agent.js'
 import { registerSillyTavernCommands } from './sillytavern.js'
 import { registerStrategyCommands } from './strategy.js'
 import { registerRunCommands } from './runs.js'
@@ -102,7 +103,7 @@ export function buildProgram(): Command {
   program
     .name('quill')
     .description('Quillarium CLI for Obsidian-backed long-form fiction projects')
-    .version('0.2.0-alpha.2')
+    .version('0.2.1')
 
   const workspace = program.command('workspace').description('Manage writing workspaces')
   workspace
@@ -136,6 +137,8 @@ export function buildProgram(): Command {
   function projectOption(cmd: Command): Command {
     return cmd.requiredOption('-p, --project <path>', 'Novel project root')
   }
+
+  registerAgentCommands(program, projectOption)
 
   const presetCmd = program.command('preset').description('Manage versioned project writing presets')
   projectOption(

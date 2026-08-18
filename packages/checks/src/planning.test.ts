@@ -7,8 +7,11 @@ import {
   createCharacterRelation,
   createForeshadowing,
   createNarrative,
+  createLocation,
   createProjectAt,
   createReference,
+  createTimelineEventAtNode,
+  createTimelineNode,
   createWorldEntry
 } from '@quillarium/core'
 import { checkPlanningCards } from './planning.js'
@@ -27,7 +30,7 @@ async function project(): Promise<string> {
 }
 
 describe('manual planning-card rules', () => {
-  it('checks enabled cards, keeps references as material, and skips disabled cards', async () => {
+  it('checks enabled deterministic cards while excluding every world-book entry', async () => {
     const root = await project()
     await createReference(root, 'Source', { id: 'ref-source' })
     await createWorldEntry(root, 'Enabled knowledge', {
@@ -55,17 +58,13 @@ describe('manual planning-card rules', () => {
 
     const report = await checkPlanningCards(root)
 
-    expect(report.checked_card_ids).toEqual(expect.arrayContaining(['world-enabled', 'foreshadow-enabled']))
+    expect(report.checked_card_ids).toContain('foreshadow-enabled')
+    expect(report.checked_card_ids).not.toContain('world-enabled')
     expect(report.checked_card_ids).not.toContain('ref-source')
-    expect(report.skipped_disabled_ids).toEqual(
-      expect.arrayContaining(['world-disabled', 'narrative-disabled'])
-    )
+    expect(report.skipped_disabled_ids).toContain('narrative-disabled')
+    expect(report.skipped_disabled_ids).not.toContain('world-disabled')
     expect(report.issues).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({
-          code: 'planning-world-entry-without-trigger',
-          related_ids: ['world-enabled']
-        }),
         expect.objectContaining({
           code: 'planning-foreshadowing-without-trigger',
           related_ids: ['foreshadow-enabled']
@@ -76,7 +75,7 @@ describe('manual planning-card rules', () => {
     expect(report.issues.some((issue) => issue.related_ids?.includes('narrative-disabled'))).toBe(false)
   })
 
-  it('reports intrinsic dangling links with the field that needs repair', async () => {
+  it('does not turn dangling world-book references into deterministic story issues', async () => {
     const root = await project()
     await createWorldEntry(root, 'Broken link', {
       id: 'world-broken',
@@ -86,15 +85,30 @@ describe('manual planning-card rules', () => {
     })
 
     const report = await checkPlanningCards(root)
-    expect(report.issues).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          code: 'planning-missing-relation-target',
-          evidence: 'Field: links',
-          related_ids: ['world-broken', 'world-missing']
-        })
-      ])
+    expect(report.checked_card_ids).not.toContain('world-broken')
+    expect(report.issues.some((issue) => issue.related_ids?.includes('world-broken'))).toBe(false)
+  })
+
+  it('limits a timeline-page check to timeline nodes and events', async () => {
+    const root = await project()
+    await createTimelineNode(root, '第一日', { id: 'time-one', year: 1, month: 1 })
+    await createTimelineEventAtNode(root, 'time-one', '启程', { id: 'event-departure' })
+    await createLocation(root, '城门', { id: 'location-gate' })
+    await createForeshadowing(root, '暗号', {
+      id: 'foreshadow-outside-timeline',
+      enabled: true,
+      trigger_conditions: []
+    })
+    await createWorldEntry(root, '杂史材料', { id: 'world-outside-timeline', enabled: true, triggers: [] })
+
+    const report = await checkPlanningCards(root, 'timeline')
+
+    expect(report.checked_card_ids.sort()).toEqual(['event-departure', 'time-one'])
+    expect(report.issues.some((issue) => issue.related_ids?.includes('location-gate'))).toBe(false)
+    expect(report.issues.some((issue) => issue.related_ids?.includes('foreshadow-outside-timeline'))).toBe(
+      false
     )
+    expect(report.issues.some((issue) => issue.related_ids?.includes('world-outside-timeline'))).toBe(false)
   })
 
   it('reports relationship cards that are not anchored to the timeline', async () => {

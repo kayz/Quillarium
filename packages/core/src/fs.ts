@@ -28,6 +28,18 @@ export async function writeText(filePath: string, text: string): Promise<void> {
   }
 }
 
+export async function writeBinary(filePath: string, bytes: Uint8Array): Promise<void> {
+  await ensureDir(path.dirname(filePath))
+  const temporary = path.join(path.dirname(filePath), `.${path.basename(filePath)}.${randomUUID()}.tmp`)
+  try {
+    await writeFile(temporary, bytes, { flag: 'wx' })
+    await rename(temporary, filePath)
+  } catch (error) {
+    await rm(temporary, { force: true })
+    throw error
+  }
+}
+
 export async function readText(filePath: string): Promise<string> {
   return readFile(filePath, 'utf8')
 }

@@ -547,7 +547,9 @@ export async function createTimelineNode(
     ...planningCardFields(partial),
     ...time,
     previous: null,
-    next: null
+    next: null,
+    coordinate_v2: partial.coordinate_v2 ?? null,
+    timeline_tracks: partial.timeline_tracks ?? []
   }) as TimelineNodeDoc
   const duplicate = existing.find(
     (document) => timelineNodeKey(document.data) === timelineNodeKey(candidateForKey)
@@ -730,7 +732,8 @@ export async function appendTimelineEvent(
     duration: partial.duration ?? '',
     location: partial.location ?? null,
     characters: partial.characters ?? [],
-    flashback_reference: partial.flashback_reference ?? null
+    flashback_reference: partial.flashback_reference ?? null,
+    placements: partial.placements ?? []
   }) as TimelineEventDoc
   const file = fileForDoc(projectRoot, 'timeline_event', doc.id, title)
   await writeMarkdown(file, doc as unknown as Record<string, unknown>, content || `## Event\n`)
@@ -802,12 +805,13 @@ export async function createOutline(
   options: { placement?: 'strict' | 'legacy-import' } = {}
 ): Promise<string> {
   const currentLevel = normalizeOutlineLevel(level)
+  const parent = partial.parent ?? null
   if (options.placement !== 'legacy-import') {
     const outlines = await listDocs<OutlineDoc>(projectRoot, 'outline')
     assertOutlinePlacementAgainst(
       outlines.map((item) => item.data),
       currentLevel,
-      partial.parent ?? null
+      parent
     )
   }
   const doc = outlineSchema.parse({
@@ -818,8 +822,8 @@ export async function createOutline(
     status: partial.status ?? 'draft',
     tags: partial.tags ?? [],
     level: currentLevel,
-    parent: partial.parent ?? null,
-    order: partial.order ?? 0,
+    parent,
+    order: partial.order ?? (await nextDirectStoryOrder(projectRoot, parent)),
     target_words: partial.target_words,
     chapter_hook: partial.chapter_hook,
     story_purpose: partial.story_purpose ?? '',
@@ -879,6 +883,7 @@ export async function createScene(
   content = ''
 ): Promise<string> {
   const project = await loadProject(projectRoot)
+  const chapterId = partial.chapter_id ?? partial.section
   const doc = sceneSchema.parse({
     id: partial.id ?? (await allocateAutoId(projectRoot, 'scene', 'scene', title)),
     type: 'scene',
@@ -886,9 +891,9 @@ export async function createScene(
     title,
     status: partial.status ?? 'draft',
     tags: partial.tags ?? [],
-    chapter_id: partial.chapter_id ?? partial.section,
-    section: partial.chapter_id ?? partial.section,
-    order: partial.order ?? 0,
+    chapter_id: chapterId,
+    section: chapterId,
+    order: partial.order ?? (await nextDirectStoryOrder(projectRoot, chapterId ?? null)),
     writing_focus: partial.writing_focus ?? '',
     outline_content: partial.outline_content ?? content,
     accepted_at: partial.accepted_at ?? null,
@@ -926,6 +931,26 @@ export async function createScene(
   const file = path.join(projectRoot, 'scenes', volume, chapter, `${doc.id}-${slugify(title)}.md`)
   await writeMarkdown(file, doc as unknown as Record<string, unknown>, content)
   return file
+}
+
+async function nextDirectStoryOrder(projectRoot: string, parentId: string | null): Promise<number> {
+  const [outlines, scenes] = await Promise.all([
+    listDocs<OutlineDoc>(projectRoot, 'outline'),
+    listDocs<SceneDoc>(projectRoot, 'scene')
+  ])
+  const directOrders = [
+    ...outlines
+      .filter(
+        (item) =>
+          item.data.parent === parentId &&
+          ['volume', 'part', 'arc', 'act', 'chapter'].includes(item.data.level)
+      )
+      .map((item) => item.data.order),
+    ...scenes
+      .filter((item) => (item.data.chapter_id || item.data.section || null) === parentId)
+      .map((item) => item.data.order)
+  ]
+  return directOrders.length ? Math.max(...directOrders) + 1 : 0
 }
 
 export async function createChapterProse(
@@ -979,18 +1004,40 @@ export async function listDocs<T extends DocumentIdentity>(
         'causality',
         'outlines',
         'chapters',
-        'scenes',
-        'prompts'
+        'scenes'
       ].map((d) => path.join(projectRoot, d))
   const files = (await Promise.all(roots.map(listMarkdownFiles))).flat()
-  const docs = []
+  const docs: Array<{ path: string; data: T; content: string }> = []
   for (const file of files) {
     const parsed = await readMarkdown<Record<string, unknown>>(file)
     if (type && parsed.data.type !== type) continue
     const data = parseKnownDocument(parsed.data, file)
-    docs.push({ path: file, data, content: parsed.content })
+    // Prompt assets are intentionally not ordinary project documents.  They are
+    // pure Markdown files managed by the prompt loader and have no document
+    // identity/frontmatter.  Unknown future document types remain readable as
+    // long as they carry the minimum identity fields.
+    if (data.type === 'prompt') continue
+    if (!hasDocumentIdentity(data)) continue
+    docs.push({ path: file, data: data as T, content: parsed.content })
   }
-  return docs as Array<{ path: string; data: T; content: string }>
+  return docs
+}
+
+/** Runtime guard used at document boundaries before data enters a typed API. */
+export function hasDocumentIdentity(value: unknown): value is DocumentIdentity {
+  if (!value || typeof value !== 'object') return false
+  const record = value as Record<string, unknown>
+  return (
+    typeof record.id === 'string' &&
+    record.id.trim().length > 0 &&
+    typeof record.type === 'string' &&
+    record.type.trim().length > 0 &&
+    typeof record.title === 'string' &&
+    record.title.trim().length > 0 &&
+    typeof record.schema_version === 'number' &&
+    Number.isFinite(record.schema_version) &&
+    Array.isArray(record.tags)
+  )
 }
 
 export function parseKnownDocument(data: Record<string, unknown>, file: string): Record<string, unknown> {

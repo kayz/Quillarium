@@ -23,7 +23,7 @@ export function levelTasks(level: string): {
   if (level === 'book') {
     return {
       summary: '总纲阶段处理全书约束和素材入口。',
-      items: ['检查 Canon 硬约束', '导入和整理世界书', '检查时间线主链', '梳理伏笔台账', '拆出叙事策略'],
+      items: ['检查正设硬约束', '导入和整理世界书', '检查时间线主链', '梳理伏笔台账', '拆出叙事策略'],
       fieldTitle: '总纲字段',
       fields: [
         ['世界线主轴', 'worldline_axis'],
@@ -122,9 +122,7 @@ export interface OutlineHierarchy {
 }
 
 export function buildOutlineHierarchy(docs: DocEntry[]): OutlineHierarchy {
-  const outlines = docs
-    .filter((item) => item.data.type === 'outline')
-    .sort((a, b) => outlineSortKey(a).localeCompare(outlineSortKey(b)))
+  const outlines = docs.filter((item) => item.data.type === 'outline').sort(compareStoryEntries)
   const children = new Map<string | null, DocEntry[]>()
   for (const outline of outlines) {
     const explicitParent = (outline.data.parent as string | null | undefined) ?? null
@@ -156,9 +154,7 @@ export function outlineItemsForLevel(
   selectedOutline: DocEntry | null,
   selectedTarget: TargetSelection | null
 ): DocEntry[] {
-  const outlines = docs
-    .filter((item) => item.data.type === 'outline')
-    .sort((a, b) => outlineSortKey(a).localeCompare(outlineSortKey(b)))
+  const outlines = docs.filter((item) => item.data.type === 'outline').sort(compareStoryEntries)
   if (level === 'ai') {
     const chapter =
       selectedTarget?.type === 'outline'
@@ -377,17 +373,19 @@ export function outlineLevelLabel(level: string): string {
 }
 
 export function outlineSortKey(outline: DocEntry): string {
-  const rank: Record<string, number> = {
-    overview: 0,
-    book: 1,
-    volume: 2,
-    part: 3,
-    arc: 3,
-    act: 4,
-    chapter: 5,
-    section: 6
-  }
-  return `${rank[String(outline.data.level)] ?? 9}-${String(outline.data.parent ?? '')}-${String(
-    outline.data.order ?? 0
-  ).padStart(5, '0')}-${outline.data.title}`
+  return `${String(storyOrder(outline)).padStart(12, '0')}-${outline.data.id}-${outline.path}`
+}
+
+/** Stable fallback for legacy duplicate/missing order; parent grouping happens before comparison. */
+export function compareStoryEntries(left: DocEntry, right: DocEntry): number {
+  return (
+    storyOrder(left) - storyOrder(right) ||
+    left.data.id.localeCompare(right.data.id, 'en', { numeric: true }) ||
+    left.path.localeCompare(right.path, 'en', { numeric: true })
+  )
+}
+
+function storyOrder(entry: DocEntry): number {
+  const value = Number(entry.data.order)
+  return Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0
 }

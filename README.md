@@ -14,7 +14,7 @@ Quillarium is the sole product runtime. Obsidian is its durable manual-editing s
 workspace may register multiple projects and shared guidance, while each project directory is both
 an independent Obsidian vault and a Quillarium project root.
 
-This document describes the `0.2.0-alpha.2` code line as of 2026-08-14. “Works now” means the
+This document describes the `0.2.1` code line as of 2026-08-18. “Works now” means the
 behavior is present in the repository and covered by local tests. Strongly typed lifecycle events
 remain in the [roadmap](ROADMAP.md); atomic continuity apply is implemented as a reviewed,
 recoverable operation.
@@ -27,8 +27,9 @@ recoverable operation.
 - A working source-run CLI for creating and editing those records, importing Markdown, assembling
   context, generating drafts, running deterministic or opt-in semantic checks, accepting runs, and
   exporting manuscripts.
-- An Electron desktop app whose welcome screen registers a Git-backed writing library and opens or
-  creates direct project-vaults. Planning records can be created through a multi-turn background-AI
+- An Electron desktop app whose welcome screen turns any chosen local folder into a writing library
+  and opens or creates direct project-vaults without requiring Git or a GitHub account. GitHub can be
+  connected later as an optional upload target. Planning records can be created through a multi-turn background-AI
   conversation, reviewed as structured fields plus Markdown, and written only after confirmation.
 - Safe source/preview switching for Markdown-backed planning documents, including GFM tables,
   nested lists, quotes, links, and fenced code. Raw HTML is not executed. Frontmatter is edited
@@ -43,6 +44,12 @@ recoverable operation.
 - Versioned project writing presets bind a connection-profile role, model overrides, prompt stack,
   block order, deterministic context policy, and check policy. Desktop and CLI select the same preset,
   and every generation run stores its sanitized immutable snapshot and SHA-256 identity.
+- Three built-in creator assistants organize source material, rehearse a character, and review
+  continuity through bounded task-specific stages. Versioned ContextBundles select what project
+  knowledge is visible, isolated assistant-prompt versions define how each assistant works, and
+  WritingPresets define model/common prompt structure. Each session freezes exact configuration and
+  records messages, permissions, sources, token use, traces, raw/repair output, and proposals.
+  Assistant conversation is not Canon and every project/configuration write remains author-approved.
 - One generation action can create two to eight independently retained candidates in a shared run
   group. Desktop and CLI compare candidate prose and checks, explicitly select one without writing
   prose, and create a new branch from any retained candidate. Only the separate accept action writes
@@ -56,9 +63,16 @@ recoverable operation.
 - A seven-level workflow: overview and book outline at the top, then volume, part, optional act,
   chapter, and scene. Scenes generate plain-text candidates; accepted scenes append to chapter prose.
   Chapter prose progresses from draft to final to immutable published state.
-- An optional retained SillyTavern interchange package for CCv2/CCv3 JSON or PNG import, CCv2 JSON
-  export, and Canon/world-entry export as World Info JSON. This package is not a supported
-  compatibility target or roadmap commitment.
+- A searchable, keyboard-accessible, virtualized planning-card selector stores stable IDs across
+  relations and time-aware foreshadowing controls. Planning AI conversations retain multiple
+  independently editable proposals and keep an existing source card anchored first through restore.
+- A dedicated issue workspace supports batch ignore/resolve/reopen. Stable suppression fingerprints
+  prevent ignored findings from recurring without incorrectly suppressing later resolved occurrences.
+- A book-generation header, exact PromptEnvelope/provider-request snapshots, and a read-only
+  block/text/message viewer make the actual model-visible prompt inspectable and safely copyable.
+- Independent public CCv3 interchange can create a new empty-story project from a JSON/PNG character
+  card and export selected novel settings into one cover-backed CCv3 PNG. It never transfers prose,
+  story plans, prompts, presets, API configuration, credentials, or runtime state.
 
 AI is optional for project management, import, context assembly, deterministic checks, and export.
 Generation and `check --semantic` require an OpenAI-compatible endpoint or configured provider.
@@ -104,19 +118,33 @@ Start the Electron app from source:
 pnpm desktop:dev
 ```
 
-Then register a GitHub writing library, open or create a project-vault, build its outline and
+Then choose any local folder as the writing library, open or create a project-vault, build its outline and
 supporting modules, select a chapter, prepare a scene, and edit or generate prose. The AI page shows
 removable prompt-source cards beside the exact editable prompt, plus a large resizable chapter-prose
 editor with word-count feedback. Legacy layouts remain compatible in
 the runtime and migration services, but they are not an active welcome-screen choice. Migration is
 always an explicit dry-run, backup, apply, verify, and report operation and never moves or deletes
 the source. The context/check inspector and recorded runs make inputs and outputs reviewable.
+The full-width **Creator Assistants** workspace shows sessions and assistants on the left,
+conversation and exploration/proposals in the center, and sources, reasons, authority, token use,
+permissions, and output destination on the right. Character cards, chapters/scenes, and material
+import can open the relevant assistant directly.
 On a finalized chapter, **Final review & apply** presents every proposed continuity impact and
 question for an author decision, then enables atomic apply only when no decision is open. **Recovery
 check** restores an interrupted transaction from retained before images.
 Theme, density, language, GitHub credentials, each AI profile, and the project writing preset have
 explicit settings actions. A legacy project without a preset must explicitly create/select one
 before generation.
+
+Settings can manually check the public Quillarium GitHub Releases feed. The check is aware of
+stable and prerelease channels, needs no GitHub account or token, and opens the official release
+page when a newer version exists. It runs only when requested; unsigned builds do not silently
+download or install updates.
+
+Selecting an ordinary folder creates only `quillarium-workspace.yaml` and `projects/` while preserving
+unrelated files. It does not initialize Git, contact GitHub, or write credentials into the library.
+After a GitHub Token is explicitly saved, a standalone local project can be connected and uploaded
+from Settings.
 
 Planning details are presented as record cards rather than serialized frontmatter. Click a tag chip
 to pull in every exactly matching project record from the right; each result shows its document
@@ -182,6 +210,7 @@ Writing Workspace/
       narrative/           strategy/         patterns/         resources/
       causality/           outlines/         chapters/         scenes/
       prompts/             presets/          runs/             imports/
+      context-bundles/     creator-roles/    explorations/
       reviews/             # reviews plus apply audits, backups, and staged copies
       style/               exports/
       sillytavern/         .quillarium/
@@ -208,20 +237,27 @@ The product and agent workflow rationale is documented in
 [docs/DESIGN.md](docs/DESIGN.md) and [ROADMAP.md](ROADMAP.md). External design research, independent
 implementation rules, and license boundaries are recorded in
 [docs/REFERENCES.md](docs/REFERENCES.md).
+The typed Agent task, ContextBundle, creator-assistant, session, and permission decision is recorded
+in
+[docs/adr/ADR-agent-runtime-and-context-bundles.md](docs/adr/ADR-agent-runtime-and-context-bundles.md).
 
 [docs/MVP-WORKLIST.md](docs/MVP-WORKLIST.md) is an explicitly historical checklist for the original
 CLI/vault MVP. It is retained for provenance and is not a current usage guide.
 
 ## Current Boundaries
 
-- Desktop installers are unsigned and currently use Electron's default application icon. Windows
-  SmartScreen or macOS Gatekeeper may therefore display a warning. CI verifies all three installer
+- Desktop installers are unsigned. Windows SmartScreen or macOS Gatekeeper may therefore display a
+  warning. CI verifies all three installer
   architectures, while fresh-machine installation, restart, migration, credential, and accessibility
   checks remain explicit human release-acceptance work.
+- The desktop update control checks and compares published GitHub Releases, then opens the official
+  download page. Automatic download and installation remain disabled until signed update artifacts
+  and fresh-machine upgrade testing are part of the release gate.
 - Manuscript export supports Markdown and plain text, not PDF, EPUB, or word-processor formats.
-- The optional retained SillyTavern import does not support CHARX archives. CCv3 cards can be imported,
-  but embedded CCv3 assets are not materialized; the original card JSON is retained as a raw sidecar.
-  Character export is CCv2 JSON only, and this interchange is not a supported compatibility surface.
+- The retained general SillyTavern adapter does not support CHARX archives or materialize embedded
+  CCv3 assets. The dedicated book-card flow supports public CCv3 JSON/PNG setting transfer only;
+  external cards without Quillarium type extensions may require author classification during review.
+  Neither flow is live synchronization or a compatibility roadmap commitment.
 - The PNG reader extracts `ccv3` or `chara` text metadata; it is not a general PNG asset or CRC
   validation library.
 

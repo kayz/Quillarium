@@ -136,6 +136,78 @@ form a stable reference.
   JavaScript installation and implicit privileges are explicitly excluded.
 - Source code copied: No.
 
+## Spherse Research Baseline
+
+- Source project: [Spherse](https://github.com/mengrru/spherse)
+- Source license: MIT License (`MIT`)
+- Fixed commit: [`10f5d6a8b357d6e2fc5615e9a8feb62474383b8e`](https://github.com/mengrru/spherse/tree/10f5d6a8b357d6e2fc5615e9a8feb62474383b8e)
+- Research date: 2026-08-16
+- Product demonstration: [Bilibili — 我做了个Agent应用，可以让你的OC世界观变成活的生态系统](https://www.bilibili.com/video/BV11Tuz6VEay/)
+- Detailed review: [Spherse product and architecture review](SPHERSE-PRODUCT-REVIEW.md)
+- Principal reference files:
+  [README](https://github.com/mengrru/spherse/blob/10f5d6a8b357d6e2fc5615e9a8feb62474383b8e/README.md),
+  [architecture](https://github.com/mengrru/spherse/blob/10f5d6a8b357d6e2fc5615e9a8feb62474383b8e/docs/official/architecture.md),
+  [data conventions](https://github.com/mengrru/spherse/blob/10f5d6a8b357d6e2fc5615e9a8feb62474383b8e/docs/official/data-conventions.md),
+  [agent management](https://github.com/mengrru/spherse/blob/10f5d6a8b357d6e2fc5615e9a8feb62474383b8e/packages/core/src/tools/manage-agent.ts),
+  [context loading](https://github.com/mengrru/spherse/blob/10f5d6a8b357d6e2fc5615e9a8feb62474383b8e/packages/core/src/context/read-context-files.ts),
+  [session assembly](https://github.com/mengrru/spherse/blob/10f5d6a8b357d6e2fc5615e9a8feb62474383b8e/packages/core/src/session/live-session.ts),
+  [file watcher](https://github.com/mengrru/spherse/blob/10f5d6a8b357d6e2fc5615e9a8feb62474383b8e/packages/server/src/lib/fs-watcher.ts), and
+  [session control bus](https://github.com/mengrru/spherse/blob/10f5d6a8b357d6e2fc5615e9a8feb62474383b8e/packages/core/src/session/control-bus.ts).
+- Abstract mechanisms studied: persistent agent-specific context, AI-proposed agent configuration
+  with approval, project-path access control, external file synchronization, run-time interaction,
+  typed infrastructure boundaries, and the product loop from source material to reusable role and
+  interactive surface.
+- Independent Quillarium implementation: product-owned Agent task contracts, stable-ID
+  `ContextBundleV1`, project `CreatorRoleV1`, author-approved configuration diffs, recoverable
+  sessions, exploration documents, and immutable execution/PromptEnvelope snapshots. Product rules
+  are defined in
+  [ADR-agent-runtime-and-context-bundles.md](adr/ADR-agent-runtime-and-context-bundles.md), not in
+  this reference register.
+- Implementation status: creator-assistant closed loop and scene-generation product snapshots are
+  implemented; external-file watcher, pausable approval control bus, post-write events, and recipes
+  are deferred. Import, planning, check, and finalization retain their business services and adopt
+  the common execution snapshot progressively.
+- Material difference: Quillarium remains a fiction-domain system. It resolves stable document
+  identities through its authority-aware, token-bounded compiler; required evidence fails closed;
+  conversation is not project truth; no assistant bypasses proposal, acceptance, finalization, or
+  publication boundaries. It has no Spherse dependency, compatibility target, or parity objective.
+- Source code, prompts, UI assets, or command definitions copied: No.
+
+## DeepSeek Harness Research and Module-Intake Baseline
+
+- Source project: [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)
+- Source license: MIT License (`MIT`), with a separately maintained third-party notices and
+  distribution closure
+- Fixed commit: [`47f943859bef60e4160492346772ded9b24f765a`](https://github.com/deepseek-ai/deepseek-harness/tree/47f943859bef60e4160492346772ded9b24f765a)
+- Evaluated version: `0.1.0-rc.5`
+- Research date: 2026-08-17
+- Principal reference files:
+  [architecture](https://github.com/deepseek-ai/deepseek-harness/blob/47f943859bef60e4160492346772ded9b24f765a/docs/architecture.md),
+  [agent loop](https://github.com/deepseek-ai/deepseek-harness/blob/47f943859bef60e4160492346772ded9b24f765a/packages/core/agent-loop/README.md),
+  [session store](https://github.com/deepseek-ai/deepseek-harness/blob/47f943859bef60e4160492346772ded9b24f765a/packages/core/session/README.md),
+  [one-shot approval](https://github.com/deepseek-ai/deepseek-harness/blob/47f943859bef60e4160492346772ded9b24f765a/packages/interaction/user-approval/README.md),
+  [LLM seam](https://github.com/deepseek-ai/deepseek-harness/blob/47f943859bef60e4160492346772ded9b24f765a/packages/llm/llm/README.md),
+  [DeepSeek adapter](https://github.com/deepseek-ai/deepseek-harness/blob/47f943859bef60e4160492346772ded9b24f765a/packages/llm/llm-deepseek/README.md), and
+  [SDK protocol](https://github.com/deepseek-ai/deepseek-harness/blob/47f943859bef60e4160492346772ded9b24f765a/packages/sdk/protocol/README.md).
+- Abstract mechanisms adopted: code-owned registration, model-visible write-ahead reconstruction,
+  append-only typed execution events, provider-neutral stable failures, bounded original-error
+  retention, and one-shot fail-closed human approval.
+- Quillarium implementation: the application-specific `@quillarium/agent-runtime` specified by
+  [ADR-unified-ai-agent-runtime.md](adr/ADR-unified-ai-agent-runtime.md). Its event journal indexes
+  immutable Run artifacts; its tasks produce candidates, proposals, exploration, and reports; author
+  decisions and domain apply services remain separate.
+- Whole-module assessment: `dsh-base`, `dsh-headless`, `dsh-agent-loop`, `dsh-session`,
+  `dsh-user-approval`, and the DSH LLM packages are not accepted because their published boundaries
+  require Cordis and multiple DSH application/session services. The SDK client/protocol remains a
+  deferred subprocess-bridge candidate after version negotiation, cancellation, and compatibility
+  guarantees exist.
+- Material difference: DSH is a general chat/tool Agent platform whose presets may name privileged
+  plugins. Quillarium has no model-defined plugins, shell/tool platform, chat-as-truth model, or DSH
+  persistence/wire compatibility target.
+- Runtime package added: Yes: an independently implemented Quillarium package, with no Cordis or
+  DeepSeek Harness runtime dependency, currently serving only the project planning-integrity check.
+- Source code, comments, prompts, UI assets, or command definitions copied: No.
+
 ## License Boundary
 
 SillyTavern's AGPL-3.0 license is not compatible with treating copied or adapted implementation as
@@ -146,6 +218,18 @@ ordinary MIT-only Quillarium code. Contributors must therefore:
 3. cite format specifications themselves when implementing Character Card or other interchange;
 4. add a reference entry and design review before studying a new external mechanism; and
 5. request a separate license review before any direct reuse or close adaptation.
+
+Spherse is MIT-licensed, so the AGPL compatibility concern above does not apply to it. The research
+decision nevertheless remains independent implementation of documented abstractions: this review
+does not authorize copying its source, prompts, interface assets, or command definitions. Any future
+proposal for direct reuse must identify the exact material, preserve required attribution, and pass
+an explicit dependency and license review first.
+
+DeepSeek Harness is also MIT-licensed, but its complete repository and distribution closure contain
+separately licensed third-party packages. Whole-module reuse is preferred over copying fragments only
+after the exact package, transitive/runtime closure, notices, API stability, security capabilities,
+and removal path pass an accepted ADR. The current unified-runtime decision imports no DSH package
+and copies no DSH implementation.
 
 Character Card and World Info conversion remains an optional adapter boundary. It does not make
 SillyTavern a product dependency or establish a goal of feature compatibility.

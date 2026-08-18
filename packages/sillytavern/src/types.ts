@@ -84,3 +84,34 @@ export interface WorldInfoWriteResult {
   entryCount: number
   outputPath: string
 }
+
+export interface BookCharacterCardExportOptions {
+  background_event_ids?: string[]
+  current_state_ids?: string[]
+}
+
+export interface BookCharacterCardWriteResult {
+  format: 'v3-png'
+  projectId: string
+  outputPath: string
+  entryCount: number
+  cardSha256: string
+}
+
+export interface BookCharacterCardInspection {
+  format: 'v3'
+  sourcePath: string
+  name: string
+  description: string
+  hasPngCover: boolean
+  worldBookEntryCount: number
+}
+
+export interface BookCharacterCardImportResult {
+  format: 'v3'
+  projectRoot: string
+  archivePath: string
+  sourceSha256: string
+  candidateDocumentIds: string[]
+  coverPath?: string
+}

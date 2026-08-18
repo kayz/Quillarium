@@ -1,11 +1,6 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Bot, ChevronDown, Link2, Plus, Trash2, X } from 'lucide-react'
-import type { DocumentIdentity } from '@quillarium/core'
-import {
-  derivedCardsForReference,
-  validatePlanningCardGraph,
-  type DocumentWithContent
-} from '@quillarium/core/planning-cards'
+import type { LocalDocumentLinkIndexV1, LocalDocumentReferenceResult } from '@quillarium/core'
 import type { DocEntry, LanguageName, TargetSelection } from '../../app/types.js'
 import { formatFieldValue } from '../../shared/outline.js'
 import { TagEditor } from '../metadata/TagEditor.js'
@@ -26,6 +21,7 @@ import {
 } from '../metadata/field-presentation.js'
 import { structuredLineForSection, timelineBelongsToArc } from './outline-model.js'
 import { removeArrayItem, renameRecordKey, updateArrayItem } from '../metadata/value-editing.js'
+import { PlanningCardSelector } from '../planning/PlanningCardSelector.js'
 
 export function VolumeTimeline({
   docs,
@@ -116,33 +112,61 @@ export function StructuredTile({ doc, language = 'zh' }: { doc: DocEntry; langua
   )
 }
 
+export function documentLinkIndexLoadKey(
+  projectRoot: string | undefined,
+  _documentPath?: string
+): string | undefined {
+  return projectRoot
+}
+
+export function shouldFetchDocumentLinkIndex(docType: string): boolean {
+  return docType === 'reference' || docType === 'issue'
+}
+
 export function PlanningCardSupportPanel({
   doc,
   docs,
+  projectRoot,
   language,
   onSelect,
-  onAIEdit
+  onAIEdit,
+  onReload
 }: {
   doc: DocEntry
   docs: DocEntry[]
+  projectRoot?: string
   language: LanguageName
   onSelect: (target: TargetSelection) => void
   onAIEdit: (doc: DocEntry) => void
+  onReload?: () => Promise<void>
 }) {
   const zh = language === 'zh'
-  const graphDocuments = docs.map((item) => ({
-    path: item.path,
-    data: item.data as unknown as DocumentIdentity,
-    content: item.content
-  })) satisfies Array<DocumentWithContent<DocumentIdentity>>
-  const graphIssues = validatePlanningCardGraph(graphDocuments).filter(
-    (issue) => issue.card_id === doc.data.id && issue.code !== 'self-relation'
-  )
+  const [linkIndex, setLinkIndex] = useState<LocalDocumentLinkIndexV1>()
+  const fetchLinkIndex = shouldFetchDocumentLinkIndex(String(doc.data.type))
+  useEffect(() => {
+    let active = true
+    if (!projectRoot || !fetchLinkIndex) return () => undefined
+    void window.quillarium
+      .rebuildDocumentLinkIndex(projectRoot)
+      .then((index) => {
+        if (active) setLinkIndex(index)
+      })
+      .catch(() => {
+        if (active) setLinkIndex(undefined)
+      })
+    return () => {
+      active = false
+    }
+  }, [fetchLinkIndex, projectRoot])
+  const forwardLinks = linkIndex?.forward[doc.data.id] ?? []
+  const backlinks = linkIndex?.backlinks[doc.data.id] ?? []
+  const graphIssues = forwardLinks.filter((reference) => reference.status !== 'resolved')
   const derived =
     doc.data.type === 'reference'
-      ? derivedCardsForReference(String(doc.data.id), graphDocuments)
-          .map((item) => docs.find((candidate) => candidate.data.id === item.data.id))
-          .filter((item): item is DocEntry => Boolean(item))
+      ? docs.filter(
+          (item) =>
+            Array.isArray(item.data.source_refs) && item.data.source_refs.includes(String(doc.data.id))
+        )
       : []
   const related =
     doc.data.type === 'issue' && Array.isArray(doc.data.related_docs)
@@ -155,7 +179,15 @@ export function PlanningCardSupportPanel({
       ? doc.data.related_docs.filter((id) => !docs.some((candidate) => candidate.data.id === id))
       : []
 
-  if (doc.data.type !== 'reference' && doc.data.type !== 'issue' && graphIssues.length === 0) return null
+  const hasDocumentLinks = forwardLinks.length > 0 || backlinks.length > 0
+
+  if (
+    doc.data.type !== 'reference' &&
+    doc.data.type !== 'issue' &&
+    graphIssues.length === 0 &&
+    !hasDocumentLinks
+  )
+    return null
 
   return (
     <section className={`card-support-panel type-${doc.data.type}`}>
@@ -233,19 +265,188 @@ export function PlanningCardSupportPanel({
 
       {doc.data.type !== 'reference' && doc.data.type !== 'issue' && graphIssues.length > 0 && (
         <ul className="card-graph-warnings">
-          {graphIssues.map((issue) => (
-            <li key={`${issue.code}:${issue.target_id ?? ''}`}>
-              {issue.code === 'isolated-card'
+          {graphIssues.map((issue, index) => (
+            <li key={`${issue.status}:${issue.raw_reference}:${index}`}>
+              {issue.status === 'ambiguous'
                 ? zh
-                  ? '当前没有材料来源、出向关系或入向关系。'
-                  : 'No source, outgoing relation, or incoming relation.'
+                  ? `引用有歧义：${issue.raw_reference}`
+                  : `Ambiguous link: ${issue.raw_reference}`
                 : zh
-                  ? `存在失效引用：${issue.target_id ?? issue.relation_field ?? ''}`
-                  : `Broken link: ${issue.target_id ?? issue.relation_field ?? ''}`}
+                  ? `存在失效引用：${issue.raw_reference}`
+                  : `Broken link: ${issue.raw_reference}`}
             </li>
           ))}
         </ul>
       )}
+
+      {hasDocumentLinks && (
+        <div className="document-link-index">
+          <DocumentReferenceList
+            title={zh ? '前向链接' : 'Outgoing links'}
+            references={forwardLinks}
+            docs={docs}
+            language={language}
+            onSelect={onSelect}
+          />
+          <DocumentReferenceList
+            title={zh ? '反向链接' : 'Backlinks'}
+            references={backlinks}
+            docs={docs}
+            language={language}
+            onSelect={onSelect}
+          />
+        </div>
+      )}
+      {projectRoot && (hasDocumentLinks || doc.data.type === 'world_entry') && (
+        <ReferenceMigrationControls projectRoot={projectRoot} language={language} onReload={onReload} />
+      )}
+    </section>
+  )
+}
+
+function ReferenceMigrationControls({
+  projectRoot,
+  language,
+  onReload
+}: {
+  projectRoot: string
+  language: LanguageName
+  onReload?: () => Promise<void>
+}) {
+  const [plan, setPlan] = useState<
+    Awaited<ReturnType<typeof window.quillarium.planDocumentReferenceMigration>> | undefined
+  >()
+  const [busy, setBusy] = useState(false)
+  const [message, setMessage] = useState('')
+  const zh = language === 'zh'
+  return (
+    <details className="reference-migration-controls">
+      <summary>
+        {zh ? '旧引用规范化（需确认）' : 'Normalize legacy references (confirmation required)'}
+      </summary>
+      <p>
+        {zh
+          ? '先生成只读预览；不会在加载时改写。歧义和真正缺失的引用不会自动处理。'
+          : 'Generate a read-only preview first. Loading never rewrites files; ambiguous and missing references are not changed.'}
+      </p>
+      {!plan ? (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true)
+            setMessage('')
+            try {
+              setPlan(await window.quillarium.planDocumentReferenceMigration(projectRoot))
+            } catch (error) {
+              setMessage(error instanceof Error ? error.message : String(error))
+            } finally {
+              setBusy(false)
+            }
+          }}
+        >
+          <Link2 size={14} />{' '}
+          {busy ? (zh ? '正在扫描…' : 'Scanning…') : zh ? '预览迁移' : 'Preview migration'}
+        </button>
+      ) : (
+        <div className="reference-migration-preview">
+          <p>
+            {zh
+              ? `${plan.files.length} 个文件、${plan.files.reduce((sum, file) => sum + file.replacements.length, 0)} 处可规范化；${plan.ambiguous.length} 处歧义；${plan.missing.length} 处缺失。`
+              : `${plan.files.length} files and ${plan.files.reduce((sum, file) => sum + file.replacements.length, 0)} replacements; ${plan.ambiguous.length} ambiguous; ${plan.missing.length} missing.`}
+          </p>
+          <ul>
+            {plan.files.slice(0, 8).map((file) => (
+              <li key={file.relative_path}>
+                {file.relative_path} · {file.replacements.length}
+              </li>
+            ))}
+          </ul>
+          <div className="reference-migration-actions">
+            <button type="button" onClick={() => setPlan(undefined)} disabled={busy}>
+              {zh ? '关闭预览' : 'Close preview'}
+            </button>
+            <button
+              type="button"
+              disabled={busy || plan.files.length === 0}
+              onClick={async () => {
+                setBusy(true)
+                setMessage('')
+                try {
+                  const report = await window.quillarium.applyDocumentReferenceMigration(projectRoot, plan)
+                  setMessage(
+                    zh
+                      ? `已备份并规范化 ${report.changed_files} 个文件，写后验证通过。`
+                      : `Backed up and normalized ${report.changed_files} files; verification passed.`
+                  )
+                  setPlan(undefined)
+                  await onReload?.()
+                } catch (error) {
+                  setMessage(error instanceof Error ? error.message : String(error))
+                } finally {
+                  setBusy(false)
+                }
+              }}
+            >
+              {zh ? '确认备份并应用' : 'Confirm backup and apply'}
+            </button>
+          </div>
+        </div>
+      )}
+      {message && <p className="reference-migration-message">{message}</p>}
+    </details>
+  )
+}
+
+function DocumentReferenceList({
+  title,
+  references,
+  docs,
+  language,
+  onSelect
+}: {
+  title: string
+  references: LocalDocumentReferenceResult[]
+  docs: DocEntry[]
+  language: LanguageName
+  onSelect: (target: TargetSelection) => void
+}) {
+  const byId = new Map(docs.map((document) => [document.data.id, document] as const))
+  if (!references.length) return null
+  return (
+    <section className="document-reference-list">
+      <strong>{title}</strong>
+      {references.map((reference, index) => {
+        const target = reference.target_id ? byId.get(reference.target_id) : undefined
+        return (
+          <div
+            key={`${reference.origin}:${reference.raw_reference}:${index}`}
+            className={`document-reference-row ${reference.status}`}
+          >
+            {target ? (
+              <button type="button" onClick={() => onSelect(target.data)}>
+                <span>{target.data.title}</span>
+                <small>
+                  {documentTypeLabel(target.data.type, language)} · {reference.matched_by}
+                </small>
+              </button>
+            ) : (
+              <span>
+                <b>{reference.raw_reference}</b>
+                <small>
+                  {reference.status === 'ambiguous'
+                    ? language === 'zh'
+                      ? `引用有歧义：${reference.candidates.map((candidate) => candidate.title).join('、')}`
+                      : `Ambiguous: ${reference.candidates.map((candidate) => candidate.title).join(', ')}`
+                    : language === 'zh'
+                      ? '引用目标不存在'
+                      : 'Reference target is missing'}
+                </small>
+              </span>
+            )}
+          </div>
+        )
+      })}
     </section>
   )
 }
@@ -389,7 +590,10 @@ const DOCUMENT_LINK_FIELDS: Record<string, string[]> = {
 export function MetadataEditor({
   data,
   docs = [],
+  projectRoot,
+  documentPath,
   onChange,
+  onSelectDocument,
   onInspectTag,
   excludeKeys = [],
   documentType,
@@ -397,7 +601,10 @@ export function MetadataEditor({
 }: {
   data: Record<string, unknown>
   docs?: DocEntry[]
+  projectRoot?: string
+  documentPath?: string
   onChange: (data: Record<string, unknown>) => void
+  onSelectDocument?: (target: TargetSelection) => void
   onInspectTag?: (tag: string, displayValue?: string) => void
   excludeKeys?: string[]
   documentType?: string
@@ -427,7 +634,25 @@ export function MetadataEditor({
         : metadataGroupForField(key, data[key])
     grouped.get(group)?.push(key)
   }
-  const suggestions = collectTagSuggestions(docs)
+  const suggestions = useMemo(() => collectTagSuggestions(docs), [docs])
+  const [referenceIndex, setReferenceIndex] = useState<LocalDocumentLinkIndexV1>()
+  const indexKey = documentLinkIndexLoadKey(projectRoot, documentPath)
+  useEffect(() => {
+    let active = true
+    if (!indexKey) return () => undefined
+    void window.quillarium
+      .rebuildDocumentLinkIndex(indexKey)
+      .then((index) => {
+        if (active) setReferenceIndex(index)
+      })
+      .catch(() => {
+        if (active) setReferenceIndex(undefined)
+      })
+    return () => {
+      active = false
+    }
+  }, [indexKey])
+  const referenceResults = referenceIndex?.forward[String(data['id'] ?? '')] ?? []
   return (
     <div className="metadata-editor">
       {groups.map((group) => {
@@ -459,14 +684,19 @@ export function MetadataEditor({
                 key={key}
                 name={key}
                 value={data[key]}
+                siblingData={data}
                 context={{
                   documentType: resolvedDocumentType,
                   documentId: String(data['id'] ?? '')
                 }}
                 language={language}
                 docs={docs}
+                projectRoot={projectRoot}
+                documentPath={documentPath}
+                referenceResults={referenceResults}
                 suggestions={suggestions}
                 onInspectTag={onInspectTag}
+                onSelectDocument={onSelectDocument}
                 onChange={(value) => onChange({ ...data, [key]: value })}
               />
             ))}
@@ -514,24 +744,48 @@ export function metadataGroupForField(
 function MetadataField({
   name,
   value,
+  siblingData,
   context,
   language,
   docs,
+  projectRoot,
+  documentPath,
+  referenceResults,
   suggestions,
   onInspectTag,
+  onSelectDocument,
   onChange
 }: {
   name: string
   value: unknown
+  siblingData: Record<string, unknown>
   context: FieldPresentationContext
   language: LanguageName
   docs: DocEntry[]
+  projectRoot?: string
+  documentPath?: string
+  referenceResults: LocalDocumentReferenceResult[]
   suggestions: string[]
   onInspectTag?: (tag: string, displayValue?: string) => void
+  onSelectDocument?: (target: TargetSelection) => void
   onChange: (value: unknown) => void
 }) {
   const options = enumOptionsForField(name, context)
   const presentation = fieldPresentation(name, language, context)
+  if (name === 'planned_plant_ref' || name === 'planned_resolve_ref') {
+    return (
+      <ForeshadowTimePositionEditor
+        name={name}
+        value={isRecord(value) ? value : null}
+        legacyText={String(
+          siblingData[name === 'planned_plant_ref' ? 'planned_plant' : 'planned_resolve'] ?? ''
+        )}
+        docs={docs}
+        language={language}
+        onChange={onChange}
+      />
+    )
+  }
   if (name === 'relations' && Array.isArray(value)) {
     return (
       <CardRelationEditor
@@ -567,6 +821,10 @@ function MetadataField({
           docs={choices}
           language={language}
           context={context}
+          projectRoot={projectRoot}
+          sourcePath={documentPath}
+          referenceResults={referenceResults}
+          onSelectDocument={onSelectDocument}
           onChange={onChange}
         />
       )
@@ -579,6 +837,10 @@ function MetadataField({
           docs={choices}
           language={language}
           context={context}
+          projectRoot={projectRoot}
+          sourcePath={documentPath}
+          referenceResults={referenceResults}
+          onSelectDocument={onSelectDocument}
           nullable={value === null}
           onChange={onChange}
         />
@@ -715,6 +977,152 @@ function MetadataField({
   )
 }
 
+function ForeshadowTimePositionEditor({
+  name,
+  value,
+  legacyText,
+  docs,
+  language,
+  onChange
+}: {
+  name: 'planned_plant_ref' | 'planned_resolve_ref'
+  value: Record<string, unknown> | null
+  legacyText: string
+  docs: DocEntry[]
+  language: LanguageName
+  onChange: (value: unknown) => void
+}) {
+  const zh = language === 'zh'
+  const timeDocs = docs.filter(
+    (document) => document.data.type === 'timeline_node' || document.data.type === 'timeline_event'
+  )
+  const timelineIds = Array.from(
+    new Set(
+      timeDocs.flatMap((document) => {
+        const placements = [
+          ...(Array.isArray(document.data.timeline_tracks) ? document.data.timeline_tracks : []),
+          ...(Array.isArray(document.data.placements) ? document.data.placements : [])
+        ]
+        const ids = placements
+          .filter(isRecord)
+          .map((placement) => String(placement['timeline_id'] ?? '').trim())
+          .filter(Boolean)
+        return ids.length ? ids : ['main']
+      })
+    )
+  ).sort()
+  const timelineDocs: DocEntry[] = timelineIds.map((id) => ({
+    path: '',
+    data: { id, type: 'timeline', title: zh ? `时间线 ${id}` : `Timeline ${id}`, tags: [] },
+    content: ''
+  }))
+  const timelineId = String(value?.['timeline_id'] ?? '')
+  const targetId = String(value?.['target_id'] ?? '')
+  const targetType = String(value?.['target_type'] ?? '')
+  const outlineId = String(value?.['outline_id'] ?? '')
+  const targetChoices = timeDocs.filter((document) => {
+    if (!timelineId) return true
+    const placements = [
+      ...(Array.isArray(document.data.timeline_tracks) ? document.data.timeline_tracks : []),
+      ...(Array.isArray(document.data.placements) ? document.data.placements : [])
+    ].filter(isRecord)
+    return placements.length === 0
+      ? timelineId === 'main'
+      : placements.some((placement) => placement['timeline_id'] === timelineId)
+  })
+  const outlineChoices = docs.filter(
+    (document) => document.data.type === 'outline' || document.data.type === 'scene'
+  )
+  const selectedTarget = timeDocs.find((document) => document.data.id === targetId)
+  const updateTarget = (nextTargetId: string) => {
+    if (!nextTargetId) {
+      onChange(
+        timelineId
+          ? {
+              timeline_id: timelineId,
+              target_type: 'timeline',
+              target_id: timelineId,
+              display_name:
+                timelineDocs.find((item) => item.data.id === timelineId)?.data.title ?? timelineId,
+              outline_id: outlineId || null
+            }
+          : null
+      )
+      return
+    }
+    const target = timeDocs.find((document) => document.data.id === nextTargetId)
+    if (!target) return
+    const placements = [
+      ...(Array.isArray(target.data.timeline_tracks) ? target.data.timeline_tracks : []),
+      ...(Array.isArray(target.data.placements) ? target.data.placements : [])
+    ].filter(isRecord)
+    const inferredTimeline = timelineId || String(placements[0]?.['timeline_id'] ?? '').trim() || 'main'
+    onChange({
+      timeline_id: inferredTimeline,
+      target_type: target.data.type,
+      target_id: String(target.data.id),
+      display_name: String(target.data.display_time ?? target.data.date ?? target.data.title),
+      outline_id: outlineId || null
+    })
+  }
+  return (
+    <div className="foreshadow-time-position-editor">
+      <div className="metadata-field-label">
+        <FieldCopy name={name} language={language} context={{ documentType: 'foreshadowing' }} />
+      </div>
+      {legacyText.trim() && !value && (
+        <p className="metadata-migration-warning" role="note">
+          {zh
+            ? `旧自由文本“${legacyText}”仍被保留。请在下方选择时间位置以显式迁移；选择不会删除旧文字。`
+            : `Legacy free text “${legacyText}” is still preserved. Choose a story-time location to migrate it explicitly; the text will not be deleted.`}
+        </p>
+      )}
+      <PlanningCardSelector
+        docs={timelineDocs}
+        value={timelineId}
+        language={language}
+        placeholder={zh ? '先选择时间线…' : 'Choose a timeline…'}
+        ariaLabel={zh ? '选择主时间线' : 'Choose primary timeline'}
+        onChange={(id) => {
+          if (!id) return onChange(null)
+          onChange({
+            timeline_id: id,
+            target_type: 'timeline',
+            target_id: id,
+            display_name: String(timelineDocs.find((item) => item.data.id === id)?.data.title ?? id),
+            outline_id: outlineId || null
+          })
+        }}
+      />
+      <PlanningCardSelector
+        docs={targetChoices}
+        value={targetType === 'timeline' ? '' : targetId}
+        language={language}
+        placeholder={zh ? '可继续选择时间节点或事件…' : 'Optionally choose a node or event…'}
+        ariaLabel={zh ? '选择时间节点或事件' : 'Choose timeline node or event'}
+        onChange={updateTarget}
+      />
+      <PlanningCardSelector
+        docs={outlineChoices}
+        value={outlineId}
+        language={language}
+        placeholder={zh ? '可选：关联章或节…' : 'Optional: link a chapter or section…'}
+        ariaLabel={zh ? '关联章或节' : 'Link chapter or section'}
+        onChange={(id) => {
+          if (!value) return
+          onChange({ ...value, outline_id: id || null })
+        }}
+      />
+      {value && (
+        <small className="foreshadow-time-position-summary">
+          {zh ? '已保存稳定引用' : 'Stable reference saved'}：{timelineId} / {targetType} / {targetId}
+          {selectedTarget ? ` · ${selectedTarget.data.title}` : ''}
+        </small>
+      )}
+    </div>
+  )
+}
+
 function ForeshadowTriggerEditor({
   value,
   docs,
@@ -802,33 +1210,16 @@ function ForeshadowTriggerEditor({
               ) : (
                 <label>
                   <span>{fieldLabel('target_id', language)}</span>
-                  <select
+                  <PlanningCardSelector
+                    docs={choices}
                     value={condition.target_id}
-                    onChange={(event) =>
-                      onChange(
-                        updateArrayItem(conditions, index, { ...condition, target_id: event.target.value })
-                      )
+                    language={language}
+                    ariaLabel={fieldLabel('target_id', language)}
+                    invalidValue={missing ? condition.target_id : undefined}
+                    onChange={(stableId) =>
+                      onChange(updateArrayItem(conditions, index, { ...condition, target_id: stableId }))
                     }
-                  >
-                    <option value="">
-                      {language === 'zh' ? '选择现有卡片…' : 'Choose an existing card…'}
-                    </option>
-                    {missing && (
-                      <option value={condition.target_id} disabled>
-                        {language === 'zh'
-                          ? `未定义：${condition.target_id}`
-                          : `Missing: ${condition.target_id}`}
-                      </option>
-                    )}
-                    {choices
-                      .slice()
-                      .sort((left, right) => left.data.title.localeCompare(right.data.title))
-                      .map((document) => (
-                        <option key={document.data.id} value={document.data.id}>
-                          {document.data.title} · {documentTypeLabel(document.data.type, language)}
-                        </option>
-                      ))}
-                  </select>
+                  />
                 </label>
               )}
               <button
@@ -866,6 +1257,10 @@ function DocumentSingleSelect({
   docs,
   language,
   context,
+  projectRoot,
+  sourcePath,
+  referenceResults,
+  onSelectDocument,
   nullable,
   onChange
 }: {
@@ -874,30 +1269,71 @@ function DocumentSingleSelect({
   docs: DocEntry[]
   language: LanguageName
   context: FieldPresentationContext
+  projectRoot?: string
+  sourcePath?: string
+  referenceResults: LocalDocumentReferenceResult[]
+  onSelectDocument?: (target: TargetSelection) => void
   nullable: boolean
   onChange: (value: unknown) => void
 }) {
-  const missing = value && !docs.some((document) => document.data.id === value)
+  const resolution = value
+    ? (referenceResults.find(
+        (reference) =>
+          reference.raw_reference === value &&
+          reference.source_path.replace(/\\/gu, '/') ===
+            (sourcePath ?? '').replace(/\\/gu, '/').replace(`${projectRoot?.replace(/\\/gu, '/')}/`, '')
+      ) ?? referenceResults.find((reference) => reference.raw_reference === value))
+    : undefined
+  const directDocument = value ? docs.find((candidate) => candidate.data.id === value) : undefined
+  const document =
+    resolution?.status === 'resolved'
+      ? docs.find((candidate) => candidate.data.id === resolution.target_id)
+      : directDocument
+  const unresolvedOption = value && !document ? `__unresolved__:${value}` : ''
   return (
     <label className="metadata-scalar-field document-link-field">
       <FieldCopy name={name} language={language} context={context} />
-      <select value={value} onChange={(event) => onChange(event.target.value || (nullable ? null : ''))}>
-        <option value="">{language === 'zh' ? '未选择' : 'Not selected'}</option>
-        {missing && (
-          <option value={value} disabled>
-            {language === 'zh' ? `未定义：${value}` : `Missing: ${value}`}
-          </option>
-        )}
-        {docs
-          .slice()
-          .sort((a, b) => a.data.title.localeCompare(b.data.title))
-          .map((document) => (
-            <option key={document.data.id} value={document.data.id}>
-              {document.data.title} · {documentTypeLabel(document.data.type, language)}
-            </option>
-          ))}
-      </select>
-      {missing && (
+      <PlanningCardSelector
+        docs={docs}
+        value={document?.data.id ?? ''}
+        language={language}
+        ariaLabel={fieldLabel(name, language, context)}
+        invalidValue={unresolvedOption ? value : undefined}
+        onChange={(stableId) => {
+          const selected = docs.find((candidate) => candidate.data.id === stableId)
+          if (!selected) {
+            onChange(nullable ? null : '')
+            return
+          }
+          if (name !== 'links' || !projectRoot) {
+            onChange(selected.data.id)
+            return
+          }
+          void window.quillarium
+            .formatDocumentLink(projectRoot, selected.data.id, selected.data.title)
+            .then(onChange)
+        }}
+      />
+      {document && onSelectDocument && (
+        <button type="button" className="document-link-open" onClick={() => onSelectDocument(document.data)}>
+          <Link2 size={13} /> {language === 'zh' ? '打开关联卡片' : 'Open linked card'}
+        </button>
+      )}
+      {resolution?.status === 'resolved' && value !== resolution.target_id && (
+        <small className="field-help">
+          {language === 'zh'
+            ? `兼容解析为“${document?.data.title ?? resolution.target_id}”；仅在重新选择或显式迁移后规范化。`
+            : `Resolved compatibly to “${document?.data.title ?? resolution.target_id}”; it is canonicalized only after reselection or explicit migration.`}
+        </small>
+      )}
+      {resolution?.status === 'ambiguous' && (
+        <small className="field-warning">
+          {language === 'zh'
+            ? `多个卡片匹配：${resolution.candidates.map((candidate) => candidate.title).join('、')}。请选择明确目标。`
+            : `Multiple cards match: ${resolution.candidates.map((candidate) => candidate.title).join(', ')}. Choose one explicitly.`}
+        </small>
+      )}
+      {resolution?.status === 'missing' && (
         <small className="field-warning">
           {language === 'zh'
             ? '当前引用指向未定义卡片；请选择一个现有卡片修复。'
@@ -914,6 +1350,10 @@ function DocumentMultiSelect({
   docs,
   language,
   context,
+  projectRoot,
+  sourcePath,
+  referenceResults,
+  onSelectDocument,
   onChange
 }: {
   name: string
@@ -921,11 +1361,35 @@ function DocumentMultiSelect({
   docs: DocEntry[]
   language: LanguageName
   context: FieldPresentationContext
+  projectRoot?: string
+  sourcePath?: string
+  referenceResults: LocalDocumentReferenceResult[]
+  onSelectDocument?: (target: TargetSelection) => void
   onChange: (value: unknown) => void
 }) {
   const [pending, setPending] = useState('')
   const byId = new Map(docs.map((document) => [document.data.id, document]))
-  const available = docs.filter((document) => !value.includes(document.data.id))
+  const resolvedValues = value.map((raw) => ({
+    raw,
+    resolution: referenceResults.find(
+      (reference) =>
+        reference.raw_reference === raw &&
+        reference.source_path.replace(/\\/gu, '/') ===
+          (sourcePath ?? '').replace(/\\/gu, '/').replace(`${projectRoot?.replace(/\\/gu, '/')}/`, '')
+    ) ??
+      referenceResults.find((reference) => reference.raw_reference === raw) ?? {
+        raw_reference: raw,
+        source_path: sourcePath ?? '',
+        origin: 'structured_link' as const,
+        status: byId.has(raw) ? ('resolved' as const) : ('missing' as const),
+        ...(byId.has(raw) ? { target_id: raw, matched_by: 'stable_id' as const } : {}),
+        candidates: []
+      }
+  }))
+  const selectedIds = new Set(
+    resolvedValues.map((item) => item.resolution.target_id).filter((id): id is string => Boolean(id))
+  )
+  const available = docs.filter((document) => !selectedIds.has(document.data.id))
   return (
     <div className="document-multi-field">
       <div className="metadata-field-label">
@@ -933,18 +1397,40 @@ function DocumentMultiSelect({
         <small className="metadata-field-count">{value.length}</small>
       </div>
       <div className="document-link-chips">
-        {value.map((id) => {
-          const document = byId.get(id)
+        {resolvedValues.map(({ raw, resolution }, index) => {
+          const document = resolution.target_id ? byId.get(resolution.target_id) : undefined
           return (
-            <span key={id} className={document ? 'document-link-chip' : 'document-link-chip missing'}>
-              {document?.data.title ?? (language === 'zh' ? `未定义：${id}` : `Missing: ${id}`)}
+            <span
+              key={`${raw}:${index}`}
+              className={`document-link-chip ${resolution.status === 'resolved' ? '' : resolution.status}`}
+              title={
+                resolution.status === 'ambiguous'
+                  ? resolution.candidates.map((candidate) => candidate.title).join('、')
+                  : raw
+              }
+            >
+              {document ? (
+                <button type="button" onClick={() => onSelectDocument?.(document.data)}>
+                  {document.data.title} · {documentTypeLabel(document.data.type, language)}
+                </button>
+              ) : resolution.status === 'ambiguous' ? (
+                language === 'zh' ? (
+                  `有歧义：${raw}`
+                ) : (
+                  `Ambiguous: ${raw}`
+                )
+              ) : language === 'zh' ? (
+                `未定义：${raw}`
+              ) : (
+                `Missing: ${raw}`
+              )}
               <button
                 type="button"
-                onClick={() => onChange(value.filter((candidate) => candidate !== id))}
+                onClick={() => onChange(value.filter((_, candidateIndex) => candidateIndex !== index))}
                 aria-label={
                   language === 'zh'
-                    ? `移除 ${document?.data.title ?? id}`
-                    : `Remove ${document?.data.title ?? id}`
+                    ? `移除 ${document?.data.title ?? raw}`
+                    : `Remove ${document?.data.title ?? raw}`
                 }
               >
                 <X size={12} />
@@ -954,24 +1440,30 @@ function DocumentMultiSelect({
         })}
       </div>
       <div className="document-link-add">
-        <select value={pending} onChange={(event) => setPending(event.target.value)}>
-          <option value="">{language === 'zh' ? '选择现有卡片…' : 'Choose an existing card…'}</option>
-          {available
-            .slice()
-            .sort((a, b) => a.data.title.localeCompare(b.data.title))
-            .map((document) => (
-              <option key={document.data.id} value={document.data.id}>
-                {document.data.title} · {documentTypeLabel(document.data.type, language)}
-              </option>
-            ))}
-        </select>
+        <PlanningCardSelector
+          docs={available}
+          value={pending}
+          language={language}
+          ariaLabel={language === 'zh' ? '新增关联卡片' : 'Add linked card'}
+          onChange={setPending}
+        />
         <button
           type="button"
           disabled={!pending}
           onClick={() => {
-            if (!pending || value.includes(pending)) return
-            onChange([...value, pending])
-            setPending('')
+            const selected = byId.get(pending)
+            if (!selected || selectedIds.has(pending)) return
+            if (name !== 'links' || !projectRoot) {
+              onChange([...value, selected.data.id])
+              setPending('')
+              return
+            }
+            void window.quillarium
+              .formatDocumentLink(projectRoot, selected.data.id, selected.data.title)
+              .then((canonical) => {
+                onChange([...value, canonical])
+                setPending('')
+              })
           }}
         >
           <Plus size={14} /> {language === 'zh' ? '关联' : 'Link'}
@@ -1038,29 +1530,16 @@ function CardRelationEditor({
                 </option>
               ))}
             </select>
-            <select
+            <PlanningCardSelector
+              docs={docs}
               value={relation.target_id}
-              aria-label={language === 'zh' ? '目标卡片' : 'Target card'}
-              onChange={(event) =>
-                onChange(updateArrayItem(relations, index, { ...relation, target_id: event.target.value }))
+              ariaLabel={language === 'zh' ? '目标卡片' : 'Target card'}
+              language={language}
+              invalidValue={missing ? relation.target_id : undefined}
+              onChange={(stableId) =>
+                onChange(updateArrayItem(relations, index, { ...relation, target_id: stableId }))
               }
-            >
-              <option value="">{language === 'zh' ? '选择现有卡片…' : 'Choose an existing card…'}</option>
-              {missing && (
-                <option value={relation.target_id} disabled>
-                  {language === 'zh' ? `未定义：${relation.target_id}` : `Missing: ${relation.target_id}`}
-                </option>
-              )}
-              {docs
-                .filter((document) => document.data.id !== relation.target_id || !missing)
-                .slice()
-                .sort((a, b) => a.data.title.localeCompare(b.data.title))
-                .map((document) => (
-                  <option key={document.data.id} value={document.data.id}>
-                    {document.data.title} · {documentTypeLabel(document.data.type, language)}
-                  </option>
-                ))}
-            </select>
+            />
             <input
               value={relation.note}
               placeholder={language === 'zh' ? '关系说明（可选）' : 'Relation note (optional)'}

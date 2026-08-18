@@ -23,6 +23,22 @@ describe('AIImportDialog', () => {
     expect(html).not.toContain('语法检查')
   })
 
+  it('uses the bounded secondary action style for the optional assistant handoff', () => {
+    const html = renderToStaticMarkup(
+      <AIImportDialog
+        root="C:/project"
+        docs={[]}
+        language="zh"
+        onClose={() => undefined}
+        onImported={async () => undefined}
+        onOpenAssistant={() => undefined}
+      />
+    )
+
+    expect(html).toContain('class="secondary ai-import-assistant-action"')
+    expect(html).toContain('先与设定整理助手讨论')
+  })
+
   it('uses the typed import-source picker when the preload bridge is current', async () => {
     const chooseImportSources = vi.fn(async () => ['C:/notes/story.md'])
 

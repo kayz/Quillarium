@@ -6,6 +6,7 @@ import {
   GitBranch,
   PenLine,
   RefreshCw,
+  Save,
   ShieldAlert,
   ShieldCheck,
   Trash2
@@ -27,7 +28,16 @@ import { bridge } from '../../app/bridge.js'
 import { BrandWordmark } from '../../app/BrandWordmark.js'
 import { formatDesktopError } from '../../shared/errors.js'
 import { ExportModal } from './ExportModal.js'
-import type { WritingPresetListItem } from '@quillarium/core'
+import { gitActionFor } from './git-presentation.js'
+import type { BookGenerationHeaderState, WritingPresetListItem } from '@quillarium/core'
+
+type CoverResult = NonNullable<Awaited<ReturnType<typeof bridge.getProjectCover>>>
+
+interface Ccv3ExportChoice {
+  id: string
+  type: 'timeline_event' | 'character_state'
+  title: string
+}
 
 export function TopChrome({
   theme,
@@ -139,13 +149,7 @@ export function TopChrome({
       {root && git ? (
         <button
           className="status-pill"
-          onClick={
-            git.remote
-              ? onGitSync
-              : git.repositoryScope === 'workspace'
-                ? () => setShowSettings(true)
-                : onGitCreateRemote
-          }
+          onClick={git.remote ? onGitSync : () => setShowSettings(true)}
           title={gitAction.title}
           disabled={gitBusy}
         >
@@ -166,6 +170,7 @@ export function TopChrome({
           onDensity={onDensity}
           onLanguage={onLanguage}
           onAIStatus={onAIStatus}
+          onGitCreateRemote={onGitCreateRemote}
           onClose={() => setShowSettings(false)}
         />
       )}
@@ -182,53 +187,58 @@ function aiStatusTone(status: AIStatus): 'green' | 'amber' | 'red' {
   return 'red'
 }
 
-function gitActionFor(language: LanguageName, git?: GitState | null): { label: string; title: string } {
-  if (!git)
-    return {
-      label: t(language, 'githubCredentials'),
-      title: t(language, 'configureGithub')
-    }
-  if (!git.initialized)
-    return {
-      label: t(language, 'createGithubRepo'),
-      title: t(language, 'createGithubRepoHint')
-    }
-  if (!git.remote)
-    return {
-      label:
-        git.repositoryScope === 'workspace'
-          ? language === 'zh'
-            ? '工作区 Git'
-            : 'Workspace Git'
-          : t(language, 'githubNotLinked'),
-      title:
-        git.repositoryScope === 'workspace'
-          ? language === 'zh'
-            ? '请在写作工作区仓库根目录配置 remote。'
-            : 'Configure the remote at the writing workspace repository root.'
-          : t(language, 'linkGithubRepoHint')
-    }
-  if (git.dirty)
-    return {
-      label: t(language, 'githubChangesPending'),
-      title: t(language, 'syncGithubChangesHint')
-    }
-  return {
-    label: t(language, 'githubSynced'),
-    title: t(language, 'githubSyncedHint')
-  }
-}
-
 function gitBusyLabel(language: LanguageName, git?: GitState | null): string {
   return git?.remote ? t(language, 'githubSyncing') : t(language, 'githubCreating')
 }
 
 type DesktopConfig = Awaited<ReturnType<typeof bridge.getConfig>>
+type ModelCapability = Awaited<ReturnType<typeof bridge.getModelCapabilities>>[number]
+type UpdateCheck = Awaited<ReturnType<typeof bridge.checkForUpdates>>
 type StorageStatus = DesktopConfig['aiKeyStorage']
 type CredentialState = 'available' | 'unavailable' | 'none'
 type SettingsNotice = { tone: 'success' | 'danger'; message: string }
 
 const AI_PROFILE_NAMES = ['prose', 'background', 'check'] as const satisfies readonly AIProfileName[]
+
+function updateStatusMessage(language: LanguageName, result: UpdateCheck): string {
+  if (result.status === 'available') {
+    return language === 'zh'
+      ? `发现新版本 ${result.latestVersion}；当前版本为 ${result.currentVersion}。`
+      : `Version ${result.latestVersion} is available; the current version is ${result.currentVersion}.`
+  }
+  if (result.status === 'up-to-date') {
+    return language === 'zh'
+      ? `当前版本 ${result.currentVersion} 已是此通道的最新版本。`
+      : `Version ${result.currentVersion} is current for this release channel.`
+  }
+  const messages: Record<NonNullable<UpdateCheck['reason']>, { zh: string; en: string }> = {
+    network: {
+      zh: '暂时无法连接 GitHub Releases，请检查网络后重试。',
+      en: 'GitHub Releases could not be reached. Check the network and try again.'
+    },
+    'rate-limited': {
+      zh: 'GitHub 暂时限制了匿名查询频率，请稍后再试。',
+      en: 'GitHub temporarily rate-limited anonymous checks. Try again later.'
+    },
+    'service-error': {
+      zh: 'GitHub Releases 暂时不可用，请稍后再试。',
+      en: 'GitHub Releases is temporarily unavailable. Try again later.'
+    },
+    'invalid-response': {
+      zh: '更新服务返回了无法识别的数据。',
+      en: 'The update service returned an unrecognized response.'
+    },
+    'no-release': {
+      zh: '官方发布页尚无适用于当前通道的版本。',
+      en: 'The official release page has no version for this release channel yet.'
+    },
+    'current-version-invalid': {
+      zh: '当前程序版本号无法用于更新比较。',
+      en: 'The current app version cannot be used for update comparison.'
+    }
+  }
+  return messages[result.reason ?? 'service-error'][language]
+}
 
 function SettingsModal({
   root,
@@ -240,6 +250,7 @@ function SettingsModal({
   onDensity,
   onLanguage,
   onAIStatus,
+  onGitCreateRemote,
   onClose
 }: {
   root?: string
@@ -251,6 +262,7 @@ function SettingsModal({
   onDensity: (density: DensityName) => void
   onLanguage: (language: LanguageName) => void
   onAIStatus: (status: AIStatus) => void
+  onGitCreateRemote?: () => void
   onClose: () => void
 }) {
   const closeRef = useRef<HTMLButtonElement | null>(null)
@@ -265,6 +277,7 @@ function SettingsModal({
     background: defaultAIProfile('openai-compatible'),
     check: defaultAIProfile('openai-compatible')
   })
+  const [modelCapabilities, setModelCapabilities] = useState<ModelCapability[]>([])
   const [profileCredentials, setProfileCredentials] = useState<Record<AIProfileName, CredentialState>>({
     prose: 'none',
     background: 'none',
@@ -272,8 +285,17 @@ function SettingsModal({
   })
   const [storage, setStorage] = useState<StorageStatus | null>(null)
   const [appVersion, setAppVersion] = useState('')
+  const [updateCheck, setUpdateCheck] = useState<UpdateCheck | null>(null)
+  const [checkingUpdate, setCheckingUpdate] = useState(false)
   const [writingPresets, setWritingPresets] = useState<WritingPresetListItem[]>([])
   const [selectedPreset, setSelectedPreset] = useState('')
+  const [bookHeader, setBookHeader] = useState<BookGenerationHeaderState | null>(null)
+  const [bookHeaderDraft, setBookHeaderDraft] = useState('')
+  const [coverResult, setCoverResult] = useState<CoverResult | null>(null)
+  const [coverFocus, setCoverFocus] = useState({ x: 0.5, y: 0.5 })
+  const [ccv3Choices, setCcv3Choices] = useState<Ccv3ExportChoice[]>([])
+  const [selectedCcv3Ids, setSelectedCcv3Ids] = useState<string[]>([])
+  const [ccv3ExportPath, setCcv3ExportPath] = useState('')
   const [display, setDisplay] = useState({ theme, density, language })
   const [busyAction, setBusyAction] = useState<string | null>(null)
   const [notice, setNotice] = useState<SettingsNotice | null>(null)
@@ -297,7 +319,7 @@ function SettingsModal({
     })
   }
 
-  const hydrateForms = (config: DesktopConfig) => {
+  const hydrateForms = (config: DesktopConfig, capabilities: ModelCapability[]) => {
     updateCredentialMetadata(config)
     setGithub({
       // Never hydrate secret masks or stored values back into renderer form state.
@@ -309,14 +331,16 @@ function SettingsModal({
     for (const profile of AI_PROFILE_NAMES) {
       const stored = config.aiProfiles?.[profile]
       const provider = stored?.provider ?? 'openai-compatible'
-      const defaults = defaultAIProfile(provider)
+      const storedModel = stored?.model ?? defaultModel(provider)
+      const defaults = defaultAIProfile(provider, capabilities, storedModel)
       nextProfiles[profile] = {
         provider,
         baseUrl: stored?.baseUrl ?? defaults.baseUrl,
         apiKey: '',
-        model: stored?.model ?? defaults.model,
+        model: storedModel,
         temperature: stored?.temperature ?? defaults.temperature,
-        maxTokens: stored?.maxTokens ?? defaults.maxTokens
+        maxTokens: stored?.maxTokens ?? defaults.maxTokens,
+        contextWindowTokens: stored?.contextWindowTokens ?? defaults.contextWindowTokens
       }
     }
     setProfiles(nextProfiles)
@@ -326,17 +350,45 @@ function SettingsModal({
     let cancelled = false
     async function loadProfiles() {
       try {
-        const [config, loadedPresets, loadedAppVersion] = await Promise.all([
+        const [
+          config,
+          loadedCapabilities,
+          loadedPresets,
+          loadedAppVersion,
+          loadedHeader,
+          loadedCover,
+          loadedProject
+        ] = await Promise.all([
           bridge.getConfig(),
+          bridge.getModelCapabilities(),
           root ? bridge.listWritingPresets(root) : Promise.resolve([]),
-          bridge.getAppVersion()
+          bridge.getAppVersion(),
+          root ? bridge.getBookGenerationHeader(root) : Promise.resolve(null),
+          root ? bridge.getProjectCover(root) : Promise.resolve(null),
+          root ? bridge.loadProject(root) : Promise.resolve(null)
         ])
         const presets = loadedPresets as WritingPresetListItem[]
         if (!cancelled) {
-          hydrateForms(config)
+          setModelCapabilities(loadedCapabilities)
+          hydrateForms(config, loadedCapabilities)
           setAppVersion(loadedAppVersion)
           setWritingPresets(presets)
           setSelectedPreset(presets.find((preset) => preset.selected)?.id ?? '')
+          setBookHeader(loadedHeader)
+          setBookHeaderDraft(loadedHeader?.text ?? '')
+          setCoverResult(loadedCover)
+          if (loadedCover) {
+            setCoverFocus({ x: loadedCover.cover.focus_x, y: loadedCover.cover.focus_y })
+          }
+          setCcv3Choices(
+            (loadedProject?.docs ?? [])
+              .filter((doc) => ['timeline_event', 'character_state'].includes(String(doc.data.type)))
+              .map((doc) => ({
+                id: doc.data.id,
+                type: doc.data.type as Ccv3ExportChoice['type'],
+                title: doc.data.title
+              }))
+          )
         }
       } catch (error) {
         if (!cancelled) {
@@ -405,6 +457,26 @@ function SettingsModal({
     }
   }
 
+  const checkUpdates = async () => {
+    setCheckingUpdate(true)
+    setUpdateCheck(null)
+    try {
+      setUpdateCheck(await bridge.checkForUpdates())
+    } catch (error) {
+      setNotice({ tone: 'danger', message: formatDesktopError(error, language) })
+    } finally {
+      setCheckingUpdate(false)
+    }
+  }
+
+  const openReleases = async () => {
+    try {
+      await bridge.openReleases()
+    } catch (error) {
+      setNotice({ tone: 'danger', message: formatDesktopError(error, language) })
+    }
+  }
+
   const saveGithub = async () => {
     setBusyAction('save-github')
     setNotice(null)
@@ -461,6 +533,116 @@ function SettingsModal({
           language === 'zh'
             ? '默认写作预设已创建并选中；项目现在可以生成新的运行记录。'
             : 'The default writing preset was created and selected; the project can now create generation runs.'
+      })
+    } catch (error) {
+      setNotice({ tone: 'danger', message: formatDesktopError(error, language) })
+    } finally {
+      setBusyAction(null)
+    }
+  }
+
+  const saveBookHeader = async () => {
+    if (!root) return
+    setBusyAction('save-book-header')
+    setNotice(null)
+    try {
+      const saved = await bridge.saveBookGenerationHeader(root, bookHeaderDraft)
+      setBookHeader(saved)
+      setBookHeaderDraft(saved.text)
+      setNotice({
+        tone: 'success',
+        message:
+          language === 'zh'
+            ? '本书头部提示词已保存；只影响之后创建的生文 Run。'
+            : 'Book generation header saved; only future generation runs are affected.'
+      })
+    } catch (error) {
+      setNotice({ tone: 'danger', message: formatDesktopError(error, language) })
+    } finally {
+      setBusyAction(null)
+    }
+  }
+
+  const clearBookHeader = async () => {
+    if (!root) return
+    setBusyAction('clear-book-header')
+    setNotice(null)
+    try {
+      const cleared = await bridge.clearBookGenerationHeader(root)
+      setBookHeader(cleared)
+      setBookHeaderDraft('')
+      setNotice({
+        tone: 'success',
+        message: language === 'zh' ? '本书头部提示词已清空。' : 'Book generation header cleared.'
+      })
+    } catch (error) {
+      setNotice({ tone: 'danger', message: formatDesktopError(error, language) })
+    } finally {
+      setBusyAction(null)
+    }
+  }
+
+  const chooseCover = async () => {
+    if (!root) return
+    setBusyAction('choose-cover')
+    setNotice(null)
+    try {
+      const selected = await bridge.chooseProjectCover(root)
+      if (!selected) return
+      setCoverResult(selected)
+      setCoverFocus({ x: selected.cover.focus_x, y: selected.cover.focus_y })
+      setNotice({
+        tone: selected.warning ? 'danger' : 'success',
+        message:
+          selected.warning ??
+          (language === 'zh' ? '封面原图和 2:3 导出图已保存。' : 'Original cover and 2:3 export image saved.')
+      })
+    } catch (error) {
+      setNotice({ tone: 'danger', message: formatDesktopError(error, language) })
+    } finally {
+      setBusyAction(null)
+    }
+  }
+
+  const saveCoverFocus = async () => {
+    if (!root || !coverResult) return
+    setBusyAction('focus-cover')
+    setNotice(null)
+    try {
+      const updated = await bridge.updateProjectCoverFocus(root, coverFocus.x, coverFocus.y)
+      setCoverResult(updated)
+      setNotice({
+        tone: 'success',
+        message: language === 'zh' ? '封面焦点和预览已更新。' : 'Cover focus and preview updated.'
+      })
+    } catch (error) {
+      setNotice({ tone: 'danger', message: formatDesktopError(error, language) })
+    } finally {
+      setBusyAction(null)
+    }
+  }
+
+  const exportBookCard = async () => {
+    if (!root) return
+    setBusyAction('export-book-card')
+    setNotice(null)
+    try {
+      const selected = new Set(selectedCcv3Ids)
+      const result = await bridge.exportBookCharacterCard(root, {
+        background_event_ids: ccv3Choices
+          .filter((choice) => choice.type === 'timeline_event' && selected.has(choice.id))
+          .map((choice) => choice.id),
+        current_state_ids: ccv3Choices
+          .filter((choice) => choice.type === 'character_state' && selected.has(choice.id))
+          .map((choice) => choice.id)
+      })
+      setCcv3ExportPath(result.outputPath)
+      setNotice({
+        tone: 'success',
+        message:
+          language === 'zh'
+            ? `已导出 CCv3 PNG，共 ${result.entryCount} 条设定。`
+            : `CCv3 PNG exported with ${result.entryCount} setting entries.`
       })
     } catch (error) {
       setNotice({ tone: 'danger', message: formatDesktopError(error, language) })
@@ -543,8 +725,17 @@ function SettingsModal({
     setProfiles((current) => {
       const next = { ...current[profile], ...patch }
       if (patch.provider) {
-        next.baseUrl = defaultBaseUrl(patch.provider)
-        next.model = defaultModel(patch.provider)
+        const defaults = defaultAIProfile(patch.provider, modelCapabilities)
+        next.baseUrl = defaults.baseUrl
+        next.model = defaults.model
+        next.maxTokens = defaults.maxTokens
+        next.contextWindowTokens = defaults.contextWindowTokens
+      } else if (patch.model) {
+        const official = findModelCapability(modelCapabilities, next.provider, patch.model)
+        if (official) {
+          next.maxTokens = official.maxOutputTokens
+          next.contextWindowTokens = official.contextWindowTokens
+        }
       }
       return { ...current, [profile]: next }
     })
@@ -669,6 +860,57 @@ function SettingsModal({
             </label>
           </div>
         </div>
+        <div className="settings-group update-settings">
+          <div className="settings-section-head">
+            <div>
+              <h3>{t(language, 'softwareUpdate')}</h3>
+              <p className="muted">{t(language, 'updateCheckHint')}</p>
+            </div>
+            <button
+              className="secondary"
+              type="button"
+              onClick={checkUpdates}
+              disabled={checkingUpdate || busyAction !== null}
+            >
+              <RefreshCw size={15} className={checkingUpdate ? 'spin' : ''} />
+              {checkingUpdate ? t(language, 'checkingForUpdates') : t(language, 'checkForUpdates')}
+            </button>
+          </div>
+          <div className="update-summary">
+            <div className="update-version-row">
+              <span className="settings-version">
+                {t(language, 'currentVersion')} {appVersion || '…'}
+              </span>
+              <span className="settings-version">
+                {appVersion.includes('-') ? t(language, 'prereleaseChannel') : t(language, 'stableChannel')}
+              </span>
+            </div>
+            {updateCheck ? (
+              <div className={`update-result ${updateCheck.status}`} aria-live="polite">
+                <div>
+                  <strong>
+                    {updateCheck.status === 'available'
+                      ? t(language, 'updateAvailable')
+                      : updateCheck.status === 'up-to-date'
+                        ? t(language, 'upToDate')
+                        : t(language, 'updateUnavailable')}
+                  </strong>
+                  <p>{updateStatusMessage(language, updateCheck)}</p>
+                  {updateCheck.status === 'available' && updateCheck.releaseName ? (
+                    <small>{updateCheck.releaseName}</small>
+                  ) : null}
+                </div>
+                {updateCheck.status === 'available' ? (
+                  <button className="secondary" type="button" onClick={openReleases}>
+                    <Download size={14} /> {t(language, 'openReleaseDownload')}
+                  </button>
+                ) : null}
+              </div>
+            ) : (
+              <p className="update-manual-note">{t(language, 'updateManualOnly')}</p>
+            )}
+          </div>
+        </div>
         <div className="settings-group">
           <div className="settings-section-head">
             <h3>{t(language, 'globalGithubSettings')}</h3>
@@ -679,6 +921,7 @@ function SettingsModal({
               </button>
             </div>
           </div>
+          <p className="muted">{t(language, 'githubOptionalHint')}</p>
           <div className="settings-grid two">
             <div className="credential-field">
               <span>{t(language, 'githubToken')}</span>
@@ -731,7 +974,24 @@ function SettingsModal({
         </div>
         {root && (
           <div className="settings-group">
-            <h3>{t(language, 'currentNovelGit')}</h3>
+            <div className="settings-section-head">
+              <h3>{t(language, 'currentNovelGit')}</h3>
+              {git?.repositoryScope === 'standalone' && !git.remote && onGitCreateRemote && (
+                <button
+                  className="secondary"
+                  type="button"
+                  onClick={() => {
+                    onClose()
+                    onGitCreateRemote()
+                  }}
+                  disabled={!githubHasToken || busyAction !== null}
+                  title={githubHasToken ? t(language, 'connectGithubUpload') : t(language, 'saveGithubFirst')}
+                >
+                  <GitBranch size={14} />{' '}
+                  {githubHasToken ? t(language, 'connectGithubUpload') : t(language, 'saveGithubFirst')}
+                </button>
+              )}
+            </div>
             <p className="muted">
               {git?.repositoryScope === 'workspace'
                 ? language === 'zh'
@@ -809,6 +1069,204 @@ function SettingsModal({
             </div>
           </div>
         )}
+        {root && (
+          <div className="settings-group">
+            <div className="settings-section-head">
+              <div>
+                <h3>
+                  {language === 'zh' ? '写作 / 生文 · 本书头部提示词' : 'Writing · Book generation header'}
+                </h3>
+                <p className="muted">
+                  {language === 'zh'
+                    ? '只用于新节、重新生成、续写、正文改写和润色；检查、导入和创作助手不会加载它。'
+                    : 'Used only for prose generation, regeneration, continuation, rewriting, and polishing—not checks, imports, or creator assistants.'}
+                </p>
+              </div>
+              <div className="settings-section-actions">
+                <button type="button" onClick={() => void clearBookHeader()} disabled={busyAction !== null}>
+                  <Trash2 size={14} /> {language === 'zh' ? '清空' : 'Clear'}
+                </button>
+                <button
+                  className="primary"
+                  type="button"
+                  onClick={() => void saveBookHeader()}
+                  disabled={busyAction !== null}
+                >
+                  <Save size={14} /> {language === 'zh' ? '保存' : 'Save'}
+                </button>
+              </div>
+            </div>
+            <label className="book-header-editor">
+              <span>{bookHeader?.relative_path ?? 'prompts/book-generation-header.md'}</span>
+              <textarea
+                value={bookHeaderDraft}
+                onChange={(event) => setBookHeaderDraft(event.target.value)}
+                spellCheck={false}
+                placeholder={
+                  language === 'zh'
+                    ? '粘贴本书长期使用的生文头部提示词…'
+                    : 'Paste this book’s persistent prose-generation header…'
+                }
+              />
+              <small>
+                {[...bookHeaderDraft].length.toLocaleString()} {language === 'zh' ? '字符' : 'characters'} ·{' '}
+                {Math.ceil([...bookHeaderDraft].length / 4).toLocaleString()}{' '}
+                {language === 'zh' ? '估算 token' : 'estimated tokens'}
+                {bookHeader?.configured ? ` · SHA-256 ${bookHeader.sha256.slice(0, 12)}…` : ''}
+              </small>
+            </label>
+            {/\{\{\s*[a-zA-Z][\w.-]*\s*\}\}/u.test(bookHeaderDraft) && (
+              <div className="warning-box">
+                {language === 'zh'
+                  ? '检测到 {{char}} / {{user}} 一类外部宏；Quillarium 会将其按普通文本发送，不执行 SillyTavern 宏。'
+                  : 'External macros such as {{char}} or {{user}} are sent as literal text; SillyTavern macro expansion is not implemented.'}
+              </div>
+            )}
+            <details>
+              <summary>{language === 'zh' ? '查看实际装配顺序' : 'View effective assembly order'}</summary>
+              <pre className="settings-prompt-order-preview">
+                {[
+                  bookHeaderDraft ||
+                    (language === 'zh' ? '（未配置本书头部提示词）' : '(No book header configured)'),
+                  language === 'zh'
+                    ? '【产品不可修改的任务与权限边界】'
+                    : '[Immutable product task and permission boundary]',
+                  language === 'zh'
+                    ? '【WritingPreset 生文指令】'
+                    : '[WritingPreset generation instructions]',
+                  language === 'zh' ? '【本次 PromptBlock】' : '[Current PromptBlocks]',
+                  language === 'zh' ? '【当前节写作目标】' : '[Current scene goal]'
+                ].join('\n\n')}
+              </pre>
+              <small>
+                {language === 'zh'
+                  ? '生成时以当次编译的 PromptEnvelope 为准；Run 会保存全文、相对路径、SHA-256 和精确 token。'
+                  : 'The compiled PromptEnvelope is authoritative; each run snapshots the text, relative path, SHA-256, and exact token count.'}
+              </small>
+            </details>
+          </div>
+        )}
+        {root && (
+          <div className="settings-group">
+            <div className="settings-section-head">
+              <div>
+                <h3>
+                  {language === 'zh' ? '小说封面与 CCv3 设定角色卡' : 'Book cover and CCv3 setting card'}
+                </h3>
+                <p className="muted">
+                  {language === 'zh'
+                    ? '封面使用 2:3 裁切，保存原图、界面缩略图和 PNG 导出图。设定导出不会包含故事计划、正文、Prompt、Run 或连接凭据。'
+                    : 'Covers use a 2:3 crop and retain the original, UI thumbnail, and export PNG. Setting exports omit story plans, prose, prompts, runs, and credentials.'}
+                </p>
+              </div>
+              <button type="button" onClick={() => void chooseCover()} disabled={busyAction !== null}>
+                {language === 'zh' ? '上传 / 更换封面' : 'Upload / replace cover'}
+              </button>
+            </div>
+            <div className="book-cover-settings">
+              {coverResult ? (
+                <img
+                  src={coverResult.previewDataUrl}
+                  alt={language === 'zh' ? '小说封面裁切预览' : 'Book cover crop preview'}
+                />
+              ) : (
+                <div className="book-cover-placeholder">2:3</div>
+              )}
+              <div className="book-cover-controls">
+                <label>
+                  {language === 'zh' ? '水平焦点' : 'Horizontal focus'} · {Math.round(coverFocus.x * 100)}%
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    value={coverFocus.x}
+                    onChange={(event) =>
+                      setCoverFocus((current) => ({ ...current, x: Number(event.target.value) }))
+                    }
+                    disabled={!coverResult}
+                  />
+                </label>
+                <label>
+                  {language === 'zh' ? '垂直焦点' : 'Vertical focus'} · {Math.round(coverFocus.y * 100)}%
+                  <input
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    value={coverFocus.y}
+                    onChange={(event) =>
+                      setCoverFocus((current) => ({ ...current, y: Number(event.target.value) }))
+                    }
+                    disabled={!coverResult}
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={() => void saveCoverFocus()}
+                  disabled={!coverResult || busyAction !== null}
+                >
+                  {language === 'zh' ? '更新裁切预览' : 'Update crop preview'}
+                </button>
+                {coverResult && (
+                  <small>
+                    {coverResult.cover.source_width}×{coverResult.cover.source_height} · assets/cover/
+                  </small>
+                )}
+              </div>
+            </div>
+            <fieldset className="ccv3-export-options">
+              <legend>
+                {language === 'zh'
+                  ? '明确加入的背景事件与当前状态'
+                  : 'Explicit background events and current states'}
+              </legend>
+              {ccv3Choices.length ? (
+                ccv3Choices.map((choice) => (
+                  <label key={`${choice.type}:${choice.id}`}>
+                    <input
+                      type="checkbox"
+                      checked={selectedCcv3Ids.includes(choice.id)}
+                      onChange={() =>
+                        setSelectedCcv3Ids((current) =>
+                          current.includes(choice.id)
+                            ? current.filter((id) => id !== choice.id)
+                            : [...current, choice.id]
+                        )
+                      }
+                    />
+                    <span>{choice.title}</span>
+                    <small>
+                      {choice.type} · {choice.id}
+                    </small>
+                  </label>
+                ))
+              ) : (
+                <small>
+                  {language === 'zh'
+                    ? '没有可选的背景事件或人物状态。'
+                    : 'No background events or character states are available.'}
+                </small>
+              )}
+            </fieldset>
+            <button
+              className="primary"
+              type="button"
+              onClick={() => void exportBookCard()}
+              disabled={!coverResult || busyAction !== null}
+            >
+              <Download size={14} />{' '}
+              {language === 'zh' ? '导出“书名.png”CCv3 设定卡' : 'Export “book title.png” CCv3 card'}
+            </button>
+            {ccv3ExportPath && (
+              <input
+                value={ccv3ExportPath}
+                readOnly
+                aria-label={language === 'zh' ? 'CCv3 导出路径' : 'CCv3 export path'}
+              />
+            )}
+          </div>
+        )}
         <h3>{t(language, 'aiSettings')}</h3>
         <div className="ai-profile-grid">
           {AI_PROFILE_NAMES.map((profile) => (
@@ -877,8 +1335,74 @@ function SettingsModal({
                 <input
                   value={profiles[profile].model}
                   onChange={(e) => updateProfile(profile, { model: e.target.value })}
+                  list={`official-models-${profile}`}
                 />
+                <datalist id={`official-models-${profile}`}>
+                  {modelCapabilities
+                    .filter((capability) => capability.provider === profiles[profile].provider)
+                    .map((capability) => (
+                      <option key={capability.model} value={capability.model}>
+                        {capability.displayName}
+                      </option>
+                    ))}
+                </datalist>
               </label>
+              <div className="ai-limit-grid">
+                <label>
+                  {language === 'zh' ? '上下文上限' : 'Context window'}
+                  <input
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={profiles[profile].contextWindowTokens}
+                    onChange={(event) =>
+                      updateProfile(profile, { contextWindowTokens: Number(event.target.value) })
+                    }
+                  />
+                  <small>
+                    {language === 'zh' ? '输入与输出合计 token。' : 'Combined input and output tokens.'}
+                  </small>
+                </label>
+                <label>
+                  {language === 'zh' ? '输出上限' : 'Output limit'}
+                  <input
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={profiles[profile].maxTokens}
+                    onChange={(event) => updateProfile(profile, { maxTokens: Number(event.target.value) })}
+                  />
+                  <small>{language === 'zh' ? '单次生成最大 token。' : 'Maximum tokens per response.'}</small>
+                </label>
+              </div>
+              {findModelCapability(modelCapabilities, profiles[profile].provider, profiles[profile].model) ? (
+                <div className="official-model-limits">
+                  <span>
+                    {language === 'zh'
+                      ? '当前缺省值来自模型官网；可按实际接口自行修改。'
+                      : 'Defaults come from the model vendor and remain editable.'}
+                  </span>
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => {
+                      const official = findModelCapability(
+                        modelCapabilities,
+                        profiles[profile].provider,
+                        profiles[profile].model
+                      )
+                      if (official) {
+                        updateProfile(profile, {
+                          contextWindowTokens: official.contextWindowTokens,
+                          maxTokens: official.maxOutputTokens
+                        })
+                      }
+                    }}
+                  >
+                    {language === 'zh' ? '恢复官网值' : 'Use vendor limits'}
+                  </button>
+                </div>
+              ) : null}
             </article>
           ))}
         </div>
@@ -940,14 +1464,20 @@ function storageStatusMessage(language: LanguageName, storage: StorageStatus | n
   return t(language, 'credentialStorageWarning')
 }
 
-function defaultAIProfile(provider: AIProviderName): AIProfileForm {
+function defaultAIProfile(
+  provider: AIProviderName,
+  capabilities: ModelCapability[] = [],
+  model = defaultModel(provider)
+): AIProfileForm {
+  const official = findModelCapability(capabilities, provider, model)
   return {
     provider,
     baseUrl: defaultBaseUrl(provider),
     apiKey: '',
-    model: defaultModel(provider),
+    model,
     temperature: 0.7,
-    maxTokens: 2000
+    maxTokens: official?.maxOutputTokens ?? 2_000,
+    contextWindowTokens: official?.contextWindowTokens ?? 128_000
   }
 }
 
@@ -977,8 +1507,18 @@ function defaultModel(provider: AIProviderName): string {
     case 'gemini':
       return 'gemini-1.5-pro'
     case 'deepseek':
-      return 'deepseek-chat'
+      return 'deepseek-v4-flash'
     case 'ollama':
       return 'llama3.1'
   }
+}
+
+function findModelCapability(
+  capabilities: ModelCapability[],
+  provider: AIProviderName,
+  model: string
+): ModelCapability | undefined {
+  return capabilities.find(
+    (capability) => capability.provider === provider && capability.model === model.trim().toLowerCase()
+  )
 }

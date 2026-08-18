@@ -20,6 +20,70 @@ function doc(type: string, id: string, title: string, data: Record<string, unkno
 }
 
 describe('planning visual workbenches', () => {
+  it('uses one track placement order for mixed-precision nodes and event intervals', () => {
+    const year = doc('timeline_node', 'year', '年度阶段', {
+      coordinate_v2: {
+        schema_version: 2,
+        time_system_id: 'fictional',
+        components: { era: 1 },
+        precision: 'era',
+        display_text: '第一纪元',
+        sort_value: null,
+        explicit_order: 0,
+        uncertain: false,
+        fuzzy: false,
+        cycle: null,
+        occurrence: 1
+      },
+      timeline_tracks: [{ timeline_id: 'world', order: 1, narrative_order: 1 }]
+    })
+    const minute = doc('timeline_node', 'minute', '决战时刻', {
+      coordinate_v2: {
+        schema_version: 2,
+        time_system_id: 'fictional',
+        components: { era: 1, beat: 15 },
+        precision: 'beat',
+        display_text: '第一纪元第十五拍',
+        sort_value: null,
+        explicit_order: 1,
+        uncertain: false,
+        fuzzy: false,
+        cycle: null,
+        occurrence: 1
+      },
+      timeline_tracks: [{ timeline_id: 'world', order: 0, narrative_order: 0 }]
+    })
+    const later = doc('timeline_event', 'later', '后显示', {
+      placements: [
+        {
+          timeline_id: 'world',
+          start_node_id: 'minute',
+          end_node_id: 'year',
+          order: 2,
+          narrative_order: 2,
+          occurrence: 1
+        }
+      ]
+    })
+    const earlier = doc('timeline_event', 'earlier', '先显示', {
+      placements: [
+        {
+          timeline_id: 'world',
+          start_node_id: 'minute',
+          end_node_id: null,
+          order: 0,
+          narrative_order: 0,
+          occurrence: 1
+        }
+      ]
+    })
+
+    const model = buildTimelineLanes([year, later, minute, earlier], 'world')
+    expect(model.lanes.map((lane) => lane.node.data.id)).toEqual(['minute', 'year'])
+    expect(model.lanes[0]?.events.map((event) => event.data.id)).toEqual(['earlier', 'later'])
+    expect(model.unattached).toEqual([])
+  })
+
   it('orders the timeline by real story time and groups concurrent events under one node', () => {
     const autumn = doc('timeline_node', 'autumn', '秋季', {
       year: 20,
@@ -55,10 +119,100 @@ describe('planning visual workbenches', () => {
         language="zh"
       />
     )
-    expect(html).toContain('时间主链')
-    expect(html).toContain('同时事件')
+    expect(html).toContain('时间体系与叙事轨道')
     expect(html).toContain('待挂载事件')
     expect(html).toContain('使用此时间建立坐标')
+    expect(html).toContain('timeline-rail-board')
+    expect(html).not.toContain('节点内顺序')
+    expect(html).not.toContain('timeline-chain-scroll')
+    expect(html).not.toContain('事件轨道位置')
+    expect(html).not.toContain('旧单链兼容模式')
+    expect(html).not.toContain('timeline-intervals')
+    expect(html).not.toContain('timeline-placement-panel')
+  })
+
+  it('renders junctions and span overlays on the rail board without the event chain', () => {
+    const tracks = ['lin', 'shen', 'north']
+    const nodeOn = (id: string, title: string, order: number) =>
+      doc('timeline_node', id, title, {
+        display_time: title,
+        timeline_tracks: tracks.map((timeline_id) => ({ timeline_id, order, narrative_order: order }))
+      })
+    const html = renderToStaticMarkup(
+      <TimelineChainView
+        items={[
+          nodeOn('eve', '冬至前夜', 0),
+          nodeOn('gate', '城门开启', 1),
+          nodeOn('later', '三日后', 2),
+          doc('timeline_event', 'dress', '更衣', {
+            placements: [
+              {
+                timeline_id: 'shen',
+                start_node_id: 'gate',
+                end_node_id: null,
+                order: 0,
+                narrative_order: 0,
+                occurrence: 1
+              }
+            ]
+          }),
+          doc('timeline_event', 'swap', '调包出城', {
+            placements: [
+              {
+                timeline_id: 'lin',
+                start_node_id: 'gate',
+                end_node_id: null,
+                order: 1,
+                narrative_order: 1,
+                occurrence: 1
+              },
+              {
+                timeline_id: 'shen',
+                start_node_id: 'gate',
+                end_node_id: null,
+                order: 1,
+                narrative_order: 1,
+                occurrence: 1
+              }
+            ]
+          }),
+          doc('timeline_event', 'siege', '围城', {
+            placements: [
+              {
+                timeline_id: 'shen',
+                start_node_id: 'gate',
+                end_node_id: 'later',
+                order: 3,
+                narrative_order: 3,
+                occurrence: 1
+              },
+              {
+                timeline_id: 'north',
+                start_node_id: 'gate',
+                end_node_id: 'later',
+                order: 3,
+                narrative_order: 3,
+                occurrence: 1
+              }
+            ]
+          })
+        ]}
+        selectedTarget={{ type: 'timeline_event', id: 'swap' }}
+        onSelect={() => undefined}
+        language="zh"
+      />
+    )
+    expect(html).toContain('timeline-rail-board')
+    expect(html).toContain('调包出城')
+    expect(html).toContain('围城')
+    expect(html).toContain('城门开启')
+    expect(html).not.toContain('timeline-chain-scroll')
+    expect(html).not.toContain('节点内顺序')
+    expect(html).not.toContain('事件轨道位置')
+    expect(html).not.toContain('旧单链兼容模式')
+    expect(html).not.toContain('timeline-intervals')
+    expect(html).not.toContain('timeline-placement-panel')
+    expect(html).not.toContain('待挂载事件')
   })
 
   it('focuses the graph by time while keeping every other character and relationship discoverable', () => {
@@ -123,6 +277,9 @@ describe('planning visual workbenches', () => {
     expect(html).toContain('出场时间待补')
     expect(html).toContain('调整关系')
     expect(html).toContain('编辑关系：师徒')
+    expect(html).toContain('两圈')
+    expect(html).not.toContain('--graph-x')
+    expect(html).not.toContain('viewBox="0 0 1000 560"')
   })
 
   it('replaces a relationship at its exclusive end node', () => {
@@ -191,6 +348,50 @@ describe('planning visual workbenches', () => {
     expect(html).toContain('持续中')
     expect(html).toContain('旧关系备注')
     expect(html).toContain('建立时态关系')
+  })
+
+  it('renders a compact two-ring ego graph with faded second-layer people', () => {
+    const t1 = doc('timeline_node', 'time-1', '元年', { year: 1, month: 1 })
+    const wang = doc('character', 'wang', '汪皇后', { role: '皇后', introduced_at: 'time-1' })
+    const yu = doc('character', 'yu', '于谦', { role: '兵部尚书', introduced_at: 'time-1' })
+    const shi = doc('character', 'shi', '石亨', { role: '武将', introduced_at: 'time-1' })
+    const html = renderToStaticMarkup(
+      <CharacterRelationView
+        items={[
+          t1,
+          wang,
+          yu,
+          shi,
+          doc('character_relation', 'ally', '同盟', {
+            from_character: 'wang',
+            to_character: 'yu',
+            relation_type: '同盟',
+            starts_at: 'time-1',
+            ends_at: null
+          }),
+          doc('character_relation', 'sub', '部将', {
+            from_character: 'yu',
+            to_character: 'shi',
+            relation_type: '部将',
+            starts_at: 'time-1',
+            ends_at: null
+          })
+        ]}
+        timelineNodes={[t1]}
+        selectedTarget={{ type: 'character', id: 'wang' }}
+        onSelect={() => undefined}
+        language="zh"
+      />
+    )
+    expect(html).toContain('汪皇后')
+    expect(html).toContain('皇后')
+    expect(html).toContain('兵部尚书')
+    expect(html).toContain('武将')
+    expect(html).toContain('同盟')
+    expect(html).toContain('部将')
+    expect(html).toContain('relationship-graph-layer2')
+    expect(html).not.toContain('--graph-x')
+    expect(html).not.toContain('viewBox="0 0 1000 560"')
   })
 
   it('builds a drill-down location chain and indexes every card outside the current branch', () => {

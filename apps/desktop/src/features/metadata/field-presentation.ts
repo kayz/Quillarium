@@ -259,10 +259,16 @@ const FIELD_DEFINITIONS: Record<string, LocalizedFieldDefinition> = {
     'A short statement of the record’s essential meaning.'
   ),
   planned_plant: field(
-    '计划埋设',
-    '计划首次让读者注意到这条伏笔的节点。',
-    'Planned planting',
-    'Where this foreshadowing is intended to first appear.'
+    '旧计划埋设文字',
+    '兼容旧项目的自由文本；完成时间引用迁移前不会自动删除。',
+    'Legacy planting text',
+    'Free text retained for compatibility until an explicit story-time migration.'
+  ),
+  planned_plant_ref: field(
+    '计划埋设时间位置',
+    '以稳定时间线、时间节点或事件引用定位，可继续关联章或节。',
+    'Planned planting time',
+    'A stable timeline, node, or event reference with an optional chapter or section link.'
   ),
   planted_at: field(
     '实际埋设',
@@ -277,10 +283,16 @@ const FIELD_DEFINITIONS: Record<string, LocalizedFieldDefinition> = {
     'Later nodes that remind or reinforce this foreshadowing.'
   ),
   planned_resolve: field(
-    '计划回收',
-    '计划解释或兑现这条伏笔的节点。',
-    'Planned resolution',
-    'Where this foreshadowing is intended to be explained or paid off.'
+    '旧计划回收文字',
+    '兼容旧项目的自由文本；完成时间引用迁移前不会自动删除。',
+    'Legacy resolution text',
+    'Free text retained for compatibility until an explicit story-time migration.'
+  ),
+  planned_resolve_ref: field(
+    '计划回收时间位置',
+    '以稳定时间线、时间节点或事件引用定位，可继续关联章或节。',
+    'Planned resolution time',
+    'A stable timeline, node, or event reference with an optional chapter or section link.'
   ),
   expires_at: field(
     '最晚回收点',
@@ -1196,6 +1208,24 @@ const FIELD_DEFINITIONS: Record<string, LocalizedFieldDefinition> = {
     'Display time',
     'Author-facing time expression, such as “Autumn, year 20”.'
   ),
+  coordinate_v2: field(
+    '结构化时间坐标',
+    '保存时间体系、单位分量、精度、排序值与循环次数；通常由时间轴工具管理。',
+    'Structured time coordinate',
+    'Stores the time system, unit components, precision, ordering, and cycle occurrence; normally managed by the timeline tools.'
+  ),
+  timeline_tracks: field(
+    '时间线轨道位置',
+    '记录时间节点属于哪些轨道，以及在各轨道中的展示和叙事顺序。',
+    'Timeline track positions',
+    'Records the tracks containing this time node and its display and narrative order on each track.'
+  ),
+  placements: field(
+    '事件时间线位置',
+    '记录同一事件在一条或多条轨道上的起止节点、顺序和循环次数。',
+    'Event timeline placements',
+    'Records the start and end nodes, order, and occurrence of one event on one or more tracks.'
+  ),
   fuzzy: field(
     '模糊时间',
     '表示该节点覆盖月份范围，而不是一个精确时刻。',
@@ -1318,6 +1348,12 @@ const FIELD_OVERRIDES: Record<string, LocalizedFieldDefinition> = {
     '决定该条目是硬约束、氛围质感，还是同时承担两者。',
     'World-entry role',
     'Whether the entry is a constraint, texture, or both.'
+  ),
+  'world_entry.status': field(
+    '资料状态',
+    '“正设”表示作者认可的权威设定；草稿与已确认表示尚在整理或已经过校对。',
+    'Record status',
+    'Canon marks an author-approved fact; Draft and Confirmed describe its review stage.'
   ),
   'canon.source': field(
     '正设来源',
@@ -1479,6 +1515,7 @@ const DEFAULT_ENUM_OPTIONS: Record<string, readonly string[]> = {
 }
 
 const ENUM_LABELS: Record<string, { zh: string; en: string }> = {
+  canon: { zh: '正设', en: 'Canon' },
   draft: { zh: '草稿', en: 'Draft' },
   final: { zh: '已定稿', en: 'Final' },
   published: { zh: '已发布', en: 'Published' },
@@ -1634,7 +1671,10 @@ export function enumOptionsForField(
     if (context.documentType === 'foreshadowing') return ['L1', 'L2', 'L3', 'L4', 'L5']
     return undefined
   }
-  if (name === 'status' && context.documentType === 'chapter_prose') return ['draft', 'final', 'published']
+  if (name === 'status') {
+    if (context.documentType === 'chapter_prose') return ['draft', 'final', 'published']
+    if (context.documentType === 'world_entry') return ['canon', 'draft', 'confirmed', 'deprecated']
+  }
   if (name === 'source') {
     if (context.documentType === 'canon') return ['user', 'ai', 'imported', 'historical']
     if (context.documentType === 'pattern' || context.documentType === 'narrative')

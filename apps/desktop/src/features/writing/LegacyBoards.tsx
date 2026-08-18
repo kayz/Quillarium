@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { DocEntry, LanguageName } from '../../app/types.js'
 import { t } from '../../app/i18n.js'
+import { compareStoryEntries } from '../../shared/outline.js'
 
 export function OutlineBoard({
   docs,
@@ -11,9 +12,7 @@ export function OutlineBoard({
   onCreate: (kind: string, input: Record<string, unknown>) => Promise<unknown>
   language: LanguageName
 }) {
-  const outlines = docs
-    .filter((doc) => doc.data.type === 'outline')
-    .sort((a, b) => Number(a.data.order ?? 0) - Number(b.data.order ?? 0))
+  const outlines = docs.filter((doc) => doc.data.type === 'outline').sort(compareStoryEntries)
   const [title, setTitle] = useState('')
   const createSection = async () => {
     if (!title.trim()) return
@@ -21,7 +20,6 @@ export function OutlineBoard({
       title,
       level: 'section',
       parent: outlines.at(-1)?.data.parent ?? null,
-      order: outlines.length,
       target_words: 1000,
       chapter_hook: false,
       content: `## ${title}\n`

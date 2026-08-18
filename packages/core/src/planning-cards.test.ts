@@ -100,4 +100,103 @@ describe('planning card contract', () => {
       ])
     )
   })
+
+  it('resolves a legacy display code before reporting a missing relation target', () => {
+    const documents = [
+      {
+        path: 'C:/vault/world/lore-0077-女真三部.md',
+        data: {
+          id: 'lore-0077',
+          type: 'world_entry',
+          schema_version: 1,
+          title: '女真三部',
+          tags: [],
+          status: 'active',
+          enabled: true,
+          source_refs: [],
+          relations: [],
+          code: 'LORE-0077'
+        } as unknown as WorldEntryDoc,
+        content: ''
+      },
+      {
+        path: 'C:/vault/world/world-source.md',
+        data: {
+          id: 'world-source',
+          type: 'world_entry',
+          schema_version: 1,
+          title: '引用者',
+          tags: [],
+          status: 'active',
+          enabled: true,
+          source_refs: [],
+          relations: [],
+          links: ['LORE-0077']
+        } as unknown as WorldEntryDoc,
+        content: ''
+      }
+    ]
+
+    const issues = validatePlanningCardGraph(documents, { projectRoot: 'C:/vault' })
+    expect(issues).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'missing-relation-target', target_id: 'LORE-0077' })
+      ])
+    )
+  })
+
+  it('reports ambiguous and truly missing references with different error codes', () => {
+    const documents = [
+      {
+        data: {
+          id: 'world-a',
+          type: 'world_entry',
+          schema_version: 1,
+          title: '同名',
+          tags: [],
+          status: 'active',
+          enabled: true,
+          source_refs: [],
+          relations: []
+        } as unknown as WorldEntryDoc,
+        content: ''
+      },
+      {
+        data: {
+          id: 'world-b',
+          type: 'world_entry',
+          schema_version: 1,
+          title: '同名',
+          tags: [],
+          status: 'active',
+          enabled: true,
+          source_refs: [],
+          relations: []
+        } as unknown as WorldEntryDoc,
+        content: ''
+      },
+      {
+        data: {
+          id: 'world-source',
+          type: 'world_entry',
+          schema_version: 1,
+          title: '引用者',
+          tags: [],
+          status: 'active',
+          enabled: true,
+          source_refs: [],
+          relations: [],
+          links: ['同名', '不存在']
+        } as unknown as WorldEntryDoc,
+        content: ''
+      }
+    ]
+    const issues = validatePlanningCardGraph(documents)
+    expect(issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'ambiguous-relation-target', target_id: '同名' }),
+        expect.objectContaining({ code: 'missing-relation-target', target_id: '不存在' })
+      ])
+    )
+  })
 })

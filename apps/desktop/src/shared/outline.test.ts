@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { DocEntry } from '../app/types.js'
-import { buildOutlineHierarchy, nextWorkLevel, outlineLevelLabel } from './outline.js'
+import { buildOutlineHierarchy, compareStoryEntries, nextWorkLevel, outlineLevelLabel } from './outline.js'
 
 function outline(id: string, level: string, parent: string | null, title = id): DocEntry {
   return {
@@ -44,6 +44,23 @@ describe('writing hierarchy', () => {
       '幕',
       '章',
       '节'
+    ])
+  })
+
+  it('uses one sibling order across mixed levels with a stable legacy fallback', () => {
+    const directChapter = outline('chapter-a', 'chapter', 'part', 'Chapter')
+    directChapter.data.order = 0
+    const act = outline('act-z', 'act', 'part', 'Act')
+    act.data.order = 1
+    expect([act, directChapter].sort(compareStoryEntries).map((item) => item.data.id)).toEqual([
+      'chapter-a',
+      'act-z'
+    ])
+
+    act.data.order = 0
+    expect([act, directChapter].sort(compareStoryEntries).map((item) => item.data.id)).toEqual([
+      'act-z',
+      'chapter-a'
     ])
   })
 })

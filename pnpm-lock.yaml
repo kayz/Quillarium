@@ -57,6 +57,9 @@ importers:
 
   apps/desktop:
     dependencies:
+      '@quillarium/agent-runtime':
+        specifier: workspace:*
+        version: link:../../packages/agent-runtime
       '@quillarium/ai':
         specifier: workspace:*
         version: link:../../packages/ai
@@ -107,11 +110,29 @@ importers:
         specifier: ^8.2.1
         version: 8.2.1(@types/node@24.13.3)(esbuild@0.28.1)(jiti@2.7.0)(tsx@4.23.12)
 
+  packages/agent-runtime:
+    dependencies:
+      '@quillarium/ai':
+        specifier: workspace:*
+        version: link:../ai
+      '@quillarium/checks':
+        specifier: workspace:*
+        version: link:../checks
+      '@quillarium/core':
+        specifier: workspace:*
+        version: link:../core
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
+
   packages/ai:
     dependencies:
       '@quillarium/core':
         specifier: workspace:*
         version: link:../core
+      zod:
+        specifier: ^3.24.1
+        version: 3.25.76
 
   packages/checks:
     dependencies:
@@ -124,6 +145,9 @@ importers:
 
   packages/cli:
     dependencies:
+      '@quillarium/agent-runtime':
+        specifier: workspace:*
+        version: link:../agent-runtime
       '@quillarium/ai':
         specifier: workspace:*
         version: link:../ai

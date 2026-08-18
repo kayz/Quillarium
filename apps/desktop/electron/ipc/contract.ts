@@ -1,6 +1,25 @@
 import { ipcMain, type IpcMainInvokeEvent } from 'electron'
 import type {
+  AgentExecutionOutcome,
+  AgentRuntimeErrorV1,
+  AuthorApplyDecisionV1,
+  PlanningCheckScope,
+  PlanningIntegrityReviewResult,
+  PlanningIssueApplicationResultV1
+} from '@quillarium/agent-runtime'
+import type {
   AIProfileConfig,
+  AgentPromptEnvelopeV1,
+  AgentTaskDefinitionV1,
+  BookGenerationHeaderState,
+  ContextBundleV1,
+  CreatorRoleV1,
+  LoadedAgentSession,
+  LoadedAgentSessionDetail,
+  LoadedAssistantPromptVersion,
+  LoadedContextBundle,
+  LoadedCreatorRole,
+  ResolvedContextBundle,
   CandidateGroupSummary,
   ChapterLifecycleSnapshot,
   ChapterPublicationResult,
@@ -15,21 +34,54 @@ import type {
   ImportPlanInput,
   ImportCandidate,
   ImportSession,
+  IssueBatchAction,
+  IssueBatchResult,
   ManuscriptExportOptions,
   ManuscriptExportResult,
   MarkdownImportResult,
   ProjectConfig,
+  PromptBlock,
+  PromptSourceSelection,
   PromptAsset,
   PromptName,
   QuillariumConfig,
   RunMetadata,
+  ReorderStorySiblingsRequest,
   SceneDoc,
   ScenePromptInput,
   LoadedWritingPreset,
-  WritingPresetListItem
+  LocalDocumentLinkIndexV1,
+  DocumentReferenceMigrationPlanV1,
+  DocumentReferenceMigrationReportV1,
+  WritingPresetListItem,
+  StoryOrderResult,
+  TimelineCatalogV1,
+  TimelineOrderSnapshotV1,
+  ReorderTimelineNodesRequestV1,
+  ReorderTimelineEventsRequestV1,
+  PlaceTimelineEventRequestV1,
+  CreateTimelineNodeV2Input,
+  TimeSystemV1,
+  TimelineTrackV1,
+  LoadedVersionedYaml,
+  TimelineMigrationPlanV1,
+  TimelineMigrationReportV1,
+  StoryTimeImportPlanV1,
+  StoryTimeImportDecisionV1,
+  StoryTimeImportReportV1,
+  TimelineDeterministicIssueV1,
+  CreatorAssistantId,
+  CreatorAssistantWorkflowInputV1,
+  SaveAssistantPromptVersionInput
 } from '@quillarium/core'
+import { recordIpcFailure } from '../logging.js'
 import type { CheckReport, CheckScore } from '@quillarium/checks'
+import type { AIModelCapabilities } from '@quillarium/ai'
 import type {
+  BookCharacterCardExportOptions,
+  BookCharacterCardImportResult,
+  BookCharacterCardInspection,
+  BookCharacterCardWriteResult,
   CharacterCardImportResult,
   CharacterCardWriteResult,
   WorldInfoWriteResult
@@ -95,6 +147,17 @@ export interface ProjectCreateInput {
   defaultTheme?: ProjectConfig['default_theme']
 }
 
+export interface ProjectCoverResult {
+  cover: NonNullable<ProjectConfig['cover']>
+  warning: string | null
+  previewDataUrl: string
+}
+
+export interface ImportedBookProject {
+  project: ProjectSummary
+  import: BookCharacterCardImportResult
+}
+
 export type ProjectSummary = { root: string } & ProjectConfig
 
 export type DesktopDocData<T extends DocumentIdentity = DocumentIdentity> = T & Record<string, unknown>
@@ -109,6 +172,13 @@ export interface LoadedProject {
   project: ProjectConfig
   docs: DesktopDocEntry[]
   runs: RunMetadata[]
+}
+
+export interface PromptViewerSnapshot {
+  promptEnvelope: AgentPromptEnvelopeV1
+  providerRequest: Record<string, unknown>
+  promptBlocks: PromptBlock[]
+  providerTransformed: boolean
 }
 
 export interface MarkdownDocument {
@@ -143,6 +213,24 @@ export type ChapterSelections = Record<string, ScenePromptInput['selectedElement
 
 export type ImportPlanRequest = ImportPlanInput & {
   callAI?: boolean
+  clientRequestId?: string
+  resumeSessionId?: string
+}
+
+export type DesktopAIStreamOperation = 'import-split' | 'planning-check'
+
+export interface DesktopAIStreamEvent {
+  execution_id: string
+  request_id: string
+  client_request_id: string
+  operation: DesktopAIStreamOperation
+  type: 'started' | 'attempt' | 'phase' | 'content_delta' | 'completed' | 'failed' | 'cancelled'
+  elapsed_ms: number
+  phase?: 'connecting' | 'waiting' | 'streaming' | 'validating'
+  attempt?: number
+  content_delta?: string
+  child_execution_id?: string
+  batch_key?: string
 }
 
 export interface FinalizeReviewRequest {
@@ -195,16 +283,46 @@ export interface PlanningDraft {
   content: string
 }
 
+export type PlanningProposalOperation = 'create' | 'update'
+export type PlanningProposalStatus = 'draft' | 'confirmed' | 'applied'
+
+export interface PlanningProposalRevision {
+  id: string
+  created_at: string
+  source: 'anchor' | 'ai' | 'author'
+  content_sha256: string
+}
+
+export interface PlanningProposalTarget extends PlanningDocumentRef {
+  expected_sha256: string
+}
+
+export interface PlanningProposal {
+  /** Stable temporary identity for the lifetime of the conversation. */
+  id: string
+  operation: PlanningProposalOperation
+  source: 'anchor' | 'ai' | 'author'
+  status: PlanningProposalStatus
+  draft: PlanningDraft
+  target?: PlanningProposalTarget
+  revisions: PlanningProposalRevision[]
+  validation_error?: string
+}
+
 export interface PlanningChatRequest {
   module: string
   messages: PlanningChatMessage[]
   proposal?: PlanningDraft | null
+  proposals?: PlanningProposal[]
+  selectedProposalId?: string | null
   sessionId?: string
 }
 
 export interface PlanningChatResponse {
   message: string
   proposal: PlanningDraft | null
+  proposals: PlanningProposal[]
+  selectedProposalId: string | null
 }
 
 export interface PlanningDocumentRef {
@@ -214,34 +332,45 @@ export interface PlanningDocumentRef {
 }
 
 export interface PlanningSession {
-  schema_version: 1
+  schema_version: 2
   id: string
   module: string
   created_at: string
   updated_at: string
   messages: PlanningChatMessage[]
   proposal: PlanningDraft | null
+  proposals: PlanningProposal[]
+  selected_proposal_id: string | null
+  anchor_proposal_id?: string
   document?: PlanningDocumentRef
 }
 
-export interface PlanningCheckSummary {
-  generated_at: string
-  checked_cards: number
-  skipped_disabled: number
-  rule_findings: number
-  ai_findings: number
-  created_issue_ids: string[]
-  updated_issue_ids: string[]
+export type PlanningCheckSummary = AgentExecutionOutcome<PlanningIntegrityReviewResult, AgentRuntimeErrorV1>
+
+export interface PlanningCheckDecisionRequest {
+  executionId: string
+  selectedResultIds: string[]
+  decision: 'approved' | 'rejected'
+  createdBy?: 'desktop-author' | 'cli-author'
 }
+
+export type PlanningCheckDecisionResponse =
+  { status: 'decided'; decision: AuthorApplyDecisionV1 } | { status: 'failed'; error: AgentRuntimeErrorV1 }
+
+export type PlanningCheckApplyResponse =
+  | { status: 'applied'; result: PlanningIssueApplicationResultV1 }
+  | { status: 'failed'; error: AgentRuntimeErrorV1 }
 
 export interface PlanningSessionUpdate {
   messages: PlanningChatMessage[]
-  proposal: PlanningDraft | null
+  proposal?: PlanningDraft | null
+  proposals?: PlanningProposal[]
+  selectedProposalId?: string | null
 }
 
 export interface PlanningConfirmRequest extends PlanningSessionUpdate {
   sessionId: string
-  proposal: PlanningDraft
+  proposal?: PlanningDraft
 }
 
 export interface GitStatus {
@@ -256,9 +385,69 @@ export interface GitStatus {
   canInitializeRepository: boolean
 }
 
+export type UpdateCheckStatus = 'available' | 'up-to-date' | 'unavailable'
+
+export type UpdateUnavailableReason =
+  'network' | 'rate-limited' | 'service-error' | 'invalid-response' | 'no-release' | 'current-version-invalid'
+
+export interface UpdateCheckResult {
+  status: UpdateCheckStatus
+  currentVersion: string
+  latestVersion: string | null
+  releaseName: string | null
+  publishedAt: string | null
+  prerelease: boolean | null
+  checkedAt: string
+  reason: UpdateUnavailableReason | null
+}
+
+export interface AssistantWorkspaceState {
+  tasks: AgentTaskDefinitionV1[]
+  roles: LoadedCreatorRole[]
+  bundles: LoadedContextBundle[]
+  sessions: LoadedAgentSession[]
+  prompts: LoadedAssistantPromptVersion[]
+}
+
+export interface AssistantRunPreview {
+  session: LoadedAgentSessionDetail
+  resolved_context: ResolvedContextBundle
+  prompt_envelope: AgentPromptEnvelopeV1
+  knows: Array<{
+    source_type: string
+    source_id: string
+    authority: string
+    required: boolean
+    token_count: number
+    reason: string
+    outcome: string
+    display_title: string
+    purpose: string
+  }>
+  can_do: string[]
+  result_destination: string
+}
+
+export interface AssistantProposalActionResult {
+  session: LoadedAgentSessionDetail
+  document?: { path: string; id: string; type: string }
+}
+
+export interface AssistantConfigurationActionResult {
+  session: LoadedAgentSessionDetail
+  applied?: CreatorRoleV1 | ContextBundleV1
+}
+
 export interface IpcContract {
+  'ai:cancelStream': {
+    request: [executionId: string, requestId: string]
+    response: boolean
+  }
   'app:version': { request: []; response: string }
+  'app:checkForUpdates': { request: []; response: UpdateCheckResult }
+  'app:openReleases': { request: []; response: boolean }
   'config:get': { request: []; response: DesktopConfig }
+  'config:modelCapabilities': { request: []; response: AIModelCapabilities[] }
   'config:getVault': { request: []; response: string | null }
   'config:getWorkspace': { request: []; response: string | null }
   'config:chooseWorkspace': { request: []; response: string | null }
@@ -288,9 +477,102 @@ export interface IpcContract {
   'project:create': { request: [input: ProjectCreateInput]; response: ProjectSummary }
   'project:choose': { request: []; response: ProjectSummary | null }
   'project:load': { request: [root: string]; response: LoadedProject }
+  'cover:choose': { request: [root: string]; response: ProjectCoverResult | null }
+  'cover:get': { request: [root: string]; response: ProjectCoverResult | null }
+  'cover:focus': {
+    request: [root: string, focusX: number, focusY: number]
+    response: ProjectCoverResult
+  }
+  'assistant:initialize': { request: [root: string]; response: AssistantWorkspaceState }
+  'assistant:listPrompts': {
+    request: [root: string, assistantId: CreatorAssistantId]
+    response: LoadedAssistantPromptVersion[]
+  }
+  'assistant:savePrompt': {
+    request: [root: string, input: SaveAssistantPromptVersionInput]
+    response: LoadedAssistantPromptVersion
+  }
+  'assistant:start': {
+    request: [
+      root: string,
+      roleId: string,
+      target: { document_type: string; document_id: string },
+      title?: string,
+      workflowInput?: CreatorAssistantWorkflowInputV1
+    ]
+    response: LoadedAgentSession
+  }
+  'assistant:session': {
+    request: [root: string, sessionId: string]
+    response: LoadedAgentSessionDetail
+  }
+  'assistant:fork': {
+    request: [root: string, sessionId: string, throughTurnId?: string]
+    response: LoadedAgentSession
+  }
+  'assistant:preview': {
+    request: [root: string, sessionId: string, authorInput: string, sentUserContent?: string]
+    response: AssistantRunPreview
+  }
+  'assistant:turn': {
+    request: [
+      root: string,
+      sessionId: string,
+      expectedSessionSha256: string,
+      authorInput: string,
+      sentUserContent?: string
+    ]
+    response: LoadedAgentSessionDetail
+  }
+  'assistant:applyProposal': {
+    request: [root: string, sessionId: string, turnId: string, proposalId: string, expectedTurnSha256: string]
+    response: AssistantProposalActionResult
+  }
+  'assistant:rejectProposal': {
+    request: [root: string, sessionId: string, turnId: string, proposalId: string, expectedTurnSha256: string]
+    response: AssistantProposalActionResult
+  }
+  'assistant:applyConfigurationProposal': {
+    request: [root: string, sessionId: string, turnId: string, proposalId: string, expectedTurnSha256: string]
+    response: AssistantConfigurationActionResult
+  }
+  'assistant:rejectConfigurationProposal': {
+    request: [root: string, sessionId: string, turnId: string, proposalId: string, expectedTurnSha256: string]
+    response: AssistantConfigurationActionResult
+  }
+  'assistant:createRole': {
+    request: [root: string, role: CreatorRoleV1]
+    response: LoadedCreatorRole
+  }
+  'assistant:updateRole': {
+    request: [root: string, role: CreatorRoleV1, expectedSha256: string]
+    response: LoadedCreatorRole
+  }
+  'assistant:deleteRole': {
+    request: [root: string, id: string, expectedSha256: string]
+    response: boolean
+  }
+  'assistant:createBundle': {
+    request: [root: string, bundle: ContextBundleV1]
+    response: LoadedContextBundle
+  }
+  'assistant:updateBundle': {
+    request: [root: string, bundle: ContextBundleV1, expectedSha256: string]
+    response: LoadedContextBundle
+  }
+  'assistant:deleteBundle': {
+    request: [root: string, id: string, expectedSha256: string]
+    response: boolean
+  }
   'preset:list': { request: [root: string]; response: WritingPresetListItem[] }
   'preset:initializeDefault': { request: [root: string]; response: LoadedWritingPreset }
   'preset:select': { request: [root: string, id: string]; response: LoadedWritingPreset }
+  'prompt:bookHeaderGet': { request: [root: string]; response: BookGenerationHeaderState }
+  'prompt:bookHeaderSave': {
+    request: [root: string, text: string]
+    response: BookGenerationHeaderState
+  }
+  'prompt:bookHeaderClear': { request: [root: string]; response: BookGenerationHeaderState }
   'doc:read': { request: [filePath: string]; response: MarkdownDocument }
   'doc:saveBody': {
     request: [filePath: string, data: Record<string, unknown>, body: string]
@@ -301,6 +583,95 @@ export interface IpcContract {
   'doc:create': {
     request: [root: string, kind: string, input: Record<string, unknown>]
     response: string
+  }
+  'story:reorder': {
+    request: [root: string, input: ReorderStorySiblingsRequest]
+    response: StoryOrderResult
+  }
+  'references:index': {
+    request: [root: string]
+    response: LocalDocumentLinkIndexV1
+  }
+  'references:format': {
+    request: [root: string, documentId: string, displayText?: string]
+    response: string
+  }
+  'references:migrationPlan': {
+    request: [root: string]
+    response: DocumentReferenceMigrationPlanV1
+  }
+  'references:migrationApply': {
+    request: [root: string, plan: DocumentReferenceMigrationPlanV1]
+    response: DocumentReferenceMigrationReportV1
+  }
+  'timeline:catalog': { request: [root: string]; response: TimelineCatalogV1 }
+  'timeline:orderSnapshot': {
+    request: [root: string, trackId: string]
+    response: TimelineOrderSnapshotV1
+  }
+  'timeline:reorderTracks': {
+    request: [root: string, orderedTrackIds: string[], expectedHashes: Record<string, string>]
+    response: TimelineTrackV1[]
+  }
+  'timeline:reorderNodes': {
+    request: [root: string, input: ReorderTimelineNodesRequestV1]
+    response: DocumentIdentity[]
+  }
+  'timeline:reorderEvents': {
+    request: [root: string, input: ReorderTimelineEventsRequestV1]
+    response: DocumentIdentity[]
+  }
+  'timeline:placeEvent': {
+    request: [root: string, input: PlaceTimelineEventRequestV1]
+    response: DocumentIdentity
+  }
+  'timeline:createNode': {
+    request: [root: string, input: CreateTimelineNodeV2Input]
+    response: string
+  }
+  'timeline:createTimeSystem': {
+    request: [root: string, value: TimeSystemV1]
+    response: LoadedVersionedYaml<TimeSystemV1>
+  }
+  'timeline:updateTimeSystem': {
+    request: [root: string, value: TimeSystemV1, expectedHash: string]
+    response: LoadedVersionedYaml<TimeSystemV1>
+  }
+  'timeline:deleteTimeSystem': {
+    request: [root: string, id: string, expectedHash: string]
+    response: boolean
+  }
+  'timeline:createTrack': {
+    request: [root: string, value: TimelineTrackV1]
+    response: LoadedVersionedYaml<TimelineTrackV1>
+  }
+  'timeline:updateTrack': {
+    request: [root: string, value: TimelineTrackV1, expectedHash: string]
+    response: LoadedVersionedYaml<TimelineTrackV1>
+  }
+  'timeline:deleteTrack': {
+    request: [root: string, id: string, expectedHash: string]
+    response: boolean
+  }
+  'timeline:migrationPlan': {
+    request: [root: string]
+    response: TimelineMigrationPlanV1
+  }
+  'timeline:migrationApply': {
+    request: [root: string, plan: TimelineMigrationPlanV1]
+    response: TimelineMigrationReportV1
+  }
+  'timeline:storyTimePlan': {
+    request: [root: string]
+    response: StoryTimeImportPlanV1
+  }
+  'timeline:storyTimeApply': {
+    request: [root: string, plan: StoryTimeImportPlanV1, decision: StoryTimeImportDecisionV1]
+    response: StoryTimeImportReportV1
+  }
+  'timeline:check': {
+    request: [root: string]
+    response: TimelineDeterministicIssueV1[]
   }
   'doc:origin': {
     request: [root: string, filePath: string]
@@ -317,12 +688,23 @@ export interface IpcContract {
   'prompt:read': { request: [root: string, name: PromptName]; response: string }
   'import:aiPlan': { request: [root: string, input: ImportPlanRequest]; response: ImportSession }
   'import:session': { request: [root: string, sessionId: string]; response: ImportSession }
+  'import:latestUnfinishedSession': { request: [root: string]; response: ImportSession | null }
   'import:updateCandidates': {
     request: [root: string, sessionId: string, candidates: ImportCandidate[]]
     response: ImportSession
   }
   'import:answerIssue': {
-    request: [root: string, sessionId: string, issueId: string, answer: string]
+    request: [
+      root: string,
+      sessionId: string,
+      issueId: string,
+      answer: string,
+      mode?: 'confirm-current' | 'supplement-candidate'
+    ]
+    response: ImportSession
+  }
+  'import:abandonSession': {
+    request: [root: string, sessionId: string]
     response: ImportSession
   }
   'import:landSession': { request: [root: string, sessionId: string]; response: ImportSession }
@@ -348,9 +730,29 @@ export interface IpcContract {
     request: [root: string, input: PlanningConfirmRequest]
     response: { path: string; document: MarkdownDocument }
   }
+  'planning:issueBatch': {
+    request: [root: string, issueIds: string[], action: IssueBatchAction]
+    response: IssueBatchResult
+  }
   'planning:check': {
-    request: [root: string, language: 'zh' | 'en']
+    request: [root: string, language: 'zh' | 'en', clientRequestId?: string, scope?: PlanningCheckScope]
     response: PlanningCheckSummary
+  }
+  'planning:checkRetry': {
+    request: [root: string, executionId: string, language: 'zh' | 'en', clientRequestId?: string]
+    response: PlanningCheckSummary
+  }
+  'planning:checkDecision': {
+    request: [root: string, input: PlanningCheckDecisionRequest]
+    response: PlanningCheckDecisionResponse
+  }
+  'planning:checkApply': {
+    request: [root: string, executionId: string, decisionId: string]
+    response: PlanningCheckApplyResponse
+  }
+  'planning:checkOpenRun': {
+    request: [root: string, executionId: string]
+    response: boolean
   }
   'scene:context': { request: [root: string, sceneId: string]; response: string }
   'target:context': {
@@ -375,6 +777,10 @@ export interface IpcContract {
     response: { run: RunMetadata; report: CheckReport; markdown: string }
   }
   'scene:generateDryRun': { request: [root: string, sceneId: string]; response: RunMetadata }
+  'scene:previewFullPrompt': {
+    request: [root: string, sceneId: string, prompt: string, promptSources?: PromptSourceSelection[]]
+    response: PromptViewerSnapshot
+  }
   'scene:generate': {
     request: [root: string, sceneId: string]
     response: { run: RunMetadata; output: string }
@@ -390,7 +796,8 @@ export interface IpcContract {
       prompt: string,
       sceneId: string | undefined,
       count: number,
-      parentRunId?: string
+      parentRunId?: string,
+      promptSources?: PromptSourceSelection[]
     ]
     response: DesktopGeneratedCandidateGroup
   }
@@ -405,6 +812,14 @@ export interface IpcContract {
   'scene:promptPlan': {
     request: [root: string, sceneId: string]
     response: EditableScenePromptPlan
+  }
+  'scene:compilePromptOverlay': {
+    request: [root: string, sceneId: string, sources: PromptSourceSelection[]]
+    response: EditableScenePromptPlan
+  }
+  'scene:savePromptBundle': {
+    request: [root: string, title: string, sources: PromptSourceSelection[]]
+    response: LoadedContextBundle
   }
   'chapter:lifecycle': {
     request: [root: string, chapterId: string]
@@ -461,6 +876,15 @@ export interface IpcContract {
     request: [root: string, filePath?: string]
     response: CharacterCardImportResult | null
   }
+  'st:chooseBookCard': { request: []; response: BookCharacterCardInspection | null }
+  'st:importBookProject': {
+    request: [sourcePath: string, title: string]
+    response: ImportedBookProject
+  }
+  'st:exportBookCard': {
+    request: [root: string, options?: BookCharacterCardExportOptions]
+    response: BookCharacterCardWriteResult
+  }
   'st:exportCard': {
     request: [root: string, characterId: string]
     response: CharacterCardWriteResult
@@ -479,8 +903,12 @@ export type IpcRequest<Channel extends IpcChannel> = IpcContract[Channel]['reque
 export type IpcResponse<Channel extends IpcChannel> = IpcContract[Channel]['response']
 
 export const QUILLARIUM_API_CHANNELS = {
+  cancelAIStream: 'ai:cancelStream',
   getAppVersion: 'app:version',
+  checkForUpdates: 'app:checkForUpdates',
+  openReleases: 'app:openReleases',
   getConfig: 'config:get',
+  getModelCapabilities: 'config:modelCapabilities',
   getVault: 'config:getVault',
   getWorkspace: 'config:getWorkspace',
   chooseWorkspace: 'config:chooseWorkspace',
@@ -498,14 +926,61 @@ export const QUILLARIUM_API_CHANNELS = {
   createProject: 'project:create',
   chooseProject: 'project:choose',
   loadProject: 'project:load',
+  chooseProjectCover: 'cover:choose',
+  getProjectCover: 'cover:get',
+  updateProjectCoverFocus: 'cover:focus',
+  initializeAssistants: 'assistant:initialize',
+  listAssistantPromptVersions: 'assistant:listPrompts',
+  saveAssistantPromptVersion: 'assistant:savePrompt',
+  startAssistantSession: 'assistant:start',
+  loadAssistantSession: 'assistant:session',
+  forkAssistantSession: 'assistant:fork',
+  previewAssistantTurn: 'assistant:preview',
+  sendAssistantTurn: 'assistant:turn',
+  applyAssistantProposal: 'assistant:applyProposal',
+  rejectAssistantProposal: 'assistant:rejectProposal',
+  applyAssistantConfigurationProposal: 'assistant:applyConfigurationProposal',
+  rejectAssistantConfigurationProposal: 'assistant:rejectConfigurationProposal',
+  createCreatorRole: 'assistant:createRole',
+  updateCreatorRole: 'assistant:updateRole',
+  deleteCreatorRole: 'assistant:deleteRole',
+  createContextBundle: 'assistant:createBundle',
+  updateContextBundle: 'assistant:updateBundle',
+  deleteContextBundle: 'assistant:deleteBundle',
   listWritingPresets: 'preset:list',
   initializeDefaultWritingPreset: 'preset:initializeDefault',
   selectWritingPreset: 'preset:select',
+  getBookGenerationHeader: 'prompt:bookHeaderGet',
+  saveBookGenerationHeader: 'prompt:bookHeaderSave',
+  clearBookGenerationHeader: 'prompt:bookHeaderClear',
   readDoc: 'doc:read',
   saveDocBody: 'doc:saveBody',
   deleteDoc: 'doc:delete',
   openDocExternal: 'doc:openExternal',
   createDoc: 'doc:create',
+  reorderStorySiblings: 'story:reorder',
+  rebuildDocumentLinkIndex: 'references:index',
+  formatDocumentLink: 'references:format',
+  planDocumentReferenceMigration: 'references:migrationPlan',
+  applyDocumentReferenceMigration: 'references:migrationApply',
+  loadTimelineCatalog: 'timeline:catalog',
+  getTimelineOrderSnapshot: 'timeline:orderSnapshot',
+  reorderTimelineTracks: 'timeline:reorderTracks',
+  reorderTimelineNodes: 'timeline:reorderNodes',
+  reorderTimelineEvents: 'timeline:reorderEvents',
+  placeTimelineEvent: 'timeline:placeEvent',
+  createTimelineNode: 'timeline:createNode',
+  createTimeSystem: 'timeline:createTimeSystem',
+  updateTimeSystem: 'timeline:updateTimeSystem',
+  deleteTimeSystem: 'timeline:deleteTimeSystem',
+  createTimelineTrack: 'timeline:createTrack',
+  updateTimelineTrack: 'timeline:updateTrack',
+  deleteTimelineTrack: 'timeline:deleteTrack',
+  planTimelineMigration: 'timeline:migrationPlan',
+  applyTimelineMigration: 'timeline:migrationApply',
+  planStoryTimeTimelineImport: 'timeline:storyTimePlan',
+  applyStoryTimeTimelineImport: 'timeline:storyTimeApply',
+  checkTimelineDeterministically: 'timeline:check',
   resolveDocumentOrigin: 'doc:origin',
   chooseMarkdownImport: 'import:chooseMarkdown',
   chooseImportSources: 'import:chooseSources',
@@ -515,8 +990,10 @@ export const QUILLARIUM_API_CHANNELS = {
   readPrompt: 'prompt:read',
   createAIImportPlan: 'import:aiPlan',
   loadImportSession: 'import:session',
+  loadLatestUnfinishedImportSession: 'import:latestUnfinishedSession',
   updateImportCandidates: 'import:updateCandidates',
   answerImportIssue: 'import:answerIssue',
+  abandonImportSession: 'import:abandonSession',
   landImportSession: 'import:landSession',
   reimportCard: 'import:reimportCard',
   discussCanon: 'canon:discuss',
@@ -525,7 +1002,12 @@ export const QUILLARIUM_API_CHANNELS = {
   savePlanningSession: 'planning:save',
   discussPlanningRecord: 'planning:discuss',
   confirmPlanningRecord: 'planning:confirm',
+  applyIssueBatchAction: 'planning:issueBatch',
   checkPlanningCards: 'planning:check',
+  retryPlanningCheck: 'planning:checkRetry',
+  decidePlanningCheck: 'planning:checkDecision',
+  applyPlanningCheck: 'planning:checkApply',
+  openPlanningCheckRun: 'planning:checkOpenRun',
   assembleContext: 'scene:context',
   assembleTargetContext: 'target:context',
   assembleWritingPrompt: 'target:writingPrompt',
@@ -534,12 +1016,15 @@ export const QUILLARIUM_API_CHANNELS = {
   semanticCheckScene: 'scene:semanticCheck',
   checkSceneIntoRun: 'scene:checkIntoRun',
   generateDryRun: 'scene:generateDryRun',
+  previewFullGenerationPrompt: 'scene:previewFullPrompt',
   generate: 'scene:generate',
   generateOutline: 'outline:generate',
   generateOutlineCandidates: 'outline:generateCandidates',
   prepareScene: 'scene:prepare',
   acceptManualScene: 'scene:acceptManual',
   buildScenePromptPlan: 'scene:promptPlan',
+  compileScenePromptOverlay: 'scene:compilePromptOverlay',
+  savePromptSourcesAsBundle: 'scene:savePromptBundle',
   loadChapterLifecycle: 'chapter:lifecycle',
   finalizeChapter: 'chapter:finalize',
   publishChapter: 'chapter:publish',
@@ -556,6 +1041,9 @@ export const QUILLARIUM_API_CHANNELS = {
   acceptRun: 'run:accept',
   exportManuscript: 'export:manuscript',
   importSillyTavernCard: 'st:importCard',
+  chooseBookCharacterCard: 'st:chooseBookCard',
+  importBookCharacterCardProject: 'st:importBookProject',
+  exportBookCharacterCard: 'st:exportBookCard',
   exportSillyTavernCard: 'st:exportCard',
   exportSillyTavernLorebook: 'st:exportLorebook',
   gitStatus: 'git:status',
@@ -572,10 +1060,14 @@ export type AllIpcChannelsAreMapped = AssertNever<
   Exclude<IpcChannel, (typeof QUILLARIUM_API_CHANNELS)[keyof typeof QUILLARIUM_API_CHANNELS]>
 >
 
-export type QuillariumAPI = {
+type QuillariumInvokeAPI = {
   [Name in keyof typeof QUILLARIUM_API_CHANNELS]: (
     ...args: IpcRequest<(typeof QUILLARIUM_API_CHANNELS)[Name]>
   ) => Promise<IpcResponse<(typeof QUILLARIUM_API_CHANNELS)[Name]>>
+}
+
+export type QuillariumAPI = QuillariumInvokeAPI & {
+  onAIStreamEvent(listener: (event: DesktopAIStreamEvent) => void): () => void
 }
 
 export type TypedIpcHandler<Channel extends IpcChannel> = (
@@ -587,5 +1079,14 @@ export function typedHandle<Channel extends IpcChannel>(
   channel: Channel,
   handler: TypedIpcHandler<Channel>
 ): void {
-  ipcMain.handle(channel, (event, ...args) => handler(event, ...(args as IpcRequest<Channel>)))
+  ipcMain.handle(channel, async (event, ...args) => {
+    try {
+      return await handler(event, ...(args as IpcRequest<Channel>))
+    } catch (error) {
+      await recordIpcFailure(channel, error, { argument_count: args.length }).catch((loggingError) =>
+        console.error('Could not persist Quillarium IPC error log.', loggingError)
+      )
+      throw error
+    }
+  })
 }

@@ -1,10 +1,29 @@
 import path from 'node:path'
+import { randomUUID } from 'node:crypto'
 import { assembleContextPacket, renderContextPacket } from './context.js'
 import { listDocs, requireDoc } from './documents.js'
 import { assertChapterAllowsAI, sceneChapterId } from './chapter-lifecycle.js'
 import { readPrompt } from './prompts.js'
-import type { ContextCompileOptions } from './context-compiler.js'
-import type { OutlineDoc, SceneDoc } from './types.js'
+import { compileContextBlocks, type ContextCompileOptions } from './context-compiler.js'
+import { compareStoryOrder } from './story-order.js'
+import {
+  bundleDocumentTypes,
+  contextBundleV1Schema,
+  createContextBundle,
+  type ContextBundleV1,
+  type ContextSourceMode,
+  type ContextSourceUsage,
+  type LoadedContextBundle
+} from './context-bundles.js'
+import type {
+  ContextTrace,
+  OutlineDoc,
+  PromptBlock,
+  PromptBlockAuthority,
+  PromptBlockKind,
+  SceneDoc,
+  SharedGuidanceContent
+} from './types.js'
 
 export interface ScenePromptInput {
   sceneId: string
@@ -54,8 +73,20 @@ export interface PromptSourceBlock {
   truncated?: boolean
 }
 
+export interface PromptSourceSelection {
+  id: string
+  source_type?: string
+  source_id?: string
+  mode: ContextSourceMode
+  usage: ContextSourceUsage
+}
+
 export interface EditableScenePromptPlan extends ScenePromptPlan {
   sources: PromptSourceBlock[]
+  source_selections: PromptSourceSelection[]
+  prompt_blocks: PromptBlock[]
+  context_trace: ContextTrace
+  shared_guidance: SharedGuidanceContent[]
 }
 
 export interface ChapterPromptPlan {
@@ -126,7 +157,8 @@ export async function buildSceneWritingPrompt(
 export async function buildEditableScenePromptPlan(
   projectRoot: string,
   input: ScenePromptInput,
-  contextOptions: ContextCompileOptions = {}
+  contextOptions: ContextCompileOptions = {},
+  requestedSources?: PromptSourceSelection[]
 ): Promise<EditableScenePromptPlan> {
   const scene = await requireDoc<SceneDoc>(projectRoot, input.sceneId)
   const chapterId = sceneChapterId(scene.data)
@@ -137,12 +169,14 @@ export async function buildEditableScenePromptPlan(
     { type: 'scene', id: scene.data.id },
     contextOptions
   )
-  const sources: PromptSourceBlock[] = [
+  const availableSources: PromptSourceBlock[] = [
     {
       id: 'instruction',
       kind: 'instruction',
       title: '正文输出规则',
       content: await readPrompt(projectRoot, 'prose-scene-draft'),
+      source_id: 'prose-scene-draft',
+      source_type: 'prompt_asset',
       required: true
     },
     {
@@ -150,6 +184,8 @@ export async function buildEditableScenePromptPlan(
       kind: 'outline',
       title: `章 · ${chapter.data.title}`,
       content: renderStructuredOutline(chapter.data, chapter.content),
+      source_id: chapter.data.id,
+      source_type: 'outline',
       required: true
     },
     {
@@ -157,24 +193,76 @@ export async function buildEditableScenePromptPlan(
       kind: 'scene-outline',
       title: `节 · ${scene.data.title}`,
       content: renderSceneOutline(scene.data),
+      source_id: scene.data.id,
+      source_type: 'scene',
       required: true
     },
     ...contextPromptSourceBlocks(packet)
   ]
   if (input.previousOutput?.trim()) {
-    sources.push({
+    availableSources.push({
       id: 'continuation',
       kind: 'continuation',
       title: '本章前文',
       content: input.previousOutput.trim(),
+      source_id: chapter.data.id,
+      source_type: 'chapter_continuation',
       required: false
     })
   }
-  const prompt = [
-    ...sources.map((source) => `【${source.title}】\n${source.content.trim()}`),
-    '【输出要求】\n只输出当前节的纯文字正文，不得输出标题、解释或任何 Markdown 语法。'
-  ].join('\n\n')
-  return { scene_id: scene.data.id, chapter_id: chapterId, title: scene.data.title, sources, prompt }
+  const sources = requestedSources
+    ? await resolveRequestedPromptSources(projectRoot, availableSources, requestedSources)
+    : availableSources
+  const compiled = await compilePromptSourceBlocks(scene.data.id, sources, contextOptions)
+  return {
+    scene_id: scene.data.id,
+    chapter_id: chapterId,
+    title: scene.data.title,
+    sources: compiled.sources,
+    source_selections: compiled.sources.map(promptSourceSelection),
+    prompt_blocks: compiled.prompt_blocks,
+    context_trace: compiled.context_trace,
+    shared_guidance: packet.shared_guidance,
+    prompt: compiled.prompt
+  }
+}
+
+export async function savePromptSourcesAsContextBundle(
+  projectRoot: string,
+  title: string,
+  selections: PromptSourceSelection[]
+): Promise<LoadedContextBundle> {
+  const stableTypes = new Set<string>(bundleDocumentTypes)
+  const sources = selections
+    .filter(
+      (selection) =>
+        selection.source_type !== undefined &&
+        selection.source_id !== undefined &&
+        stableTypes.has(selection.source_type)
+    )
+    .map((selection) => ({
+      document_type: selection.source_type!,
+      document_id: selection.source_id!,
+      mode: selection.source_type === 'exploration' ? ('preferred' as const) : selection.mode,
+      usage: selection.usage
+    }))
+  const unique = new Map(sources.map((source) => [`${source.document_type}:${source.document_id}`, source]))
+  const now = new Date()
+  const id = `prompt-bundle-${now
+    .toISOString()
+    .replace(/[^0-9]/gu, '')
+    .slice(0, 14)}-${randomUUID().replace(/-/gu, '').slice(0, 8)}`
+  const bundle = contextBundleV1Schema.parse({
+    schema_version: 1,
+    id,
+    version: '1.0.0',
+    title: title.trim() || 'Prompt source bundle',
+    description: 'Saved from an author-reviewed scene prompt source overlay.',
+    sources: [...unique.values()],
+    dynamic_selectors: [],
+    exclusions: []
+  }) as ContextBundleV1
+  return createContextBundle(projectRoot, bundle)
 }
 
 export function contextPromptSourceBlocks(
@@ -261,6 +349,226 @@ export function contextPromptSourceBlocks(
   return blocks
 }
 
+async function resolveRequestedPromptSources(
+  projectRoot: string,
+  available: PromptSourceBlock[],
+  requested: PromptSourceSelection[]
+): Promise<PromptSourceBlock[]> {
+  const availableById = new Map(available.map((source) => [source.id, source]))
+  const selected: PromptSourceBlock[] = []
+  const seen = new Set<string>()
+  for (const request of requested) {
+    if (!request.id.trim()) throw new Error('PROMPT_OVERLAY_SOURCE_ID_REQUIRED')
+    if (seen.has(request.id)) throw new Error(`PROMPT_OVERLAY_SOURCE_DUPLICATE: ${request.id}`)
+    seen.add(request.id)
+    const builtin = availableById.get(request.id)
+    if (builtin) {
+      selected.push({ ...builtin, required: request.mode === 'required' })
+      continue
+    }
+    if (!request.source_type || !request.source_id) {
+      throw new Error(`PROMPT_OVERLAY_SOURCE_UNKNOWN: ${request.id}`)
+    }
+    if (!bundleDocumentTypes.includes(request.source_type as (typeof bundleDocumentTypes)[number])) {
+      throw new Error(`PROMPT_OVERLAY_SOURCE_TYPE_FORBIDDEN: ${request.source_type}`)
+    }
+    if (request.source_type === 'exploration') {
+      throw new Error('PROMPT_OVERLAY_EXPLORATION_REQUIRES_CONTEXT_BUNDLE')
+    }
+    const matches = (await listDocs(projectRoot)).filter(
+      (document) => document.data.type === request.source_type && document.data.id === request.source_id
+    )
+    if (matches.length !== 1) {
+      throw new Error(
+        matches.length > 1
+          ? `PROMPT_OVERLAY_SOURCE_DUPLICATE: ${request.source_type}:${request.source_id}`
+          : `PROMPT_OVERLAY_SOURCE_MISSING: ${request.source_type}:${request.source_id}`
+      )
+    }
+    const document = matches[0]!
+    selected.push({
+      id: request.id,
+      kind: promptSourceKindForDocumentType(request.source_type),
+      title: document.data.title,
+      content: renderOverlayDocument(document.data as unknown as Record<string, unknown>, document.content),
+      required: request.mode === 'required',
+      source_type: request.source_type,
+      source_id: request.source_id
+    })
+  }
+  return selected
+}
+
+async function compilePromptSourceBlocks(
+  sceneId: string,
+  sources: PromptSourceBlock[],
+  contextOptions: ContextCompileOptions
+): Promise<{
+  sources: PromptSourceBlock[]
+  prompt_blocks: PromptBlock[]
+  context_trace: ContextTrace
+  prompt: string
+}> {
+  const candidates = sources.map((source, order) => {
+    const authority = promptSourceAuthority(source)
+    return {
+      id: `prompt-overlay:${source.id}`,
+      kind: promptBlockKindForSource(source.kind),
+      role: source.kind === 'instruction' ? ('system' as const) : ('user' as const),
+      title: source.title,
+      content: `【${source.title}】\n${source.content.trim()}`,
+      source: {
+        type: source.source_type ?? 'prompt_overlay',
+        id: source.source_id ?? source.id
+      },
+      scope: 'scene',
+      purpose: promptSourceUsage(source.kind),
+      authority: authority.name,
+      authority_rank: authority.rank,
+      priority: source.required ? 800 : 500,
+      order,
+      selected: true,
+      required: source.required,
+      selection_reason: 'selected by the author in the temporary ContextBundle overlay',
+      trigger_chain: ['prompt-overlay', source.id],
+      truncation:
+        source.kind === 'finalized-prose' || source.kind === 'continuation'
+          ? ('tail' as const)
+          : source.kind === 'instruction'
+            ? ('none' as const)
+            : ('head' as const)
+    }
+  })
+  candidates.push({
+    id: 'prompt-overlay:plain-prose-output',
+    kind: 'generation_target',
+    role: 'system',
+    title: '纯文字输出规则',
+    content: '【输出要求】\n只输出当前节的纯文字正文，不得输出标题、解释或任何 Markdown 语法。',
+    source: { type: 'system', id: 'plain-prose-output' },
+    scope: 'scene',
+    purpose: 'constraint',
+    authority: 'system',
+    authority_rank: 1000,
+    priority: 1000,
+    order: sources.length,
+    selected: true,
+    required: true,
+    selection_reason: 'required product output boundary',
+    trigger_chain: ['product-boundary', 'plain-prose-output'],
+    truncation: 'none'
+  })
+  const compiled = await compileContextBlocks({ type: 'scene', id: sceneId }, candidates, contextOptions)
+  const includedByCandidateId = new Map(compiled.blocks.map((block) => [block.id, block]))
+  return {
+    sources: sources
+      .filter((source) => includedByCandidateId.has(`prompt-overlay:${source.id}`))
+      .map((source) => {
+        const block = includedByCandidateId.get(`prompt-overlay:${source.id}`)!
+        return {
+          ...source,
+          token_count: block.token_count,
+          selection_reason: block.selection_reason,
+          authority: block.authority,
+          truncated: block.truncated
+        }
+      }),
+    prompt_blocks: compiled.blocks,
+    context_trace: compiled.trace,
+    prompt: compiled.markdown
+  }
+}
+
+function promptSourceSelection(source: PromptSourceBlock): PromptSourceSelection {
+  return {
+    id: source.id,
+    ...(source.source_type ? { source_type: source.source_type } : {}),
+    ...(source.source_id ? { source_id: source.source_id } : {}),
+    mode: source.required ? 'required' : 'preferred',
+    usage: promptSourceUsage(source.kind)
+  }
+}
+
+function promptSourceUsage(kind: PromptSourceBlock['kind']): ContextSourceUsage {
+  if (['instruction', 'guidance', 'narrative'].includes(kind)) return 'style'
+  if (['canon', 'outline', 'scene-outline', 'timeline', 'location'].includes(kind)) {
+    return 'constraint'
+  }
+  if (['finalized-prose', 'continuation'].includes(kind)) return 'evidence'
+  return 'subject'
+}
+
+function promptSourceAuthority(source: PromptSourceBlock): {
+  name: PromptBlockAuthority
+  rank: number
+} {
+  if (source.kind === 'instruction') return { name: 'system', rank: 1000 }
+  if (source.kind === 'finalized-prose') return { name: 'accepted_prose', rank: 500 }
+  if (source.kind === 'canon' && source.authority === 'hard_canon') {
+    return { name: 'hard_canon', rank: 400 }
+  }
+  if (['guidance', 'narrative', 'context'].includes(source.kind)) {
+    return { name: 'advisory', rank: 100 }
+  }
+  return { name: 'project', rank: 300 }
+}
+
+function promptBlockKindForSource(kind: PromptSourceBlock['kind']): PromptBlockKind {
+  const mapping: Record<PromptSourceBlock['kind'], PromptBlockKind> = {
+    instruction: 'packet_header',
+    outline: 'outline',
+    'scene-outline': 'generation_target',
+    guidance: 'shared_guidance',
+    canon: 'canon',
+    timeline: 'timeline',
+    location: 'location',
+    character: 'character',
+    world: 'world',
+    foreshadowing: 'foreshadowing',
+    narrative: 'project_guidance',
+    context: 'warning',
+    'finalized-prose': 'accepted_prose',
+    continuation: 'accepted_prose'
+  }
+  return mapping[kind]
+}
+
+function promptSourceKindForDocumentType(type: string): PromptSourceBlock['kind'] {
+  const mapping: Record<string, PromptSourceBlock['kind']> = {
+    canon: 'canon',
+    outline: 'outline',
+    scene: 'scene-outline',
+    chapter_prose: 'finalized-prose',
+    timeline_node: 'timeline',
+    timeline_event: 'timeline',
+    location: 'location',
+    route: 'location',
+    character: 'character',
+    character_relation: 'character',
+    character_state: 'character',
+    world_entry: 'world',
+    foreshadowing: 'foreshadowing',
+    strategy: 'narrative',
+    pattern: 'narrative',
+    narrative: 'narrative',
+    issue: 'context',
+    reference: 'context',
+    resource: 'context',
+    causality: 'context',
+    prompt: 'guidance'
+  }
+  return mapping[type] ?? 'context'
+}
+
+function renderOverlayDocument(data: Record<string, unknown>, content: string): string {
+  const metadata = Object.entries(data)
+    .filter(([key]) => !['title', 'tags', 'schema_version'].includes(key))
+    .sort(([left], [right]) => left.localeCompare(right, 'en'))
+    .map(([key, value]) => `${key}: ${typeof value === 'string' ? value : JSON.stringify(value)}`)
+    .join('\n')
+  return `${metadata}\n\n${content}`.trim()
+}
+
 function promptSourceKindForBlock(kind: import('./types.js').PromptBlockKind): PromptSourceBlock['kind'] {
   switch (kind) {
     case 'accepted_prose':
@@ -301,7 +609,12 @@ export async function buildChapterWritingPlan(
 ): Promise<ChapterPromptPlan> {
   const scenes = (await listDocs<SceneDoc>(projectRoot, 'scene'))
     .filter((scene) => sceneChapterId(scene.data) === chapterId)
-    .sort((a, b) => sceneSortKey(a).localeCompare(sceneSortKey(b)))
+    .sort((a, b) =>
+      compareStoryOrder(
+        { order: a.data.order, id: a.data.id, path: a.path },
+        { order: b.data.order, id: b.data.id, path: b.path }
+      )
+    )
   const scene_prompts: ScenePromptPlan[] = []
   let previousOutput = ''
   for (const scene of scenes) {
@@ -394,8 +707,4 @@ function renderSelectedElements(selected: NonNullable<ScenePromptInput['selected
   ]
     .map(([key, value]) => `${key}: ${Array.isArray(value) && value.length ? value.join(', ') : '未指定'}`)
     .join('\n')
-}
-
-function sceneSortKey(scene: { data: SceneDoc; path: string }): string {
-  return `${String(scene.data.chapter_number ?? '').padStart(6, '0')}-${String(scene.data.tags?.join('-') ?? '')}-${path.basename(scene.path)}`
 }

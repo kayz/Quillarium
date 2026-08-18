@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto'
 import path from 'node:path'
-import { stat } from 'node:fs/promises'
+import { readdir, stat } from 'node:fs/promises'
 import {
   createCanon,
   createCharacter,
@@ -50,6 +50,8 @@ export interface SourceIndexEntry {
 }
 
 export interface ImportCandidate {
+  /** Stable within one import session and deliberately independent of the editable title. */
+  id?: string
   type: DocType
   title: string
   confidence: number
@@ -68,6 +70,11 @@ export interface ImportSessionIssue {
   state: 'open' | 'resolved' | 'deferred'
   answer?: string
   origin?: 'source-review' | 'candidate-confirmation'
+  candidate_id?: string
+  fingerprint?: string
+  invalidated_reason?: string
+  answer_mode?: 'confirm-current' | 'supplement-candidate'
+  reasons?: Array<{ kind: 'source' | 'confidence' | 'question'; text: string }>
 }
 
 export interface ImportSessionFailure {
@@ -96,7 +103,8 @@ export interface ImportSession {
     candidate_index?: number
   }>
   failures?: ImportSessionFailure[]
-  status: 'planned' | 'needs-confirmation' | 'partial' | 'landed'
+  status: 'planned' | 'needs-confirmation' | 'partial' | 'landed' | 'abandoned'
+  abandoned_at?: string
 }
 
 export interface ImportPlanInput {
@@ -104,6 +112,7 @@ export interface ImportPlanInput {
   sourcePaths?: string[]
   markdownText?: string
   aiResponse?: string
+  resumeSessionId?: string
 }
 
 export function sourceIndexPath(projectRoot: string): string {
@@ -166,6 +175,13 @@ export async function createImportSessionPlan(
   projectRoot: string,
   input: ImportPlanInput
 ): Promise<ImportSession> {
+  if (input.resumeSessionId) {
+    const resumed = await loadImportSession(projectRoot, input.resumeSessionId)
+    if (resumed.status === 'landed' || resumed.status === 'abandoned') {
+      throw new Error('The selected import session can no longer be resumed.')
+    }
+    return resumed
+  }
   const id = timestampId('import')
   const prompt = await readPrompt(projectRoot, 'background-import')
   const sourceEntries = input.sourcePaths?.length
@@ -182,18 +198,20 @@ export async function createImportSessionPlan(
       ]
   const sourceText = input.markdownText ?? (await readSources(sourceEntries.map((entry) => entry.source)))
   const parsed = input.aiResponse ? parseImportAIResponse(input.aiResponse) : null
-  const candidates = parsed?.items ?? []
-  const issues = [
-    ...(parsed?.issues ?? []).map((issue) => ({ ...issue, origin: 'source-review' as const })),
-    ...candidateConfirmationIssues(candidates)
-  ]
+  const candidates = assignCandidateIds(parsed?.items ?? [], id)
+  const issues = mergeCandidateConfirmations(
+    candidates,
+    (parsed?.issues ?? []).map((issue) => ({ ...issue, origin: 'source-review' as const }))
+  )
   const session: ImportSession = {
     id,
     created_at: new Date().toISOString(),
     source_kind: input.sourceKind,
     sources: sourceEntries,
     prompt,
-    input_excerpt: sourceText.slice(0, 12000),
+    // This field predates large-context models, but it is the authoritative pasted source used by
+    // buildImportPrompt(). Truncating it here silently discarded material before the AI call.
+    input_excerpt: sourceText,
     ai_response: input.aiResponse,
     summary: parsed?.summary,
     candidates,
@@ -205,8 +223,53 @@ export async function createImportSessionPlan(
   return session
 }
 
+export async function applyImportAIResponse(
+  projectRoot: string,
+  sessionId: string,
+  aiResponse: string
+): Promise<ImportSession> {
+  const session = await loadImportSession(projectRoot, sessionId)
+  if (session.status === 'landed' || session.status === 'partial' || session.status === 'abandoned') {
+    throw new Error('AI results cannot replace a completed or abandoned import session.')
+  }
+  if (session.landed.length) throw new Error('AI results cannot replace a partially applied import session.')
+  const parsed = parseImportAIResponse(aiResponse)
+  session.ai_response = aiResponse
+  session.summary = parsed.summary
+  session.candidates = assignCandidateIds(parsed.items, session.id, session.candidates)
+  session.issues = mergeCandidateConfirmations(
+    session.candidates,
+    parsed.issues.map((issue) => ({ ...issue, origin: 'source-review' as const })),
+    session.issues
+  )
+  session.status = activeImportStatus(session.issues)
+  await saveImportSession(projectRoot, session)
+  return session
+}
+
 export async function loadImportSession(projectRoot: string, sessionId: string): Promise<ImportSession> {
-  return JSON.parse(await readText(importSessionPath(projectRoot, sessionId))) as ImportSession
+  return normalizeImportSession(
+    JSON.parse(await readText(importSessionPath(projectRoot, sessionId))) as ImportSession
+  )
+}
+
+export async function loadLatestUnfinishedImportSession(projectRoot: string): Promise<ImportSession | null> {
+  const importsRoot = path.join(projectRoot, 'imports')
+  if (!(await pathExists(importsRoot))) return null
+  const sessionIds = (await readdir(importsRoot, { withFileTypes: true }))
+    .filter((entry) => entry.isFile() && /^import-[\w-]+\.json$/u.test(entry.name))
+    .map((entry) => entry.name.slice(0, -'.json'.length))
+    .sort((left, right) => right.localeCompare(left))
+
+  for (const sessionId of sessionIds) {
+    try {
+      const session = await loadImportSession(projectRoot, sessionId)
+      if (session.status !== 'landed' && session.status !== 'abandoned') return session
+    } catch {
+      // Recovery is optional: one damaged historical run must not prevent starting a new import.
+    }
+  }
+  return null
 }
 
 export async function saveImportSession(projectRoot: string, session: ImportSession): Promise<void> {
@@ -219,11 +282,43 @@ export async function answerImportIssue(
   sessionId: string,
   issueId: string,
   answer: string,
-  state: ImportSessionIssue['state'] = 'resolved'
+  state: ImportSessionIssue['state'] = 'resolved',
+  mode: 'confirm-current' | 'supplement-candidate' = 'confirm-current'
 ): Promise<ImportSession> {
   const session = await loadImportSession(projectRoot, sessionId)
-  session.issues = session.issues.map((issue) => (issue.id === issueId ? { ...issue, answer, state } : issue))
-  session.status = session.issues.some((issue) => issue.state === 'open') ? 'needs-confirmation' : 'planned'
+  const target = session.issues.find((issue) => issue.id === issueId)
+  if (!target) throw new Error('The import confirmation no longer exists.')
+  const normalizedAnswer = answer.trim()
+  if (mode === 'supplement-candidate') {
+    if (!normalizedAnswer) throw new Error('A candidate supplement cannot be empty.')
+    if (!target.candidate_id) throw new Error('This confirmation is not linked to an import candidate.')
+    const candidate = session.candidates.find((item) => item.id === target.candidate_id)
+    if (!candidate) throw new Error('The import candidate linked to this confirmation no longer exists.')
+    candidate.content = [candidate.content.trimEnd(), '', '## 作者导入补充', '', normalizedAnswer]
+      .filter((value, index) => value || index > 0)
+      .join('\n')
+  }
+  session.issues = session.issues.map((issue) =>
+    issue.id === issueId
+      ? {
+          ...issue,
+          answer: normalizedAnswer || 'Confirmed without additional changes.',
+          answer_mode: mode,
+          state,
+          invalidated_reason: undefined
+        }
+      : issue
+  )
+  session.status = activeImportStatus(session.issues)
+  await saveImportSession(projectRoot, session)
+  return session
+}
+
+export async function abandonImportSession(projectRoot: string, sessionId: string): Promise<ImportSession> {
+  const session = await loadImportSession(projectRoot, sessionId)
+  if (session.status === 'landed') throw new Error('A completed import session cannot be abandoned.')
+  session.status = 'abandoned'
+  session.abandoned_at = new Date().toISOString()
   await saveImportSession(projectRoot, session)
   return session
 }
@@ -237,10 +332,8 @@ export async function updateImportSessionCandidates(
   if (session.landed.length) {
     throw new Error('Candidates cannot be edited after this import has started landing files.')
   }
-  const priorCandidateIssueIds = new Set(
-    session.candidates.map((candidate) => makeId('issue', `${candidate.title} 导入确认`))
-  )
-  session.candidates = candidates.map((candidate) => ({
+  session.candidates = assignCandidateIds(candidates, session.id, session.candidates).map((candidate) => ({
+    id: candidate.id,
     type: candidate.type,
     title: String(candidate.title ?? '').trim() || '未命名导入',
     confidence: Math.max(0, Math.min(1, Number(candidate.confidence ?? 0))),
@@ -249,18 +342,8 @@ export async function updateImportSessionCandidates(
     reason: String(candidate.reason ?? ''),
     questions: Array.isArray(candidate.questions) ? candidate.questions.map(String) : []
   }))
-  const candidateIssues = candidateConfirmationIssues(session.candidates, session.issues)
-  const candidateIssueIds = new Set(candidateIssues.map((issue) => issue.id))
-  session.issues = [
-    ...session.issues.filter(
-      (issue) =>
-        issue.origin !== 'candidate-confirmation' &&
-        !(issue.origin === undefined && priorCandidateIssueIds.has(issue.id)) &&
-        !candidateIssueIds.has(issue.id)
-    ),
-    ...candidateIssues
-  ]
-  session.status = session.issues.some((issue) => issue.state === 'open') ? 'needs-confirmation' : 'planned'
+  session.issues = mergeCandidateConfirmations(session.candidates, [], session.issues)
+  session.status = activeImportStatus(session.issues)
   session.failures = []
   await saveImportSession(projectRoot, session)
   return session
@@ -269,6 +352,7 @@ export async function updateImportSessionCandidates(
 export async function landImportSession(projectRoot: string, sessionId: string): Promise<ImportSession> {
   const session = await loadImportSession(projectRoot, sessionId)
   if (session.status === 'landed') return session
+  if (session.status === 'abandoned') throw new Error('An abandoned import session cannot be applied.')
   if (session.issues.some((issue) => issue.state === 'open')) {
     throw new Error('Import session still has open issues.')
   }
@@ -393,7 +477,10 @@ export async function reimportAIImportCard(
   }
   const session = await loadImportSession(projectRoot, origin.session_id)
   const result = await reapplyImportCandidate(projectRoot, targetPath, parsed.items[0], origin)
-  session.candidates[origin.candidate_index] = parsed.items[0]
+  session.candidates[origin.candidate_index] = {
+    ...parsed.items[0],
+    id: session.candidates[origin.candidate_index]?.id
+  }
   session.ai_response = aiResponse
   await saveImportSession(projectRoot, session)
   return result
@@ -433,14 +520,23 @@ export function parseImportAIResponse(raw: string): {
   items: ImportCandidate[]
   issues: ImportSessionIssue[]
 } {
-  const parsed = JSON.parse(stripCodeFence(raw)) as {
+  let parsed: {
     summary?: string
     items?: Array<Partial<ImportCandidate>>
     issues?: Array<Partial<ImportSessionIssue>>
   }
+  try {
+    parsed = JSON.parse(stripCodeFence(raw)) as typeof parsed
+  } catch (cause) {
+    throw new Error(
+      'AI_IMPORT_INVALID_RESPONSE: Background import response was incomplete or invalid JSON.',
+      { cause }
+    )
+  }
   return {
     summary: parsed.summary,
     items: (parsed.items ?? []).map((item) => ({
+      ...(item.id ? { id: item.id } : {}),
       type: item.type as DocType,
       title: item.title ?? '未命名导入',
       confidence: Number(item.confidence ?? 0),
@@ -461,26 +557,175 @@ export function parseImportAIResponse(raw: string): {
   }
 }
 
-function candidateConfirmationIssues(
+function normalizeImportSession(session: ImportSession): ImportSession {
+  const candidates = assignCandidateIds(session.candidates, session.id)
+  const issues = mergeCandidateConfirmations(candidates, [], session.issues)
+  return {
+    ...session,
+    candidates,
+    issues,
+    status:
+      session.status === 'landed' || session.status === 'partial' || session.status === 'abandoned'
+        ? session.status
+        : activeImportStatus(issues)
+  }
+}
+
+function assignCandidateIds(
   candidates: ImportCandidate[],
+  sessionId: string,
+  previous: ImportCandidate[] = []
+): ImportCandidate[] {
+  const previousIds = new Set(previous.map((candidate) => candidate.id).filter(Boolean))
+  const used = new Set<string>()
+  return candidates.map((candidate, index) => {
+    const proposed = normalizeCandidateId(candidate.id)
+    const prior = normalizeCandidateId(previous[index]?.id)
+    let id = proposed || prior || `${sessionId}-candidate-${String(index + 1).padStart(3, '0')}`
+    let suffix = 2
+    while (used.has(id)) {
+      id = `${proposed || prior || `${sessionId}-candidate-${String(index + 1).padStart(3, '0')}`}-${suffix}`
+      suffix += 1
+    }
+    used.add(id)
+    previousIds.delete(id)
+    return { ...candidate, id }
+  })
+}
+
+function mergeCandidateConfirmations(
+  candidates: ImportCandidate[],
+  sourceIssues: ImportSessionIssue[],
   previous: ImportSessionIssue[] = []
 ): ImportSessionIssue[] {
-  return candidates
-    .filter((item) => item.confidence < 0.72 || item.questions.length)
-    .map((item) => {
-      const id = makeId('issue', `${item.title} 导入确认`)
-      const existing = previous.find((issue) => issue.id === id)
-      return {
-        id,
-        title: `${item.title} 导入确认`,
-        priority: item.confidence < 0.5 ? ('high' as const) : ('medium' as const),
-        decision_needed: item.questions.join('；') || `确认是否作为 ${item.type} 落地。`,
-        related_items: [item.title],
-        state: existing?.state ?? ('open' as const),
-        ...(existing?.answer ? { answer: existing.answer } : {}),
-        origin: 'candidate-confirmation' as const
-      }
+  const matchedSourceIds = new Set<string>()
+  const confirmations: ImportSessionIssue[] = []
+  const legacyByTitle = new Map<string, ImportSessionIssue>()
+  for (const issue of previous) {
+    for (const title of issue.related_items) legacyByTitle.set(title, issue)
+  }
+
+  for (const candidate of candidates) {
+    if (candidate.type === 'issue' || !candidate.id) continue
+    const existing =
+      previous.find((issue) => issue.candidate_id === candidate.id) ?? legacyByTitle.get(candidate.title)
+    const relatedSource = sourceIssues.filter((issue) => sourceIssueMatchesCandidate(issue, candidate))
+    for (const issue of relatedSource) matchedSourceIds.add(issue.id)
+    const sourceReasons = relatedSource.length
+      ? relatedSource.map((issue) => ({
+          kind: 'source' as const,
+          text: issue.decision_needed || issue.title
+        }))
+      : (existing?.reasons?.filter((reason) => reason.kind === 'source') ?? [])
+    const reasons: NonNullable<ImportSessionIssue['reasons']> = [
+      ...sourceReasons,
+      ...(candidate.confidence < 0.72
+        ? [
+            {
+              kind: 'confidence' as const,
+              text: `候选置信度为 ${Math.round(candidate.confidence * 100)}%，需要作者确认。`
+            }
+          ]
+        : []),
+      ...candidate.questions.map((question) => ({ kind: 'question' as const, text: question }))
+    ]
+    if (!reasons.length) continue
+    const fingerprint = confirmationFingerprint(candidate, reasons)
+    const remainsValid = Boolean(
+      existing && existing.state !== 'open' && existing.fingerprint === fingerprint
+    )
+    const legacyResolved = Boolean(existing && existing.state !== 'open' && !existing.fingerprint)
+    const state = remainsValid || legacyResolved ? existing!.state : 'open'
+    const invalidated = Boolean(existing?.fingerprint && existing.fingerprint !== fingerprint)
+    confirmations.push({
+      id: confirmationId(candidate.id),
+      title: `${candidate.title} 导入确认`,
+      priority:
+        candidate.confidence < 0.5
+          ? 'high'
+          : relatedSource.some((issue) => issue.priority === 'high')
+            ? 'high'
+            : 'medium',
+      decision_needed: reasons.map((reason) => reason.text).join('；'),
+      related_items: [candidate.title],
+      state,
+      candidate_id: candidate.id,
+      fingerprint,
+      reasons,
+      ...(state !== 'open' && existing?.answer ? { answer: existing.answer } : {}),
+      ...(state !== 'open' && existing?.answer_mode ? { answer_mode: existing.answer_mode } : {}),
+      ...(invalidated
+        ? { invalidated_reason: '与本确认直接相关的类型、置信度、疑问或来源审查内容已变化。' }
+        : {}),
+      origin: 'candidate-confirmation'
     })
+  }
+
+  const unmatchedSource = [
+    ...sourceIssues.filter((issue) => !matchedSourceIds.has(issue.id)),
+    ...previous.filter(
+      (issue) => issue.origin === 'source-review' && !sourceIssues.some((source) => source.id === issue.id)
+    )
+  ]
+  const activeCandidateIds = new Set(candidates.map((candidate) => candidate.id).filter(Boolean))
+  const unrelatedPrevious = previous.filter(
+    (issue) =>
+      issue.origin !== 'candidate-confirmation' &&
+      issue.origin !== 'source-review' &&
+      (!issue.candidate_id || activeCandidateIds.has(issue.candidate_id))
+  )
+  return deduplicateIssues([...unmatchedSource, ...unrelatedPrevious, ...confirmations])
+}
+
+function sourceIssueMatchesCandidate(issue: ImportSessionIssue, candidate: ImportCandidate): boolean {
+  const title = candidate.title.trim().toLocaleLowerCase()
+  if (!title) return false
+  return (
+    issue.related_items.some((item) => item.trim().toLocaleLowerCase() === title) ||
+    issue.title.toLocaleLowerCase().includes(title)
+  )
+}
+
+function confirmationFingerprint(
+  candidate: ImportCandidate,
+  reasons: NonNullable<ImportSessionIssue['reasons']>
+): string {
+  return sha256(
+    JSON.stringify({
+      candidate_id: candidate.id,
+      type: candidate.type,
+      confidence: Math.round(candidate.confidence * 10_000) / 10_000,
+      questions: [...candidate.questions].map((value) => value.trim()).sort(),
+      source_reasons: reasons
+        .filter((reason) => reason.kind === 'source')
+        .map((reason) => reason.text.trim())
+        .sort()
+    })
+  )
+}
+
+function deduplicateIssues(issues: ImportSessionIssue[]): ImportSessionIssue[] {
+  const byId = new Map<string, ImportSessionIssue>()
+  for (const issue of issues) if (!byId.has(issue.id)) byId.set(issue.id, issue)
+  return [...byId.values()]
+}
+
+function normalizeCandidateId(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const normalized = value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/gu, '-')
+    .replace(/^[-_.]+|[-_.]+$/gu, '')
+  return normalized || undefined
+}
+
+function confirmationId(candidateId: string): string {
+  return `confirm-${candidateId}`.slice(0, 150).replace(/[-_.]+$/u, '')
+}
+
+function activeImportStatus(issues: ImportSessionIssue[]): 'planned' | 'needs-confirmation' {
+  return issues.some((issue) => issue.state === 'open') ? 'needs-confirmation' : 'planned'
 }
 
 function aiImportOrigin(session: ImportSession, candidateIndex: number): AIImportOrigin {

@@ -131,4 +131,34 @@ describe('desktop timeline coordinate creation', () => {
     expect(nodes[0]?.data).toMatchObject({ year: 1449, month: 8, display_time: '1449-08' })
     expect(events[0]?.data.timeline_node).toBe(nodes[0]?.data.id)
   })
+
+  it('accepts an event-relative week and weekday without rewriting its display time', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'quillarium-desktop-timeline-'))
+    roots.push(root)
+    await createProjectAt(root, { id: 'relative-timeline-project', title: 'Relative Timeline Project' })
+    await appendTimelineEvent(root, 'Private meeting', {
+      id: 'event-private-meeting',
+      date: '第1周周二'
+    })
+
+    await createProjectDocument(root, 'timeline_node', {
+      title: 'Private meeting coordinate',
+      story_time: '第1周周二',
+      source_event_id: 'event-private-meeting'
+    })
+
+    const nodes = await listDocs<TimelineNodeDoc>(root, 'timeline_node')
+    const events = await listDocs<TimelineEventDoc>(root, 'timeline_event')
+    expect(nodes[0]?.data).toMatchObject({
+      calendar: 'relative-week',
+      year: 1,
+      month: 1,
+      day: 2,
+      display_time: '第1周周二'
+    })
+    expect(events[0]?.data).toMatchObject({
+      timeline_node: nodes[0]?.data.id,
+      date: '第1周周二'
+    })
+  })
 })

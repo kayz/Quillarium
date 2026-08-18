@@ -19,10 +19,10 @@ import type {
 } from '../../app/types.js'
 import {
   asStringList,
+  compareStoryEntries,
   findAncestor,
   formatFieldValue,
-  outlineLevelLabel,
-  outlineSortKey
+  outlineLevelLabel
 } from '../../shared/outline.js'
 import {
   documentTypeLabel,
@@ -78,7 +78,7 @@ export const OUTLINE_HOME_SECTIONS: Array<OutlineSectionDefinition<OutlineHomeSe
     id: 'canon',
     title: '正设',
     short: '正',
-    heading: 'Canon 正设',
+    heading: '正设',
     enTitle: 'Canon',
     enShort: 'C',
     enHeading: 'Canon',
@@ -296,7 +296,7 @@ export function outlineSectionDocs(docs: DocEntry[], section: OutlineHomeSection
   if (section === 'volumes') {
     return docs
       .filter((doc) => doc.data.type === 'outline' && doc.data.level === 'volume')
-      .sort((a, b) => outlineSortKey(a).localeCompare(outlineSortKey(b)))
+      .sort(compareStoryEntries)
   }
   if (section === 'narrative') {
     return docs.filter(
@@ -326,7 +326,7 @@ export function volumeSectionDocs(docs: DocEntry[], volume: DocEntry, section: V
           (doc.data.level === 'part' || doc.data.level === 'arc') &&
           doc.data.parent === volume.data.id
       )
-      .sort((a, b) => outlineSortKey(a).localeCompare(outlineSortKey(b)))
+      .sort(compareStoryEntries)
   }
   return outlineSectionDocs(docs, section as OutlineHomeSection).filter((doc) =>
     isDocUsedByVolume(docs, volume, doc)
@@ -433,7 +433,6 @@ export function createInputForOutlineSection(
     return { kind: 'outline', data: { title, level: section, parent: null, order: 0, content } }
   }
   if (section === 'volumes') {
-    const siblings = docs.filter((doc) => doc.data.type === 'outline' && doc.data.level === 'volume')
     const books = docs.filter((doc) => doc.data.type === 'outline' && doc.data.level === 'book')
     const book = books.find((doc) => String(doc.data.title).includes(outlineLevelLabel('book'))) ?? books[0]
     return {
@@ -442,7 +441,6 @@ export function createInputForOutlineSection(
         title,
         level: 'volume',
         parent: book?.data.id ?? null,
-        order: siblings.length,
         target_words: Math.max(project.chapter_words * 20, 1),
         content
       }

@@ -19,12 +19,13 @@ import type {
   DocEntry,
   LanguageName,
   OutlineHomeSection,
+  PlanningCheckScope,
   ProjectListItem,
   TargetSelection,
   ViewMode
 } from '../../app/types.js'
 import { t } from '../../app/i18n.js'
-import { filterDocs, outlineSortKey } from '../../shared/outline.js'
+import { compareStoryEntries, filterDocs } from '../../shared/outline.js'
 import {
   countSection,
   createInputForOutlineSection,
@@ -42,6 +43,8 @@ import {
 import { MarkdownBodyEditor } from '../markdown/MarkdownBodyEditor.js'
 import { isAIPlanningContext } from '../planning/planning-model.js'
 import { clampPaneSize, SplitHandle } from '../layout/SplitHandle.js'
+import { BoundedPager } from '../layout/BoundedPager.js'
+import { boundedPage } from '../layout/bounded-page.js'
 import { OutlineCreateDialog } from './OutlineCreateDialog.js'
 import { EditableDocumentTitle } from './EditableDocumentTitle.js'
 import { enumChoiceLabel } from '../metadata/field-presentation.js'
@@ -56,6 +59,7 @@ import {
   CharacterRelationDialog,
   type CharacterRelationDialogInitial
 } from '../planning/CharacterRelationDialog.js'
+import { IssueWorkspace } from '../modules/IssueWorkspace.js'
 
 export function OutlineHome({
   docs,
@@ -85,6 +89,7 @@ export function OutlineHome({
   onDelete,
   onOpenExternal,
   onReloadDoc,
+  onReloadProject,
   onDocChange,
   onInspectTag,
   onSave,
@@ -114,16 +119,18 @@ export function OutlineHome({
   onCreate: (kind: string, input: Record<string, unknown>) => Promise<void>
   onAIPlanningCreate: (section: OutlineHomeSection) => void
   onAIEditCard: (doc: DocEntry) => void
-  onPlanningCheck: () => Promise<void>
+  onPlanningCheck: (scope: PlanningCheckScope) => Promise<void>
   onDelete: () => Promise<void>
   onOpenExternal: () => Promise<void>
   onReloadDoc: () => Promise<void>
+  onReloadProject: () => Promise<void>
   onDocChange: (doc: { data: Record<string, unknown>; content: string; path: string }) => void
   onInspectTag: (tag: string, displayValue?: string) => void
   onSave: () => Promise<void>
   onImport: () => void
   language: LanguageName
 }) {
+  const listPageSize = viewMode === 'tile' ? 24 : 48
   const shellRef = useRef<HTMLDivElement | null>(null)
   const detailSplitRef = useRef<HTMLDivElement | null>(null)
   const [navigationWidth, setNavigationWidth] = React.useState(280)
@@ -134,17 +141,31 @@ export function OutlineHome({
   } | null>(null)
   const [relationCreate, setRelationCreate] = React.useState<CharacterRelationDialogInitial | null>(null)
   const [creating, setCreating] = React.useState(false)
+  const [collectionPage, setCollectionPage] = React.useState(0)
   const zh = language === 'zh'
   const section = OUTLINE_HOME_SECTIONS.find((item) => item.id === activeSection) ?? OUTLINE_HOME_SECTIONS[0]
   const sectionTitle = zh ? section.title : section.enTitle
   const sectionHeading = zh ? section.heading : section.enHeading
-  const items = filterDocs(outlineSectionDocs(docs, activeSection), search)
+  const deferredSearch = React.useDeferredValue(search)
+  const sectionItems = React.useMemo(() => outlineSectionDocs(docs, activeSection), [activeSection, docs])
+  const items = React.useMemo(() => filterDocs(sectionItems, deferredSearch), [deferredSearch, sectionItems])
+  const timelineNodes = React.useMemo(() => docs.filter((item) => item.data.type === 'timeline_node'), [docs])
+  const itemPage = boundedPage(items, collectionPage, listPageSize)
   const selected = selectedTarget
     ? docs.find((item) => item.data.id === selectedTarget.id && item.data.type === selectedTarget.type)
     : null
   const volumes = docs
     .filter((item) => item.data.type === 'outline' && item.data.level === 'volume')
-    .sort((a, b) => outlineSortKey(a).localeCompare(outlineSortKey(b)))
+    .sort(compareStoryEntries)
+
+  React.useEffect(() => {
+    const selectedIndex = selectedTarget
+      ? items.findIndex(
+          (item) => item.data.id === selectedTarget.id && item.data.type === selectedTarget.type
+        )
+      : -1
+    setCollectionPage(selectedIndex >= 0 ? Math.floor(selectedIndex / listPageSize) : 0)
+  }, [activeSection, items, listPageSize, selectedTarget?.id, selectedTarget?.type])
 
   const createCurrent = () => {
     if (isAIPlanningContext(activeSection)) {
@@ -176,9 +197,13 @@ export function OutlineHome({
           <button
             className="planning-check-button"
             type="button"
-            onClick={() => void onPlanningCheck()}
+            onClick={() => void onPlanningCheck('project')}
             disabled={busy}
-            title={zh ? '用 AI 检查所有已启用的规划卡片' : 'Check all enabled planning cards with AI'}
+            title={
+              zh
+                ? '检查全项目确定性规划（不检查世界书与参考资料）'
+                : 'Check deterministic project planning, excluding world books and references'
+            }
           >
             <ShieldCheck size={15} />
             {leftOpen && <span>{busy ? (zh ? '检查中…' : 'Checking…') : zh ? 'AI 检查' : 'AI check'}</span>}
@@ -252,7 +277,7 @@ export function OutlineHome({
               <h2>{sectionHeading}</h2>
             </div>
             <div className="outline-actions">
-              {activeSection === 'timeline' ? (
+              {activeSection === 'issues' ? null : activeSection === 'timeline' ? (
                 <>
                   <button onClick={() => setTimelineCoordinate({})} disabled={busy}>
                     <CalendarPlus2 size={15} /> {zh ? '时间坐标' : 'Time coordinate'}
@@ -287,9 +312,11 @@ export function OutlineHome({
                   <Plus size={15} /> {zh ? '新增' : 'New'}
                 </button>
               )}
-              <button onClick={onDelete} disabled={!doc || busy}>
-                <Trash2 size={15} /> {zh ? '删除' : 'Delete'}
-              </button>
+              {activeSection !== 'issues' && (
+                <button onClick={onDelete} disabled={!doc || busy}>
+                  <Trash2 size={15} /> {zh ? '删除' : 'Delete'}
+                </button>
+              )}
             </div>
           </div>
           <div className="overview-tools">
@@ -301,36 +328,53 @@ export function OutlineHome({
                 placeholder={zh ? '搜索标题、字段或正文' : 'Search titles, fields, or body'}
               />
             </label>
-            <div className="icon-segment">
-              <button
-                className={viewMode === 'list' ? 'active' : ''}
-                onClick={() => onViewMode('list')}
-                title={zh ? '列表' : 'List'}
-              >
-                <List size={16} />
-              </button>
-              <button
-                className={viewMode === 'tile' ? 'active' : ''}
-                onClick={() => onViewMode('tile')}
-                title={zh ? '平铺' : 'Tiles'}
-              >
-                <LayoutGrid size={16} />
-              </button>
-            </div>
+            {activeSection !== 'issues' && (
+              <div className="icon-segment">
+                <button
+                  className={viewMode === 'list' ? 'active' : ''}
+                  onClick={() => onViewMode('list')}
+                  title={zh ? '列表' : 'List'}
+                >
+                  <List size={16} />
+                </button>
+                <button
+                  className={viewMode === 'tile' ? 'active' : ''}
+                  onClick={() => onViewMode('tile')}
+                  title={zh ? '平铺' : 'Tiles'}
+                >
+                  <LayoutGrid size={16} />
+                </button>
+              </div>
+            )}
           </div>
-          {activeSection === 'timeline' ? (
+          {activeSection === 'issues' ? (
+            <IssueWorkspace
+              embedded
+              root={project.root}
+              docs={docs}
+              issueDocs={items}
+              selectedTarget={selectedTarget}
+              onSelect={onSelect}
+              onOpenCard={onAIEditCard}
+              onReload={onReloadProject}
+              language={language}
+            />
+          ) : activeSection === 'timeline' ? (
             <TimelineChainView
               items={items}
               selectedTarget={selectedTarget}
               onSelect={onSelect}
               onCreateCoordinate={() => setTimelineCoordinate({})}
               onCreateCoordinateFromEvent={(event) => setTimelineCoordinate({ sourceEventId: event.data.id })}
+              projectRoot={project.root}
+              onReloadProject={onReloadProject}
+              onPlanningCheck={() => onPlanningCheck('timeline')}
               language={language}
             />
           ) : activeSection === 'characters' ? (
             <CharacterRelationView
               items={items}
-              timelineNodes={docs.filter((item) => item.data.type === 'timeline_node')}
+              timelineNodes={timelineNodes}
               selectedTarget={selectedTarget}
               onSelect={onSelect}
               onCreateRelation={setRelationCreate}
@@ -345,38 +389,58 @@ export function OutlineHome({
               language={language}
             />
           ) : (
-            <div className={viewMode === 'tile' ? 'outline-tile-grid' : 'outline-list'}>
-              {items.map((item) => (
-                <button
-                  key={item.data.id}
-                  className={`outline-item ${item.data.enabled === false ? 'disabled-card' : ''} ${selectedTarget?.id === item.data.id ? 'active' : ''}`}
-                  onClick={() => onSelect({ type: item.data.type, id: item.data.id })}
-                >
-                  <span>
-                    <b>{item.data.title}</b>
-                    <small>
-                      {docTypeLabel(item, language)}
-                      {item.data.type === 'reference' ? (
-                        <> · {zh ? '材料来源' : 'Source material'}</>
-                      ) : (
-                        <>
-                          {' · '}
-                          {enumChoiceLabel('status', String(item.data.status ?? 'draft'), language, {
-                            documentType: String(item.data.type)
-                          })}
-                          {item.data.enabled === false ? (zh ? ' · 未启用' : ' · Disabled') : ''}
-                        </>
-                      )}
-                    </small>
-                  </span>
-                  {viewMode === 'list' && <em>{structuredLineForSection(item, language)}</em>}
-                  {viewMode === 'tile' && <StructuredTile doc={item} language={language} />}
-                </button>
-              ))}
-              {!items.length && (
-                <p className="empty-row">{zh ? '当前栏目还没有内容。' : 'No records in this section yet.'}</p>
-              )}
-            </div>
+            <>
+              <BoundedPager
+                page={itemPage.page}
+                total={itemPage.total}
+                pageSize={itemPage.pageSize}
+                onPage={setCollectionPage}
+                language={language}
+                label={zh ? '规划卡片分页' : 'Planning card pagination'}
+              />
+              <div className={viewMode === 'tile' ? 'outline-tile-grid' : 'outline-list'}>
+                {itemPage.items.map((item) => (
+                  <button
+                    key={item.data.id}
+                    className={`outline-item ${item.data.enabled === false ? 'disabled-card' : ''} ${selectedTarget?.id === item.data.id ? 'active' : ''}`}
+                    onClick={() => onSelect({ type: item.data.type, id: item.data.id })}
+                  >
+                    <span>
+                      <b>{item.data.title}</b>
+                      <small>
+                        {docTypeLabel(item, language)}
+                        {item.data.type === 'reference' ? (
+                          <> · {zh ? '材料来源' : 'Source material'}</>
+                        ) : (
+                          <>
+                            {' · '}
+                            {enumChoiceLabel('status', String(item.data.status ?? 'draft'), language, {
+                              documentType: String(item.data.type)
+                            })}
+                            {item.data.enabled === false ? (zh ? ' · 未启用' : ' · Disabled') : ''}
+                          </>
+                        )}
+                      </small>
+                    </span>
+                    {viewMode === 'list' && <em>{structuredLineForSection(item, language)}</em>}
+                    {viewMode === 'tile' && <StructuredTile doc={item} language={language} />}
+                  </button>
+                ))}
+                {!items.length && (
+                  <p className="empty-row">
+                    {zh ? '当前栏目还没有内容。' : 'No records in this section yet.'}
+                  </p>
+                )}
+              </div>
+              <BoundedPager
+                page={itemPage.page}
+                total={itemPage.total}
+                pageSize={itemPage.pageSize}
+                onPage={setCollectionPage}
+                language={language}
+                label={zh ? '规划卡片分页' : 'Planning card pagination'}
+              />
+            </>
           )}
         </div>
         <SplitHandle
@@ -420,9 +484,11 @@ export function OutlineHome({
                     <PlanningCardSupportPanel
                       doc={{ path: doc.path, data: doc.data as DocEntry['data'], content: doc.content }}
                       docs={docs}
+                      projectRoot={project.root}
                       language={language}
                       onSelect={onSelect}
                       onAIEdit={onAIEditCard}
+                      onReload={onReloadProject}
                     />
                     {doc.data.type === 'character' && (
                       <CharacterRelationshipPanel
@@ -441,6 +507,9 @@ export function OutlineHome({
                     <MetadataEditor
                       data={doc.data}
                       docs={docs}
+                      projectRoot={project.root}
+                      documentPath={doc.path}
+                      onSelectDocument={onSelect}
                       language={language}
                       onInspectTag={onInspectTag}
                       excludeKeys={doc.data.type === 'character' ? ['relationships'] : []}
@@ -515,19 +584,33 @@ export function OutlineHome({
       {timelineCoordinate && (
         <TimelineCoordinateDialog
           events={docs}
+          projectRoot={project.root}
           initialEventId={timelineCoordinate.sourceEventId}
           language={language}
           busy={creating}
           onClose={() => setTimelineCoordinate(null)}
-          onConfirm={async ({ title, storyTime, sourceEventId }) => {
+          onConfirm={async ({ title, storyTime, sourceEventId, coordinate, trackIds }) => {
             setCreating(true)
             try {
-              await onCreate('timeline_node', {
-                title,
-                story_time: storyTime,
-                source_event_id: sourceEventId,
-                content: ''
-              })
+              if (coordinate && trackIds?.length) {
+                const createdPath = await window.quillarium.createTimelineNode(project.root, {
+                  title,
+                  coordinate,
+                  track_ids: trackIds,
+                  source_event_id: sourceEventId,
+                  content: ''
+                })
+                const created = await window.quillarium.readDoc(createdPath)
+                await onReloadProject()
+                onSelect({ type: String(created.data.type), id: String(created.data.id) })
+              } else {
+                await onCreate('timeline_node', {
+                  title,
+                  story_time: storyTime,
+                  source_event_id: sourceEventId,
+                  content: ''
+                })
+              }
               setTimelineCoordinate(null)
             } finally {
               setCreating(false)
@@ -538,7 +621,7 @@ export function OutlineHome({
       {relationCreate && (
         <CharacterRelationDialog
           characters={docs.filter((item) => item.data.type === 'character')}
-          timelineNodes={docs.filter((item) => item.data.type === 'timeline_node')}
+          timelineNodes={timelineNodes}
           initial={relationCreate}
           language={language}
           busy={creating}

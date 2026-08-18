@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto'
 import { createChapterProse, listDocs } from './documents.js'
 import { ensureDir, pathExists, readMarkdown, writeMarkdown } from './fs.js'
 import { listRuns } from './runs.js'
+import { compareStoryOrder } from './story-order.js'
 import type { ChapterProseDoc, OutlineDoc, SceneDoc } from './types.js'
 
 export interface ChapterLifecycleSnapshot {
@@ -47,7 +48,12 @@ export async function loadChapterLifecycle(
   }
   const scenes = (await listDocs<SceneDoc>(projectRoot, 'scene'))
     .filter((item) => sceneChapterId(item.data) === chapterId)
-    .sort((a, b) => a.data.order - b.data.order || a.data.id.localeCompare(b.data.id))
+    .sort((a, b) =>
+      compareStoryOrder(
+        { order: a.data.order, id: a.data.id, path: a.path },
+        { order: b.data.order, id: b.data.id, path: b.path }
+      )
+    )
   return { chapter, prose, scenes }
 }
 

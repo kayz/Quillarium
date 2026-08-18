@@ -15,6 +15,19 @@ export function hasPngSignature(bytes: Uint8Array): boolean {
   return PNG_SIGNATURE.every((value, index) => bytes[index] === value)
 }
 
+export function pngDimensions(bytes: Uint8Array): { width: number; height: number } {
+  if (!hasPngSignature(bytes) || bytes.byteLength < PNG_SIGNATURE.byteLength + 25) {
+    throw new SillyTavernFormatError('Invalid PNG header for dimensions.')
+  }
+  const length = readUint32(bytes, PNG_SIGNATURE.byteLength)
+  const type = ascii(bytes.subarray(PNG_SIGNATURE.byteLength + 4, PNG_SIGNATURE.byteLength + 8))
+  if (length !== 13 || type !== 'IHDR') throw new SillyTavernFormatError('PNG is missing a valid IHDR.')
+  const width = readUint32(bytes, PNG_SIGNATURE.byteLength + 8)
+  const height = readUint32(bytes, PNG_SIGNATURE.byteLength + 12)
+  if (!width || !height) throw new SillyTavernFormatError('PNG dimensions must be positive.')
+  return { width, height }
+}
+
 export function extractCharacterCardJsonFromPng(bytes: Uint8Array): ExtractedPngCharacterCard {
   if (bytes.byteLength > MAX_PNG_BYTES) {
     throw new SillyTavernFormatError(
@@ -104,6 +117,82 @@ export function extractCharacterCardJsonFromPng(bytes: Uint8Array): ExtractedPng
     keyword: payload.keyword,
     rawJson: decodeCardBase64(payload.value, payload.keyword)
   }
+}
+
+/** Embed a canonical base64 Character Card payload before IEND, replacing stale card chunks. */
+export function embedCharacterCardJsonInPng(
+  bytes: Uint8Array,
+  rawJson: string,
+  keyword: CharacterCardPngKeyword = 'ccv3'
+): Buffer {
+  if (!hasPngSignature(bytes)) throw new SillyTavernFormatError('Invalid PNG signature.')
+  const chunks: Buffer[] = [Buffer.from(PNG_SIGNATURE)]
+  let offset = PNG_SIGNATURE.byteLength
+  let sawHeader = false
+  let sawEnd = false
+  while (offset < bytes.byteLength) {
+    if (bytes.byteLength - offset < 12) {
+      throw new SillyTavernFormatError(`Truncated PNG chunk header at byte offset ${offset}.`)
+    }
+    const length = readUint32(bytes, offset)
+    const end = offset + 12 + length
+    if (length > MAX_CHUNK_BYTES || end > bytes.byteLength) {
+      throw new SillyTavernFormatError(`PNG chunk at byte offset ${offset} exceeds the input bounds.`)
+    }
+    const type = ascii(bytes.subarray(offset + 4, offset + 8))
+    const data = bytes.subarray(offset + 8, offset + 8 + length)
+    if (!sawHeader) {
+      if (type !== 'IHDR' || length !== 13) {
+        throw new SillyTavernFormatError('PNG must begin with a 13-byte IHDR chunk.')
+      }
+      sawHeader = true
+    }
+    let staleCardText = false
+    if (type === 'tEXt') {
+      const nul = data.indexOf(0)
+      const existingKeyword = nul > 0 ? ascii(data.subarray(0, nul)) : ''
+      staleCardText = existingKeyword === 'ccv3' || existingKeyword === 'chara'
+    }
+    if (type === 'IEND') {
+      const payload = Buffer.from(rawJson, 'utf8').toString('base64')
+      chunks.push(pngChunk('tEXt', Buffer.from(`${keyword}\0${payload}`, 'latin1')))
+      chunks.push(Buffer.from(bytes.subarray(offset, end)))
+      sawEnd = true
+      offset = end
+      break
+    }
+    if (!staleCardText) chunks.push(Buffer.from(bytes.subarray(offset, end)))
+    offset = end
+  }
+  if (!sawHeader || !sawEnd || offset !== bytes.byteLength) {
+    throw new SillyTavernFormatError('PNG is incomplete or contains trailing bytes.')
+  }
+  const output = Buffer.concat(chunks)
+  if (output.byteLength > MAX_PNG_BYTES) {
+    throw new SillyTavernFormatError(`Embedded PNG exceeds ${MAX_PNG_BYTES} bytes.`)
+  }
+  return output
+}
+
+function pngChunk(type: string, data: Uint8Array): Buffer {
+  const typeBytes = Buffer.from(type, 'ascii')
+  const output = Buffer.alloc(12 + data.byteLength)
+  output.writeUInt32BE(data.byteLength, 0)
+  typeBytes.copy(output, 4)
+  Buffer.from(data).copy(output, 8)
+  output.writeUInt32BE(crc32(Buffer.concat([typeBytes, Buffer.from(data)])), 8 + data.byteLength)
+  return output
+}
+
+function crc32(bytes: Uint8Array): number {
+  let crc = 0xffffffff
+  for (const byte of bytes) {
+    crc ^= byte
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0)
+    }
+  }
+  return (crc ^ 0xffffffff) >>> 0
 }
 
 function decodeCardBase64(value: string, keyword: CharacterCardPngKeyword): string {

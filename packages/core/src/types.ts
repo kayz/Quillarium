@@ -78,6 +78,7 @@ export interface ProjectConfig {
   id: string
   aliases: string[]
   title: string
+  synopsis: string
   genre: string
   target_words: number
   chapter_words: number
@@ -86,6 +87,15 @@ export interface ProjectConfig {
   current_timeline_node: string | null
   writing_preset: string | null
   default_theme: 'paper' | 'ink' | 'mist' | 'bamboo'
+  cover: {
+    original_path: string
+    thumbnail_path: string
+    export_png_path: string
+    focus_x: number
+    focus_y: number
+    source_width: number
+    source_height: number
+  } | null
   schema_version: 2
 }
 
@@ -288,6 +298,14 @@ export interface ContextTokenizerTrace {
 
 export type ContextTraceOutcome = 'included' | 'excluded' | 'truncated'
 
+export interface ContextReferenceResolution {
+  raw_reference: string
+  resolved_target_id: string
+  matched_by: string
+  source_path: string
+  origin: string
+}
+
 export interface ContextTraceEntry {
   block_id: string
   source_type: string
@@ -296,9 +314,12 @@ export interface ContextTraceEntry {
   authority: PromptBlockAuthority
   authority_rank: number
   priority: number
+  /** Explicit source mode for new traces; absent only in legacy persisted traces. */
+  required?: boolean
   outcome: ContextTraceOutcome
   reason: string
   trigger_chain: string[]
+  reference_resolutions?: ContextReferenceResolution[]
   token_count: number
   original_token_count: number
   content_sha256: string
@@ -309,7 +330,7 @@ export interface ContextTraceEntry {
 export interface ContextTrace {
   schema_version: 1
   compiler_version: string
-  target: { type: 'outline' | 'scene'; id: string }
+  target: { type: 'outline' | 'scene' | 'assistant'; id: string }
   preset?: { id: string; version: string; snapshot_sha256: string }
   policy: ContextPolicy
   tokenizer: ContextTokenizerTrace
@@ -393,15 +414,29 @@ export interface ForeshadowingTriggerCondition {
   keyword: string
 }
 
+export interface ForeshadowingTimePosition {
+  timeline_id: string
+  target_type: 'timeline' | 'timeline_node' | 'timeline_event'
+  target_id: string
+  /** Display snapshot only. Never use this value as identity. */
+  display_name: string
+  /** Optional chapter/section association; story time remains the primary location. */
+  outline_id: string | null
+}
+
 export interface ForeshadowingDoc extends PlanningCardDoc {
   type: 'foreshadowing'
   code: string
   level: 'L1' | 'L2' | 'L3' | 'L4' | 'L5'
   summary: string
+  /** Legacy free text retained until explicit author migration. */
   planned_plant: string
+  planned_plant_ref: ForeshadowingTimePosition | null
   planted_at: string | null
   reinforced_at: string[]
+  /** Legacy free text retained until explicit author migration. */
   planned_resolve: string
+  planned_resolve_ref: ForeshadowingTimePosition | null
   expires_at: string
   state: 'planned' | 'planted' | 'reinforced' | 'resolved' | 'abandoned'
   related_characters: string[]
@@ -443,7 +478,7 @@ export interface ReferenceDoc extends DocumentIdentity {
 export interface IssueDoc extends PlanningCardDoc {
   type: 'issue'
   priority: 'high' | 'medium' | 'low'
-  state: 'open' | 'resolved' | 'deferred'
+  state: 'open' | 'resolved' | 'ignored' | 'deferred'
   due: string
   decision_needed: string
   related_docs: string[]
@@ -496,6 +531,68 @@ export interface CharacterStateDoc extends PlanningCardDoc {
 
 export type TimelinePrecision = 'month' | 'day' | 'hour' | 'minute'
 
+export interface TimeUnitDefinitionV1 {
+  id: string
+  label: string
+  order: number
+  radix: number | null
+  aliases: string[]
+}
+
+export interface TimeSystemV1 {
+  schema_version: 1
+  id: string
+  version: number
+  title: string
+  kind: 'gregorian' | 'fictional' | 'relative' | 'cyclic'
+  units: TimeUnitDefinitionV1[]
+  conversion: { epoch: number | null; unit_factors: Record<string, number> } | null
+}
+
+export interface TimelineTrackV1 {
+  schema_version: 1
+  id: string
+  version: number
+  title: string
+  time_system_id: string
+  display_order: number
+  purpose: string
+}
+
+export interface TimelineCoordinateV2 {
+  schema_version: 2
+  time_system_id: string
+  components: Record<string, number | string>
+  precision: string
+  display_text: string
+  sort_value: number | null
+  explicit_order: number | null
+  uncertain: boolean
+  fuzzy: boolean
+  cycle: number | null
+  occurrence: number
+}
+
+export interface TimelineNodeTrackPlacementV1 {
+  timeline_id: string
+  order: number
+  narrative_order: number
+}
+
+export interface TimelinePlacementV1 {
+  timeline_id: string
+  start_node_id: string
+  end_node_id: string | null
+  order: number
+  narrative_order: number
+  occurrence: number
+}
+
+export interface TimelineEventIntervalV1 {
+  start_node_id: string
+  end_node_id: string
+}
+
 export interface TimelineNodeDoc extends PlanningCardDoc {
   type: 'timeline_node'
   calendar: string
@@ -510,6 +607,8 @@ export interface TimelineNodeDoc extends PlanningCardDoc {
   fuzzy: boolean
   previous: string | null
   next: string | null
+  coordinate_v2?: TimelineCoordinateV2 | null
+  timeline_tracks?: TimelineNodeTrackPlacementV1[]
 }
 
 export interface TimelineEventDoc extends PlanningCardDoc {
@@ -524,6 +623,7 @@ export interface TimelineEventDoc extends PlanningCardDoc {
   location: string | null
   characters: string[]
   flashback_reference?: string | null
+  placements?: TimelinePlacementV1[]
 }
 
 export type LocationScale = 'global' | 'region' | 'city' | 'district' | 'estate' | 'interior'

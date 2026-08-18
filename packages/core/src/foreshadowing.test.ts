@@ -56,3 +56,31 @@ describe('evaluateForeshadowingReminders', () => {
     ).toEqual([])
   })
 })
+
+describe('foreshadowing story-time positions', () => {
+  it('stores stable timeline/node references without discarding legacy free text', () => {
+    const parsed = foreshadowingSchema.parse({
+      id: 'foreshadow-harbor-bell',
+      type: 'foreshadowing',
+      title: 'Harbor bell',
+      planned_plant: '旧稿：第二章傍晚',
+      planned_plant_ref: {
+        timeline_id: 'main-story',
+        target_type: 'timeline_event',
+        target_id: 'event-harbor-curfew',
+        display_name: '港口宵禁钟响',
+        outline_id: 'scene-2-3'
+      }
+    }) as ForeshadowingDoc
+
+    expect(parsed.planned_plant).toBe('旧稿：第二章傍晚')
+    expect(parsed.planned_plant_ref).toEqual({
+      timeline_id: 'main-story',
+      target_type: 'timeline_event',
+      target_id: 'event-harbor-curfew',
+      display_name: '港口宵禁钟响',
+      outline_id: 'scene-2-3'
+    })
+    expect(parsed.planned_resolve_ref).toBeNull()
+  })
+})

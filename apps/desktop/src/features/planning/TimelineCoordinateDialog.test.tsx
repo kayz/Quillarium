@@ -22,6 +22,7 @@ describe('TimelineCoordinateDialog', () => {
     const html = renderToStaticMarkup(
       <TimelineCoordinateDialog
         events={[event]}
+        projectRoot="C:/project"
         initialEventId="event-opening"
         language="zh"
         busy={false}
@@ -32,7 +33,8 @@ describe('TimelineCoordinateDialog', () => {
 
     expect(html).toContain('建立时间坐标')
     expect(html).toContain('可直接读取事件的“故事时间”')
-    expect(html).toContain('开篇事变 · 1449-08')
+    expect(html).toContain('开篇事变 · 同时事件 · event-opening')
+    expect(html).toContain('故事时间 · 1449-08')
     expect(html).toContain('value="1449-08"')
     expect(html).toContain('相同时间已有坐标')
   })

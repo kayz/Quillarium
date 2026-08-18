@@ -17,10 +17,22 @@ and records scene-generation artifacts in core run directories.
 (“节”), and chapter prompt-source composition lives in `@quillarium/core`.
 
 `loadAIConfig` reads `QUILL_AI_PROVIDER`, `QUILL_AI_BASE_URL`, `QUILL_AI_API_KEY`,
-`QUILL_AI_MODEL`, `QUILL_AI_TEMPERATURE`, and `QUILL_AI_MAX_TOKENS`. `loadAIProfile` can merge a
-saved desktop profile and accepts a decryption callback; an environment API key takes precedence.
-Provider-aware defaults select the matching endpoint and model. DeepSeek defaults to
-`https://api.deepseek.com` and `deepseek-v4-flash`.
+`QUILL_AI_MODEL`, `QUILL_AI_TEMPERATURE`, `QUILL_AI_MAX_TOKENS`, and
+`QUILL_AI_CONTEXT_WINDOW_TOKENS`. `loadAIProfile` can merge a saved desktop profile and accepts a
+decryption callback; an environment API key takes precedence. Provider-aware defaults select the
+matching endpoint, model, and known official limits. DeepSeek defaults to
+`https://api.deepseek.com`, `deepseek-v4-flash`, a 1M-token context window, and a 384K-token maximum
+output.
+
+`listOfficialModelCapabilities()` exposes the versioned model catalog used by Desktop. DeepSeek V4
+values were verified on 2026-08-16 against the official
+[Models & Pricing](https://api-docs.deepseek.com/quick_start/pricing) and
+[List Models](https://api-docs.deepseek.com/api/list-models) documentation. These values are form
+defaults, not hidden immutable limits: authors can lower or override them for gateways and local
+deployments. The legacy `deepseek-chat` and `deepseek-reasoner` IDs are not offered as defaults.
+The model context window and requested output limit are distinct from a WritingPreset's selected-input
+ContextPolicy budget. Context compilation reserves output against the model window while keeping the
+smaller policy budget as the ordinary cap on injected project material.
 
 ## Minimal Example
 
@@ -39,6 +51,8 @@ const text = await generateText('Write one restrained opening paragraph.', confi
 DeepSeek requests default to non-thinking mode to preserve the existing completion behavior. Pass
 `{ thinkingMode: 'enabled' }` to opt in. Callers that need structured output can pass
 `{ responseFormat: 'json_object' }` to request OpenAI-compatible JSON mode.
+`finish_reason=length` is rejected as `AI_OUTPUT_TRUNCATED` instead of silently returning a partial
+response.
 
 `createGenerationRun` writes context and prompt artifacts without calling a provider and requires a
 selected WritingPreset (or its exact resolved snapshot). Every generation run records preset

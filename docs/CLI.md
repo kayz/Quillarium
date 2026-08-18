@@ -207,6 +207,32 @@ accepts the target scene into its chapter and appends it to the independent chap
 Grouped candidates must be selected first. Empty or Markdown-formatted output is rejected. Pass `--scene <scene-id>` only when the scene
 recorded in run metadata must be overridden.
 
+#### Auditable project planning check
+
+The unified Agent Runtime owns the project-wide planning-integrity review. The check always keeps
+its deterministic findings; `--no-semantic` performs no provider call. A semantic execution writes
+an auditable parent Run and token-budgeted child batches, but it only returns issue proposals:
+
+```bash
+pnpm cli agent check-planning --language zh --project "./writing-workspace/projects/my-novel"
+pnpm cli agent check-planning --no-semantic --project "./writing-workspace/projects/my-novel"
+pnpm cli agent check-planning --retry-of <execution-id> --language zh --project "./writing-workspace/projects/my-novel"
+```
+
+Retry creates a new execution and reruns only failed batches. Creating or updating issue cards is a
+separate, explicit two-command handoff. The first command persists a hash-bound author decision and
+does not modify project facts; the second consumes that decision through the locked, atomic apply
+service:
+
+```bash
+pnpm cli agent decide-planning <execution-id> --select <proposal-id-1>,<proposal-id-2> --project "./writing-workspace/projects/my-novel"
+pnpm cli agent apply-planning <execution-id> --decision <decision-id> --project "./writing-workspace/projects/my-novel"
+```
+
+Rejected, expired, reused, stale, or unauditable decisions fail closed. The CLI only adapts command
+arguments and loads the machine-local AI profile; prompt construction, structured-response parsing,
+audit persistence, and issue application remain inside the shared runtime and domain service.
+
 The CLI exposes the same finalization review and atomic continuity service as Desktop. First create
 and inspect a review, then confirm or reject each impact and resolve or defer every question:
 
@@ -258,6 +284,7 @@ QUILL_AI_API_KEY=...
 QUILL_AI_MODEL=gpt-4o-mini
 QUILL_AI_TEMPERATURE=0.7
 QUILL_AI_MAX_TOKENS=2000
+QUILL_AI_CONTEXT_WINDOW_TOKENS=128000
 ```
 
 For DeepSeek V4 Flash, the provider-aware defaults select the current endpoint and model, so the
@@ -270,7 +297,10 @@ QUILL_AI_API_KEY=...
 
 This resolves to `https://api.deepseek.com` and `deepseek-v4-flash`. DeepSeek requests use
 non-thinking mode by default so prose and structured semantic output are returned in
-`message.content`; callers of the AI package can explicitly opt into thinking mode when needed.
+`message.content`; callers of the AI package can explicitly opt into thinking mode when needed. The
+current official DeepSeek V4 defaults are a 1M-token context window and 384K maximum output. Override
+either environment value when a compatible gateway exposes different limits. Provider responses
+ending with `finish_reason=length` fail explicitly with `AI_OUTPUT_TRUNCATED`.
 
 The CLI reads connection values from the environment only; it does not read or decrypt saved desktop
 AI profiles. The selected WritingPreset is resolved through the same portable resolver used by
@@ -385,6 +415,7 @@ and options.
 | `context`        | Assemble scene context; optional `--run`                                             |
 | `generate`       | Generate a scene; optional `--dry-run`                                               |
 | `check`          | Scene/outline checks via `--type`; scenes allow `--semantic`; optional `--run`       |
+| `agent`          | Auditable `check-planning`, `decide-planning`, and `apply-planning` lifecycle        |
 | `st`             | `import-card`, `export-card`, `export-lorebook`                                      |
 | `finalize`       | `review-plan`, `show`, `confirm`, `answer`, `apply`, `recover`                       |
 | `chapter-plan`   | Build ordered scene-writing prompts for a chapter                                    |

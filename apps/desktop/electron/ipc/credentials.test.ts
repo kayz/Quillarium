@@ -47,6 +47,29 @@ afterEach(() => {
 })
 
 describe('desktop configuration credential migration and sanitization', () => {
+  it('shows official DeepSeek limits for a profile carrying the legacy 2000-token default', async () => {
+    mocks.loadConfig.mockResolvedValue({
+      aiProfiles: {
+        prose: {
+          provider: 'deepseek',
+          baseUrl: 'https://api.deepseek.com',
+          model: 'deepseek-v4-pro',
+          maxTokens: 2_000
+        }
+      }
+    })
+
+    const response = await loadDesktopConfig()
+
+    expect(response.aiProfiles?.prose).toMatchObject({
+      provider: 'deepseek',
+      model: 'deepseek-v4-pro',
+      maxTokens: 384_000,
+      contextWindowTokens: 1_000_000
+    })
+    expect(mocks.saveConfig).not.toHaveBeenCalled()
+  })
+
   it('migrates AI and GitHub plaintext into a disk payload without secrets', async () => {
     const aiSecret = 'ai-secret-that-must-not-reach-disk'
     const githubSecret = 'github-secret-that-must-not-reach-disk'

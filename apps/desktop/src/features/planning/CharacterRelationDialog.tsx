@@ -2,7 +2,8 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { ArrowRight, Link2, X } from 'lucide-react'
 import type { DocEntry, LanguageName } from '../../app/types.js'
 import { formatDesktopError } from '../../shared/errors.js'
-import { compareTimelineEntries, timelineEntryLabel } from './PlanningViews.js'
+import { compareTimelineEntries } from './PlanningViews.js'
+import { PlanningCardSelector } from './PlanningCardSelector.js'
 
 export interface CharacterRelationDialogInitial {
   fromCharacterId?: string
@@ -184,47 +185,38 @@ export function CharacterRelationDialog({
                 <strong>{zh ? '人物一' : 'First character'}</strong>
                 <small>{zh ? '关系的发出方或第一端。' : 'Source or first endpoint.'}</small>
               </span>
-              <select
+              <PlanningCardSelector
+                docs={people}
                 value={fromCharacter}
-                onChange={(event) => {
-                  const next = event.target.value
+                onChange={(next) => {
                   setFromCharacter(next)
                   if (next === toCharacter)
                     setToCharacter(people.find((item) => item.data.id !== next)?.data.id ?? '')
                   setError('')
                 }}
+                language={language}
+                ariaLabel={zh ? '选择人物一' : 'Choose first character'}
                 disabled={busy || people.length < 2}
-              >
-                {people.map((character) => (
-                  <option key={character.data.id} value={character.data.id}>
-                    {character.data.title}
-                  </option>
-                ))}
-              </select>
+                clearable={false}
+              />
             </label>
             <label className="timeline-coordinate-field">
               <span>
                 <strong>{zh ? '人物二' : 'Second character'}</strong>
                 <small>{zh ? '关系的目标方或另一端。' : 'Target or other endpoint.'}</small>
               </span>
-              <select
+              <PlanningCardSelector
+                docs={people.filter((character) => character.data.id !== fromCharacter)}
                 value={toCharacter}
-                onChange={(event) => {
-                  setToCharacter(event.target.value)
+                onChange={(next) => {
+                  setToCharacter(next)
                   setError('')
                 }}
+                language={language}
+                ariaLabel={zh ? '选择人物二' : 'Choose second character'}
                 disabled={busy || people.length < 2}
-              >
-                {people.map((character) => (
-                  <option
-                    key={character.data.id}
-                    value={character.data.id}
-                    disabled={character.data.id === fromCharacter}
-                  >
-                    {character.data.title}
-                  </option>
-                ))}
-              </select>
+                clearable={false}
+              />
             </label>
           </div>
 
@@ -278,21 +270,18 @@ export function CharacterRelationDialog({
                 <strong>{zh ? '从本节点起生效' : 'Active from this node'}</strong>
                 <small>{zh ? '必选；该时间点会显示这条关系。' : 'Required; active at this node.'}</small>
               </span>
-              <select
+              <PlanningCardSelector
+                docs={nodes}
                 value={startsAt}
-                onChange={(event) => {
-                  setStartsAt(event.target.value)
+                onChange={(next) => {
+                  setStartsAt(next)
                   setError('')
                 }}
+                language={language}
+                ariaLabel={zh ? '选择开始时间节点' : 'Choose start timeline node'}
                 disabled={busy || !nodes.length}
-              >
-                <option value="">{zh ? '选择开始时间' : 'Select start time'}</option>
-                {nodes.map((node) => (
-                  <option key={node.data.id} value={node.data.id}>
-                    {timelineNodeOption(node)}
-                  </option>
-                ))}
-              </select>
+                placeholder={zh ? '选择开始时间…' : 'Select start time…'}
+              />
             </label>
             <ArrowRight size={18} aria-hidden="true" />
             <label className="timeline-coordinate-field">
@@ -302,21 +291,18 @@ export function CharacterRelationDialog({
                   {zh ? '可选；到达该节点时关系停止显示。' : 'Optional; inactive when this node is reached.'}
                 </small>
               </span>
-              <select
+              <PlanningCardSelector
+                docs={nodes}
                 value={endsAt}
-                onChange={(event) => {
-                  setEndsAt(event.target.value)
+                onChange={(next) => {
+                  setEndsAt(next)
                   setError('')
                 }}
+                language={language}
+                ariaLabel={zh ? '选择结束时间节点' : 'Choose end timeline node'}
                 disabled={busy || !nodes.length}
-              >
-                <option value="">{zh ? '持续到后续（不设结束）' : 'Ongoing (no end)'}</option>
-                {nodes.map((node) => (
-                  <option key={node.data.id} value={node.data.id}>
-                    {timelineNodeOption(node)}
-                  </option>
-                ))}
-              </select>
+                placeholder={zh ? '持续到后续（不设结束）' : 'Ongoing (no end)'}
+              />
             </label>
           </div>
 
@@ -404,9 +390,4 @@ export function buildCharacterRelationTitle(
   direction: 'directed' | 'mutual'
 ): string {
   return `${fromTitle}${direction === 'mutual' ? ' ↔ ' : ' → '}${toTitle} · ${relationType}`
-}
-
-function timelineNodeOption(node: DocEntry): string {
-  const display = timelineEntryLabel(node)
-  return display === node.data.title ? display : `${display} · ${node.data.title}`
 }

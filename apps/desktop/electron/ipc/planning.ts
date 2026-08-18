@@ -1,37 +1,39 @@
-import { createHash, randomUUID } from 'node:crypto'
+import { randomUUID } from 'node:crypto'
+import { rm } from 'node:fs/promises'
 import path from 'node:path'
 import { generateText, isAIConfigured, type AIConfig } from '@quillarium/ai'
-import { checkPlanningCards as runPlanningRules, type CheckIssue } from '@quillarium/checks'
 import {
   DOCUMENT_ORIGIN_FIELD,
+  applyIssueBatchAction,
   assertCardReferencesExist,
   assertProjectPath,
+  buildLocalDocumentLinkIndex,
+  canonicalJson,
   characterSchema,
   characterRelationSchema,
-  createIssue,
   ensureDir,
+  fileForDoc,
   foreshadowingSchema,
   issueSchema,
-  isEnabledPlanningCard,
-  isPlanningCard,
   listDocs,
   loadProject,
   locationSchema,
   narrativeSchema,
   patternSchema,
+  pathExists,
   readMarkdown,
   readText,
   referenceSchema,
-  normalizeCardRelations,
+  sha256Text,
   strategySchema,
   timelineEventSchema,
   timelineNodeSchema,
   worldEntrySchema,
+  withProjectWriteLock,
   writeMarkdown,
   writeText,
   type BaseDoc,
   type DocumentIdentity,
-  type IssueDoc,
   type ProjectConfig
 } from '@quillarium/core'
 import { z } from 'zod/v3'
@@ -44,13 +46,43 @@ import {
   type PlanningConfirmRequest,
   type PlanningDocumentKind,
   type PlanningDraft,
+  type PlanningProposal,
+  type PlanningProposalRevision,
   type PlanningSession,
-  type PlanningCheckSummary,
   type PlanningSessionUpdate
 } from './contract.js'
 import { createProjectDocument } from './project.js'
+import {
+  applyPlanningCheckForIPC,
+  decidePlanningCheckForIPC,
+  openPlanningCheckRun,
+  retryPlanningCheck,
+  runPlanningCheck
+} from './agent-check.js'
+import { withDesktopAIStream } from './ai-stream.js'
+
+export {
+  applyPlanningCheckDecision,
+  createPlanningCheckDecision,
+  retryPlanningCheck,
+  runPlanningCheck
+} from './agent-check.js'
 
 const planningKindSchema = z.enum(PLANNING_DOCUMENT_KINDS)
+const CREATABLE_PLANNING_KINDS = PLANNING_DOCUMENT_KINDS.filter(
+  (kind) => kind !== 'strategy' && kind !== 'pattern'
+)
+const MODULE_PLANNING_KINDS: Partial<Record<string, readonly PlanningDocumentKind[]>> = {
+  planning: CREATABLE_PLANNING_KINDS,
+  world: ['world_entry'],
+  characters: ['character', 'character_relation'],
+  timeline: ['timeline_node', 'timeline_event'],
+  locations: ['location'],
+  foreshadowing: ['foreshadowing'],
+  narrative: ['narrative'],
+  references: ['reference'],
+  issues: CREATABLE_PLANNING_KINDS
+}
 const rawDraftSchema = z
   .object({
     kind: planningKindSchema,
@@ -59,36 +91,17 @@ const rawDraftSchema = z
     content: z.string().default('')
   })
   .strict()
+const rawAIProposalSchema = rawDraftSchema.extend({
+  id: z.string().trim().min(1).optional(),
+  operation: z.enum(['create', 'update']).optional(),
+  target_id: z.string().trim().min(1).optional()
+})
 const responseSchema = z
   .object({
     message: z.string().trim().min(1),
-    proposal: rawDraftSchema.nullable().optional()
+    proposal: rawDraftSchema.nullable().optional(),
+    proposals: z.array(rawAIProposalSchema).max(24).optional()
   })
-  .strict()
-
-const aiPlanningFindingSchema = z
-  .object({
-    category: z.enum([
-      'contradiction',
-      'timeline',
-      'spatial',
-      'character',
-      'world',
-      'foreshadowing',
-      'narrative',
-      'outline',
-      'other'
-    ]),
-    severity: z.enum(['error', 'warning', 'info']).default('warning'),
-    title: z.string().trim().min(1).max(160),
-    message: z.string().trim().min(1).max(1_000),
-    evidence: z.string().trim().max(1_500).default(''),
-    related_ids: z.array(z.string().min(1)).min(1).max(12)
-  })
-  .strict()
-
-const aiPlanningResponseSchema = z
-  .object({ issues: z.array(aiPlanningFindingSchema).max(16).default([]) })
   .strict()
 
 interface PlanningDependencies {
@@ -96,25 +109,19 @@ interface PlanningDependencies {
   generate: typeof generateText
 }
 
+interface PlanningPersistenceDependencies {
+  writeSession: (root: string, session: PlanningSession) => Promise<void>
+  removeFile: (file: string) => Promise<void>
+}
+
 const defaultDependencies: PlanningDependencies = {
   loadAIProfile: () => loadDesktopAIProfile('background'),
   generate: generateText
 }
 
-export interface PlanningCheckDependencies {
-  runRules: typeof runPlanningRules
-  loadAIProfile: () => Promise<AIConfig>
-  isAIConfigured: typeof isAIConfigured
-  generate: typeof generateText
-  now: () => Date
-}
-
-const defaultCheckDependencies: PlanningCheckDependencies = {
-  runRules: runPlanningRules,
-  loadAIProfile: () => loadDesktopAIProfile('check'),
-  isAIConfigured,
-  generate: generateText,
-  now: () => new Date()
+const defaultPersistenceDependencies: PlanningPersistenceDependencies = {
+  writeSession: writePlanningSession,
+  removeFile: async (file) => rm(file, { force: false })
 }
 
 export function registerPlanningHandlers(): void {
@@ -127,391 +134,46 @@ export function registerPlanningHandlers(): void {
   )
   typedHandle('planning:discuss', async (_event, root, input) => discussPlanningRecord(root, input))
   typedHandle('planning:confirm', async (_event, root, input) => confirmPlanningRecord(root, input))
-  typedHandle('planning:check', async (_event, root, language) => runPlanningCheck(root, language))
-}
-
-interface PersistablePlanningFinding {
-  code: string
-  severity: 'error' | 'warning' | 'info'
-  title: string
-  message: string
-  evidence: string
-  related_ids: string[]
-  source: 'rule' | 'ai'
-}
-
-export async function runPlanningCheck(
-  root: string,
-  language: 'zh' | 'en',
-  dependencies: PlanningCheckDependencies = defaultCheckDependencies
-): Promise<PlanningCheckSummary> {
-  const [ruleReport, documents, config] = await Promise.all([
-    dependencies.runRules(root),
-    listDocs<DocumentIdentity>(root),
-    dependencies.loadAIProfile()
-  ])
-  const candidates = documents.filter(
-    (document) =>
-      document.data.type === 'outline' ||
-      (isPlanningCard(document.data) &&
-        document.data.type !== 'issue' &&
-        isEnabledPlanningCard(document.data))
+  typedHandle('planning:issueBatch', async (_event, root, issueIds, action) =>
+    applyIssueBatchAction(root, issueIds, action)
   )
-  if (candidates.length > 0 && !dependencies.isAIConfigured(config)) {
-    throw new Error(
-      language === 'zh'
-        ? '检查 AI 尚未配置。请先在“设置 → AI 配置 → 检查”中保存可用模型和密钥。'
-        : 'The check AI is not configured. Configure a model and key under Settings → AI → Check.'
+  typedHandle('planning:check', async (event, root, language, clientRequestId, scope) =>
+    withDesktopAIStream(event, 'planning-check', clientRequestId, (stream) =>
+      runPlanningCheck(
+        root,
+        language,
+        {
+          signal: stream.signal,
+          onStreamEvent: (runtimeEvent) =>
+            stream.onStreamEvent({
+              ...runtimeEvent.event,
+              child_execution_id: runtimeEvent.execution_id,
+              batch_key: runtimeEvent.batch_key
+            })
+        },
+        scope
+      )
     )
-  }
-
-  const validIds = new Set(documents.map((document) => document.data.id))
-  const aiFindings: PersistablePlanningFinding[] = []
-  for (const prompt of buildPlanningCheckPrompts(candidates, language)) {
-    const raw = await dependencies.generate(
-      prompt,
-      config,
-      'You are Quillarium Planning Integrity Checker. Return strict JSON only and never invent a document ID.',
-      { responseFormat: 'json_object', timeoutMs: 90_000 }
-    )
-    for (const finding of parsePlanningCheckAIResponse(raw)) {
-      const relatedIds = [...new Set(finding.related_ids)].filter((id) => validIds.has(id))
-      if (!relatedIds.length) continue
-      aiFindings.push({
-        code: `ai-planning-${finding.category}`,
-        severity: finding.severity,
-        title: finding.title,
-        message: finding.message,
-        evidence: finding.evidence,
-        related_ids: relatedIds,
-        source: 'ai'
+  )
+  typedHandle('planning:checkRetry', async (event, root, executionId, language, clientRequestId) =>
+    withDesktopAIStream(event, 'planning-check', clientRequestId, (stream) =>
+      retryPlanningCheck(root, executionId, language, {
+        signal: stream.signal,
+        onStreamEvent: (runtimeEvent) =>
+          stream.onStreamEvent({
+            ...runtimeEvent.event,
+            child_execution_id: runtimeEvent.execution_id,
+            batch_key: runtimeEvent.batch_key
+          })
       })
-    }
-  }
-
-  const ruleFindings = ruleReport.issues.map((issue) => localizeRuleFinding(issue, documents, language))
-  const checkedAt = dependencies.now().toISOString()
-  const persisted = await persistPlanningIssues(root, [...ruleFindings, ...aiFindings], checkedAt)
-  return {
-    generated_at: checkedAt,
-    checked_cards: candidates.length,
-    skipped_disabled: ruleReport.skipped_disabled_ids.length,
-    rule_findings: ruleFindings.length,
-    ai_findings: aiFindings.length,
-    created_issue_ids: persisted.created,
-    updated_issue_ids: persisted.updated
-  }
-}
-
-export function buildPlanningCheckPrompts(
-  documents: Array<{ data: DocumentIdentity; content: string }>,
-  language: 'zh' | 'en',
-  batchSize = 48
-): string[] {
-  if (!documents.length) return []
-  const index = documents.map((document) => ({
-    id: document.data.id,
-    type: document.data.type,
-    title: document.data.title
-  }))
-  const prompts: string[] = []
-  for (let offset = 0; offset < documents.length; offset += batchSize) {
-    const batch = documents.slice(offset, offset + batchSize).map((document) => ({
-      id: document.data.id,
-      type: document.data.type,
-      title: document.data.title,
-      fields: compactPlanningValue(
-        Object.fromEntries(
-          Object.entries(document.data).filter(
-            ([key]) => !['id', 'type', 'schema_version', 'title', 'quillarium_origin'].includes(key)
-          )
-        )
-      ),
-      body_excerpt: limitText(document.content.trim(), 1_600)
-    }))
-    prompts.push(
-      [
-        `Output language: ${language === 'zh' ? 'Simplified Chinese' : 'English'}.`,
-        `Batch ${Math.floor(offset / batchSize) + 1} of ${Math.ceil(documents.length / batchSize)}.`,
-        'Review only real inconsistencies or missing planning decisions involving at least one card in this batch.',
-        'Check causal contradictions, timeline order, spatial hierarchy/layout, character lifespan and relationship timing, world-knowledge triggers, foreshadowing reminders, narrative-rule conflicts, and outline/card alignment.',
-        'Reference-material bodies, disabled cards, and existing issue cards are intentionally absent. Do not report their absence.',
-        'Use only exact IDs from the project index. Do not create or guess an ID. Omit reassurance and stylistic preferences that are not conflicts.',
-        'Return: {"issues":[{"category":"contradiction|timeline|spatial|character|world|foreshadowing|narrative|outline|other","severity":"error|warning|info","title":"short title","message":"actionable finding","evidence":"specific conflicting facts","related_ids":["existing-id"]}]}',
-        '',
-        'Project card index:',
-        JSON.stringify(index),
-        '',
-        'Cards under review:',
-        JSON.stringify(batch, null, 2)
-      ].join('\n')
     )
-  }
-  return prompts
-}
-
-export function parsePlanningCheckAIResponse(raw: string): z.infer<typeof aiPlanningFindingSchema>[] {
-  let value: unknown
-  try {
-    value = JSON.parse(stripCodeFence(raw))
-  } catch (error) {
-    throw new Error(
-      `Planning AI check returned invalid JSON: ${error instanceof Error ? error.message : String(error)}`,
-      { cause: error }
-    )
-  }
-  const parsed = aiPlanningResponseSchema.safeParse(value)
-  if (!parsed.success) {
-    throw new Error(
-      `Planning AI check returned invalid fields: ${parsed.error.issues
-        .map((issue) => `${issue.path.join('.') || 'response'}: ${issue.message}`)
-        .join('; ')}`
-    )
-  }
-  return parsed.data.issues
-}
-
-async function persistPlanningIssues(
-  root: string,
-  findings: PersistablePlanningFinding[],
-  checkedAt: string
-): Promise<{ created: string[]; updated: string[] }> {
-  const [existingIssues, documents] = await Promise.all([
-    listDocs<IssueDoc>(root, 'issue'),
-    listDocs<DocumentIdentity>(root)
-  ])
-  const validIds = new Set(documents.map((document) => document.data.id))
-  const unique = new Map<string, PersistablePlanningFinding>()
-  for (const finding of findings) {
-    const fingerprint = planningFindingFingerprint(finding)
-    if (!unique.has(fingerprint)) unique.set(fingerprint, finding)
-  }
-  const created: string[] = []
-  const updated: string[] = []
-
-  for (const [fingerprint, finding] of unique) {
-    const relatedIds = [...new Set(finding.related_ids)].filter((id) => validIds.has(id))
-    const generatedRelations = relatedIds.map((target_id) => ({
-      kind: 'involves' as const,
-      target_id,
-      note: finding.source === 'ai' ? 'AI planning check' : 'Planning rule check'
-    }))
-    const existing = existingIssues.find((issue) => issue.data.check_fingerprint === fingerprint)
-    const priority = finding.severity === 'error' ? 'high' : finding.severity === 'warning' ? 'medium' : 'low'
-    if (existing) {
-      const next = issueSchema.parse({
-        ...existing.data,
-        status: 'open',
-        state: 'open',
-        enabled: true,
-        tags: [...new Set([...(existing.data.tags ?? []), 'ai-check', finding.code])],
-        relations: normalizeCardRelations([...(existing.data.relations ?? []), ...generatedRelations]),
-        priority,
-        decision_needed: finding.message,
-        related_docs: relatedIds,
-        rule_id: finding.code,
-        evidence: finding.evidence,
-        check_fingerprint: fingerprint,
-        checked_at: checkedAt
-      })
-      await writeMarkdown(existing.path, next as unknown as Record<string, unknown>, existing.content)
-      updated.push(existing.data.id)
-      continue
-    }
-
-    const file = await createIssue(
-      root,
-      finding.title,
-      {
-        status: 'open',
-        state: 'open',
-        enabled: true,
-        tags: ['ai-check', finding.code],
-        relations: generatedRelations,
-        priority,
-        decision_needed: finding.message,
-        related_docs: relatedIds,
-        rule_id: finding.code,
-        evidence: finding.evidence,
-        check_fingerprint: fingerprint,
-        checked_at: checkedAt
-      },
-      [`## ${finding.title}`, '', finding.message, finding.evidence ? `\n> ${finding.evidence}` : '']
-        .filter(Boolean)
-        .join('\n')
-    )
-    const createdIssue = await readMarkdown<Record<string, unknown>>(file)
-    const createdId = createdIssue.data['id']
-    if (typeof createdId !== 'string') throw new Error(`Created issue has no id: ${file}`)
-    created.push(createdId)
-  }
-
-  return { created, updated }
-}
-
-function localizeRuleFinding(
-  issue: CheckIssue,
-  documents: Array<{ data: DocumentIdentity }>,
-  language: 'zh' | 'en'
-): PersistablePlanningFinding {
-  const relatedIds = [...new Set(issue.related_ids ?? [])]
-  const names = relatedIds
-    .map((id) => documents.find((document) => document.data.id === id)?.data.title ?? id)
-    .filter(Boolean)
-  const primary = names[0] ?? relatedIds[0] ?? (language === 'zh' ? '当前项目' : 'Current project')
-  if (language === 'en') {
-    return {
-      code: issue.code,
-      severity: issue.severity,
-      title: `${humanizeRuleCode(issue.code)}: ${primary}`,
-      message: issue.message,
-      evidence: issue.evidence ?? '',
-      related_ids: relatedIds,
-      source: 'rule'
-    }
-  }
-
-  const localized = chineseRuleCopy(issue.code, primary, names[1])
-  return {
-    code: issue.code,
-    severity: issue.severity,
-    title: localized.title,
-    message: localized.message,
-    evidence: localizeRuleEvidence(issue.evidence),
-    related_ids: relatedIds,
-    source: 'rule'
-  }
-}
-
-function chineseRuleCopy(
-  code: string,
-  primary: string,
-  secondary?: string
-): { title: string; message: string } {
-  const target = secondary ? `“${secondary}”` : '目标内容'
-  switch (code) {
-    case 'planning-missing-source-reference':
-      return {
-        title: `来源材料失效：${primary}`,
-        message: `“${primary}”引用的来源材料不存在或不是参考材料，请重新选择现有参考材料。`
-      }
-    case 'planning-missing-relation-target':
-      return {
-        title: `卡片关系失效：${primary}`,
-        message: `“${primary}”指向的${target}不存在，请删除该关系或改选现有卡片。`
-      }
-    case 'planning-self-relation':
-      return {
-        title: `卡片指向自身：${primary}`,
-        message: `“${primary}”建立了指向自身的关系，请确认是否误选。`
-      }
-    case 'planning-isolated-card':
-      return {
-        title: `孤立卡片：${primary}`,
-        message: `“${primary}”没有来源材料、卡片关系或类型关系，请补充关联或确认它确实应当独立。`
-      }
-    case 'planning-event-without-time-node':
-      return {
-        title: `事件尚未挂接时间：${primary}`,
-        message: `“${primary}”没有所属时间节点，请选择至少精确到月的现有时间节点。`
-      }
-    case 'planning-character-time-order':
-      return {
-        title: `人物时间顺序冲突：${primary}`,
-        message: `“${primary}”的出生、出场、退场或死亡顺序互相冲突，请核对对应时间节点。`
-      }
-    case 'planning-character-relation-time-order':
-      return {
-        title: `人物关系时间冲突：${primary}`,
-        message: `“${primary}”的结束时间早于开始时间，请调整关系持续区间。`
-      }
-    case 'planning-layout-without-position':
-      return {
-        title: `布局缺少定位：${primary}`,
-        message: `布局卡“${primary}”没有解释任何定位卡，请选择它对应的地点定位。`
-      }
-    case 'planning-position-has-layout-target':
-      return {
-        title: `定位卡类型不一致：${primary}`,
-        message: `定位卡“${primary}”不应填写“解释的定位”，请改为布局卡或移除该关系。`
-      }
-    case 'planning-layout-target-not-position':
-      return {
-        title: `布局目标类型错误：${primary}`,
-        message: `布局卡“${primary}”指向了另一张布局卡，请改选定位卡。`
-      }
-    case 'planning-location-scale-order':
-      return {
-        title: `地点层级倒置：${primary}`,
-        message: `“${primary}”的上级地点尺度反而更小，请调整全球、地区、城市、街区、宅院、室内层级。`
-      }
-    case 'planning-world-entry-without-trigger':
-      return {
-        title: `世界书缺少触发词：${primary}`,
-        message: `已启用的世界书“${primary}”没有关键词，生成时无法按正文内容自动激活。`
-      }
-    case 'planning-foreshadowing-without-trigger':
-      return {
-        title: `伏笔缺少提醒条件：${primary}`,
-        message: `伏笔“${primary}”没有时间、故事节点、关键词或卡片启用条件，系统无法适时提醒作者。`
-      }
-    case 'planning-empty-narrative-card':
-      return {
-        title: `叙事卡内容为空：${primary}`,
-        message: `已启用的叙事卡“${primary}”没有原则、样例或正文，请补充内容后再启用。`
-      }
-    default:
-      if (code.includes('timeline')) {
-        return {
-          title: `时间主链需要修复：${primary}`,
-          message: `时间主链在“${primary}”附近存在重复、断链、环路或先后倒置，请使用时间线编辑工具修复。`
-        }
-      }
-      return {
-        title: `规划完整性待确认：${primary}`,
-        message: `“${primary}”触发了规则“${code}”，请检查相关卡片和结构。`
-      }
-  }
-}
-
-function localizeRuleEvidence(evidence?: string): string {
-  if (!evidence) return ''
-  const field = evidence.match(/^Field:\s*(.+)$/i)?.[1]
-  if (!field) return evidence
-  const labels: Record<string, string> = {
-    source_refs: '来源材料',
-    relations: '卡片关系',
-    links: '关联卡片',
-    timeline_node: '所属时间节点',
-    parent_location: '上级地点',
-    layout_of: '解释的定位',
-    related_docs: '关联资料'
-  }
-  return `涉及属性：${labels[field] ?? '类型化关联'}`
-}
-
-function planningFindingFingerprint(finding: PersistablePlanningFinding): string {
-  const related = [...finding.related_ids].sort().join(',')
-  const semanticKey = finding.source === 'ai' ? finding.title.toLowerCase().replace(/\s+/g, ' ').trim() : ''
-  return createHash('sha256').update(`${finding.code}\0${related}\0${semanticKey}`).digest('hex')
-}
-
-function humanizeRuleCode(code: string): string {
-  return code
-    .replace(/^planning-/, '')
-    .replaceAll('-', ' ')
-    .replace(/^./, (character) => character.toUpperCase())
-}
-
-function compactPlanningValue(value: unknown, depth = 0): unknown {
-  if (typeof value === 'string') return limitText(value, 700)
-  if (typeof value !== 'object' || value === null) return value
-  if (depth >= 4) return '[nested value omitted]'
-  if (Array.isArray(value)) return value.slice(0, 24).map((item) => compactPlanningValue(item, depth + 1))
-  return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>)
-      .slice(0, 48)
-      .map(([key, item]) => [key, compactPlanningValue(item, depth + 1)])
+  )
+  typedHandle('planning:checkDecision', async (_event, root, input) => decidePlanningCheckForIPC(root, input))
+  typedHandle('planning:checkApply', async (_event, root, executionId, decisionId) =>
+    applyPlanningCheckForIPC(root, executionId, decisionId)
+  )
+  typedHandle('planning:checkOpenRun', async (_event, root, executionId) =>
+    openPlanningCheckRun(root, executionId)
   )
 }
 
@@ -522,13 +184,15 @@ export async function startPlanningSession(
 ): Promise<PlanningSession> {
   const now = new Date().toISOString()
   const session: PlanningSession = {
-    schema_version: 1,
+    schema_version: 2,
     id: uniquePlanningSessionId(),
     module: module.trim() || 'planning',
     created_at: now,
     updated_at: now,
     messages: [],
-    proposal: null
+    proposal: null,
+    proposals: [],
+    selected_proposal_id: null
   }
   if (documentId) {
     const document = (await listDocs<BaseDoc>(root)).find((item) => item.data.id === documentId)
@@ -539,7 +203,7 @@ export async function startPlanningSession(
       )
     }
     const kind = document.data.type as PlanningDocumentKind
-    session.proposal = normalizePlanningDraft({
+    const draft = normalizePlanningDraft({
       kind,
       title: document.data.title,
       fields: Object.fromEntries(
@@ -549,6 +213,26 @@ export async function startPlanningSession(
       ),
       content: document.content
     })
+    const proposalId = `anchor-${document.data.id}`
+    const target = {
+      path: document.path,
+      id: document.data.id,
+      type: kind,
+      expected_sha256: sha256Text(await readText(document.path))
+    }
+    const anchor: PlanningProposal = {
+      id: proposalId,
+      operation: 'update',
+      source: 'anchor',
+      status: 'draft',
+      draft,
+      target,
+      revisions: [planningRevision(draft, 'anchor', now)]
+    }
+    session.proposal = draft
+    session.proposals = [anchor]
+    session.selected_proposal_id = proposalId
+    session.anchor_proposal_id = proposalId
     session.document = { path: document.path, id: document.data.id, type: kind }
   }
   await writePlanningSession(root, session)
@@ -556,7 +240,8 @@ export async function startPlanningSession(
 }
 
 export async function loadPlanningSession(root: string, sessionId: string): Promise<PlanningSession> {
-  return JSON.parse(await readText(planningSessionPath(root, sessionId))) as PlanningSession
+  const parsed = JSON.parse(await readText(planningSessionPath(root, sessionId))) as unknown
+  return migratePlanningSession(root, parsed)
 }
 
 export async function savePlanningSession(
@@ -564,98 +249,246 @@ export async function savePlanningSession(
   sessionId: string,
   update: PlanningSessionUpdate
 ): Promise<PlanningSession> {
-  const session = await loadPlanningSession(root, sessionId)
-  session.messages = normalizeSessionMessages(update.messages)
-  session.proposal = update.proposal ? normalizePlanningDraft(update.proposal) : null
-  session.updated_at = new Date().toISOString()
+  const session = mergePlanningSessionUpdate(await loadPlanningSession(root, sessionId), update)
   await writePlanningSession(root, session)
   return session
 }
 
-export async function confirmPlanningRecord(root: string, input: PlanningConfirmRequest) {
-  let session = await savePlanningSession(root, input.sessionId, input)
-  const normalized = normalizePlanningDraft(input.proposal)
-  const validationCandidate = parseDocumentFields(normalized.kind, {
-    id: session.document?.id ?? 'planning-preview',
-    type: normalized.kind,
-    schema_version: 1,
-    title: normalized.title,
-    status: defaultStatus(normalized.kind),
-    tags: [],
-    enabled: defaultEnabled(normalized.kind),
-    ...normalized.fields
-  })
-  await assertCardReferencesExist(
-    validationCandidate as unknown as DocumentIdentity,
-    await listDocs<DocumentIdentity>(root)
-  )
-  let file: string
-  if (session.document) {
-    file = assertProjectPath(root, session.document.path)
-    if (session.document.type !== normalized.kind) {
-      throw new Error('An existing AI-created card cannot change document type during editing.')
-    }
-    const current = await readMarkdown<Record<string, unknown>>(file)
-    const parsed = parseDocumentFields(normalized.kind, {
-      ...current.data,
-      ...normalized.fields,
-      id: current.data.id,
-      type: current.data.type,
-      schema_version: current.data.schema_version,
-      title: normalized.title,
-      [DOCUMENT_ORIGIN_FIELD]: {
-        schema_version: 1,
-        kind: 'ai-conversation',
-        session_id: session.id,
-        created_at: session.created_at,
-        updated_at: new Date().toISOString()
-      }
-    })
-    await writeMarkdown(
-      file,
-      {
-        ...parsed,
-        [DOCUMENT_ORIGIN_FIELD]: {
-          schema_version: 1,
-          kind: 'ai-conversation',
-          session_id: session.id,
-          created_at: session.created_at,
-          updated_at: new Date().toISOString()
-        }
-      },
-      normalized.content
-    )
-  } else {
-    file = await createProjectDocument(root, normalized.kind, {
-      ...normalized.fields,
-      title: normalized.title,
-      content: normalized.content
-    })
-    const current = await readMarkdown<Record<string, unknown>>(file)
-    await writeMarkdown(
-      file,
-      {
-        ...current.data,
-        [DOCUMENT_ORIGIN_FIELD]: {
-          schema_version: 1,
-          kind: 'ai-conversation',
-          session_id: session.id,
-          created_at: session.created_at,
-          updated_at: new Date().toISOString()
-        }
-      },
-      current.content
-    )
+export async function confirmPlanningRecord(
+  root: string,
+  input: PlanningConfirmRequest,
+  persistence: PlanningPersistenceDependencies = defaultPersistenceDependencies
+) {
+  const loaded = await loadPlanningSession(root, input.sessionId)
+  const session = mergePlanningSessionUpdate(loaded, input)
+  if (input.proposal && !input.proposals) {
+    const selected = session.proposals.find((proposal) => proposal.id === session.selected_proposal_id)
+    if (selected) selected.status = 'confirmed'
   }
-  const document = await readMarkdown<Record<string, unknown>>(file)
-  session = {
-    ...session,
-    proposal: normalized,
-    document: { path: file, id: String(document.data.id), type: normalized.kind },
+  const confirmed = session.proposals.filter((proposal) => proposal.status === 'confirmed')
+  if (!confirmed.length) {
+    throw new Error('Confirm at least one proposal before applying it to the project.')
+  }
+  assertPlanningProposalsInModuleScope(confirmed, session.module, session.document?.type)
+  return withProjectWriteLock(root, () =>
+    applyPlanningProposalTransaction(root, session, confirmed, persistence)
+  )
+}
+
+interface PreparedPlanningUpdate {
+  proposal: PlanningProposal
+  source: string
+  target: string
+  source_raw: string
+  data: Record<string, unknown>
+  changing_type: boolean
+}
+
+async function applyPlanningProposalTransaction(
+  root: string,
+  session: PlanningSession,
+  confirmed: PlanningProposal[],
+  persistence: PlanningPersistenceDependencies
+) {
+  const documents = await listDocs<DocumentIdentity>(root)
+  const updates: PreparedPlanningUpdate[] = []
+  for (const proposal of confirmed) {
+    const normalized = normalizePlanningDraft(proposal.draft)
+    if (proposal.operation === 'create') {
+      const validationCandidate = parseDocumentFields(normalized.kind, {
+        id: `planning-preview-${proposal.id.replace(/[^a-z0-9-]+/giu, '-').toLowerCase()}`,
+        type: normalized.kind,
+        schema_version: 1,
+        title: normalized.title,
+        status: defaultStatus(normalized.kind),
+        tags: [],
+        enabled: defaultEnabled(normalized.kind),
+        ...normalized.fields
+      })
+      await assertCardReferencesExist(validationCandidate as unknown as DocumentIdentity, documents, root)
+      continue
+    }
+    if (!proposal.target) throw new Error(`Update proposal ${proposal.id} has no target document.`)
+    const source = assertProjectPath(root, proposal.target.path)
+    const sourceRaw = await readText(source)
+    const currentHash = sha256Text(sourceRaw)
+    if (currentHash !== proposal.target.expected_sha256) {
+      throw planningHashConflict(proposal, currentHash, sourceRaw)
+    }
+    const current = await readMarkdown<Record<string, unknown>>(source)
+    if (current.data['id'] !== proposal.target.id || current.data['type'] !== proposal.target.type) {
+      throw new Error(`Planning card identity changed outside this conversation: ${proposal.target.id}`)
+    }
+    const changingType = proposal.target.type !== normalized.kind
+    const parsed = parseDocumentFields(normalized.kind, {
+      ...(changingType
+        ? sharedMigrationFields(current.data, normalized.fields, normalized.kind)
+        : { ...current.data, ...normalized.fields }),
+      id: current.data['id'],
+      type: normalized.kind,
+      schema_version: 1,
+      title: normalized.title
+    })
+    await assertCardReferencesExist(parsed as unknown as DocumentIdentity, documents, root)
+    const target = changingType
+      ? assertProjectPath(root, fileForDoc(root, normalized.kind, proposal.target.id, normalized.title))
+      : source
+    if (changingType && (await pathExists(target))) {
+      throw new Error(`Planning card type migration target already exists: ${path.basename(target)}`)
+    }
+    updates.push({
+      proposal,
+      source,
+      target,
+      source_raw: sourceRaw,
+      data: { ...parsed, [DOCUMENT_ORIGIN_FIELD]: planningOrigin(session, proposal.id) },
+      changing_type: changingType
+    })
+  }
+
+  const createdPaths: string[] = []
+  const writtenTargets: string[] = []
+  const results: Array<{
+    proposal_id: string
+    operation: 'create' | 'update'
+    path: string
+    document: { data: Record<string, unknown>; content: string }
+    source_sha256: string
+  }> = []
+  const beforeApply = structuredClone(session)
+  try {
+    for (const proposal of confirmed.filter((item) => item.operation === 'create')) {
+      const normalized = normalizePlanningDraft(proposal.draft)
+      const file = await createProjectDocument(root, normalized.kind, {
+        ...normalized.fields,
+        title: normalized.title,
+        content: normalized.content
+      })
+      createdPaths.push(file)
+      const current = await readMarkdown<Record<string, unknown>>(file)
+      await writeMarkdown(
+        file,
+        { ...current.data, [DOCUMENT_ORIGIN_FIELD]: planningOrigin(session, proposal.id) },
+        current.content
+      )
+      const document = await readMarkdown<Record<string, unknown>>(file)
+      results.push({
+        proposal_id: proposal.id,
+        operation: 'create',
+        path: file,
+        document,
+        source_sha256: sha256Text(await readText(file))
+      })
+    }
+    for (const update of updates) {
+      await writeMarkdown(update.target, update.data, update.proposal.draft.content)
+      writtenTargets.push(update.target)
+      const document = await readMarkdown<Record<string, unknown>>(update.target)
+      const verified = parseDocumentFields(update.proposal.draft.kind, document.data)
+      if (verified.id !== update.proposal.target?.id || verified.type !== update.proposal.draft.kind) {
+        throw new Error(`Planning card write verification failed: ${update.proposal.id}`)
+      }
+      results.push({
+        proposal_id: update.proposal.id,
+        operation: 'update',
+        path: update.target,
+        document,
+        source_sha256: sha256Text(await readText(update.target))
+      })
+    }
+
+    const resultByProposal = new Map(results.map((result) => [result.proposal_id, result]))
+    session = {
+      ...session,
+      proposals: session.proposals.map((proposal) => {
+        const result = resultByProposal.get(proposal.id)
+        if (!result) return proposal
+        return {
+          ...proposal,
+          operation: 'update',
+          status: 'applied',
+          target: {
+            path: result.path,
+            id: String(result.document.data['id']),
+            type: proposal.draft.kind,
+            expected_sha256: result.source_sha256
+          }
+        }
+      }),
+      updated_at: new Date().toISOString()
+    }
+    session.proposal =
+      session.proposals.find((proposal) => proposal.id === session.selected_proposal_id)?.draft ?? null
+    const anchor = session.anchor_proposal_id ? resultByProposal.get(session.anchor_proposal_id) : results[0]
+    if (anchor) {
+      session.document = {
+        path: anchor.path,
+        id: String(anchor.document.data['id']),
+        type: String(anchor.document.data['type']) as PlanningDocumentKind
+      }
+    }
+    await persistence.writeSession(root, session)
+    for (const update of updates.filter((item) => item.changing_type)) {
+      await persistence.removeFile(update.source)
+    }
+    const selected =
+      results.find((result) => result.proposal_id === session.selected_proposal_id) ?? results[0]!
+    return { ...selected, results, session }
+  } catch (error) {
+    const rollbackErrors: unknown[] = []
+    for (const update of [...updates].reverse()) {
+      await writeText(update.source, update.source_raw).catch((cause) => rollbackErrors.push(cause))
+      if (update.changing_type && (await pathExists(update.target))) {
+        await rm(update.target, { force: true }).catch((cause) => rollbackErrors.push(cause))
+      }
+    }
+    for (const file of [
+      ...createdPaths,
+      ...writtenTargets.filter((file) => !updates.some((u) => u.source === file))
+    ]) {
+      if (await pathExists(file)) await rm(file, { force: true }).catch((cause) => rollbackErrors.push(cause))
+    }
+    await writePlanningSession(root, beforeApply).catch((cause) => rollbackErrors.push(cause))
+    if (rollbackErrors.length) {
+      throw new AggregateError(
+        [error, ...rollbackErrors],
+        'Multi-card planning apply failed and rollback was incomplete.',
+        { cause: error }
+      )
+    }
+    throw error
+  }
+}
+
+function sharedMigrationFields(
+  current: Record<string, unknown>,
+  proposalFields: Record<string, unknown>,
+  targetKind: PlanningDocumentKind
+): Record<string, unknown> {
+  return {
+    ...proposalFields,
+    status: current['status'] ?? defaultStatus(targetKind),
+    tags: preferNonEmptyArray(proposalFields['tags'], current['tags']),
+    enabled: current['enabled'] ?? defaultEnabled(targetKind),
+    source_refs: preferNonEmptyArray(proposalFields['source_refs'], current['source_refs']),
+    relations: preferNonEmptyArray(proposalFields['relations'], current['relations'])
+  }
+}
+
+function preferNonEmptyArray(proposed: unknown, current: unknown): unknown[] {
+  if (Array.isArray(proposed) && proposed.length) return proposed
+  return Array.isArray(current) ? current : []
+}
+
+function planningOrigin(session: PlanningSession, proposalId?: string) {
+  return {
+    schema_version: 1 as const,
+    kind: 'ai-conversation' as const,
+    session_id: session.id,
+    ...(proposalId ? { proposal_id: proposalId } : {}),
+    created_at: session.created_at,
     updated_at: new Date().toISOString()
   }
-  await writePlanningSession(root, session)
-  return { path: file, document }
 }
 
 export async function discussPlanningRecord(
@@ -678,17 +511,43 @@ export async function discussPlanningRecord(
     throw new Error('背景 AI 尚未配置。请返回“设置 → AI 配置 → 背景”，保存可用的模型和密钥后重试。')
   }
 
+  const sessionModule = session?.module ?? input.module
+  const currentProposals = session?.proposals ?? input.proposals ?? []
+  const promptInput: PlanningChatRequest = {
+    ...input,
+    module: sessionModule,
+    messages,
+    proposals: input.proposals ?? currentProposals
+  }
+  const allowedKinds = planningKindsForModule(sessionModule, session?.document?.type)
+  if (!allowedKinds.length) {
+    throw new Error(`Unsupported planning module scope: ${sessionModule}`)
+  }
+
   const raw = await dependencies.generate(
-    buildPlanningPrompt(project, docs, { ...input, messages }, Boolean(session?.document)),
+    buildPlanningPrompt(project, docs, promptInput, Boolean(session?.document), root),
     config,
-    planningSystemPrompt(Boolean(session?.document)),
+    planningSystemPrompt(Boolean(session?.document), sessionModule, allowedKinds),
     { responseFormat: 'json_object' }
   )
-  const response = parsePlanningAIResponse(raw)
+  const parsedResponse = parsePlanningAIResponse(raw)
+  assertPlanningProposalsInModuleScope(parsedResponse.proposals, sessionModule, session?.document?.type)
+  const proposals = mergeAIPlanningProposals(currentProposals, parsedResponse.proposals, session ?? undefined)
+  const selectedProposalId = selectExistingProposalId(
+    parsedResponse.selectedProposalId ?? input.selectedProposalId ?? session?.selected_proposal_id ?? null,
+    proposals
+  )
+  const response: PlanningChatResponse = {
+    ...parsedResponse,
+    proposals,
+    selectedProposalId,
+    proposal: proposals.find((proposal) => proposal.id === selectedProposalId)?.draft ?? null
+  }
   if (input.sessionId) {
     await savePlanningSession(root, input.sessionId, {
       messages: [...sessionMessages, { role: 'assistant', content: response.message }],
-      proposal: response.proposal ?? input.proposal ?? null
+      proposals,
+      selectedProposalId
     })
   }
   return response
@@ -704,9 +563,13 @@ export function parsePlanningAIResponse(raw: string): PlanningChatResponse {
   const result = responseSchema.safeParse(parsed)
   if (!result.success) throw invalidResponseError(result.error)
   try {
+    const rawProposals = result.data.proposals ?? (result.data.proposal ? [result.data.proposal] : [])
+    const proposals = rawProposals.map((proposal, index) => normalizeAIPlanningProposal(proposal, index))
     return {
       message: result.data.message,
-      proposal: result.data.proposal ? normalizePlanningDraft(result.data.proposal) : null
+      proposal: proposals[0]?.draft ?? null,
+      proposals,
+      selectedProposalId: proposals.at(-1)?.id ?? null
     }
   } catch (error) {
     throw invalidResponseError(error)
@@ -715,6 +578,7 @@ export function parsePlanningAIResponse(raw: string): PlanningChatResponse {
 
 export function normalizePlanningDraft(proposal: PlanningDraft): PlanningDraft {
   const raw = rawDraftSchema.parse(proposal)
+  const repairedFields = repairStableProductFields(raw.kind, raw.fields).fields
   const base = {
     id: 'planning-preview',
     type: raw.kind,
@@ -723,7 +587,7 @@ export function normalizePlanningDraft(proposal: PlanningDraft): PlanningDraft {
     status: defaultStatus(raw.kind),
     tags: [],
     enabled: defaultEnabled(raw.kind),
-    ...withoutReservedFields(raw.fields)
+    ...withoutReservedFields(repairedFields)
   }
   const parsed = parseDocumentFields(raw.kind, base)
   const fields = Object.fromEntries(
@@ -732,39 +596,287 @@ export function normalizePlanningDraft(proposal: PlanningDraft): PlanningDraft {
   return { kind: raw.kind, title: raw.title, fields, content: raw.content }
 }
 
+export function normalizeIssueStateFromAI(value: unknown): {
+  state: 'open' | 'resolved' | 'ignored'
+  repaired: boolean
+  error?: string
+} {
+  const normalized = typeof value === 'string' ? value.trim().toLocaleLowerCase() : ''
+  if (['', 'open', 'pending', 'received', 'new', 'todo', 'deferred'].includes(normalized)) {
+    return { state: 'open', repaired: normalized !== '' && normalized !== 'open' }
+  }
+  if (['resolved', 'closed', 'fixed', 'done', 'completed'].includes(normalized)) {
+    return { state: 'resolved', repaired: normalized !== 'resolved' }
+  }
+  if (['ignored', 'ignore', 'suppressed', 'wontfix', "won't-fix"].includes(normalized)) {
+    return { state: 'ignored', repaired: normalized !== 'ignored' }
+  }
+  return {
+    state: 'open',
+    repaired: true,
+    error: `Unsupported issue state “${String(value)}”; kept this proposal locally as open.`
+  }
+}
+
+function repairStableProductFields(
+  kind: PlanningDocumentKind,
+  fields: Record<string, unknown>
+): { fields: Record<string, unknown>; warning?: string } {
+  if (kind !== 'issue' || !Object.hasOwn(fields, 'state')) return { fields }
+  const normalized = normalizeIssueStateFromAI(fields['state'])
+  return { fields: { ...fields, state: normalized.state }, warning: normalized.error }
+}
+
+function normalizeAIPlanningProposal(
+  proposal: z.infer<typeof rawAIProposalSchema>,
+  index: number
+): PlanningProposal {
+  const repaired = repairStableProductFields(proposal.kind, proposal.fields)
+  const draft = normalizePlanningDraft({
+    kind: proposal.kind,
+    title: proposal.title,
+    fields: repaired.fields,
+    content: proposal.content
+  })
+  const now = new Date().toISOString()
+  const id = validProposalId(proposal.id)
+    ? proposal.id!
+    : `proposal-${sha256Text(canonicalJson({ index, draft })).slice(0, 16)}`
+  return {
+    id,
+    operation: proposal.operation ?? 'create',
+    source: 'ai',
+    status: 'draft',
+    draft,
+    revisions: [planningRevision(draft, 'ai', now)],
+    ...(repaired.warning ? { validation_error: repaired.warning } : {})
+  }
+}
+
+function mergeAIPlanningProposals(
+  current: PlanningProposal[],
+  generated: PlanningProposal[],
+  session?: PlanningSession
+): PlanningProposal[] {
+  const next = current.map((proposal) => structuredClone(proposal))
+  for (const incoming of generated) {
+    const existingIndex = next.findIndex((proposal) => proposal.id === incoming.id)
+    if (existingIndex >= 0) {
+      const existing = next[existingIndex]!
+      const revision = planningRevision(incoming.draft, 'ai')
+      next[existingIndex] = {
+        ...existing,
+        status: 'draft',
+        draft: incoming.draft,
+        revisions: appendRevision(existing.revisions, revision),
+        ...(incoming.validation_error ? { validation_error: incoming.validation_error } : {})
+      }
+      continue
+    }
+    next.push({
+      ...incoming,
+      operation: 'create',
+      ...(incoming.operation === 'update'
+        ? {
+            validation_error:
+              incoming.validation_error ??
+              'An update must reuse an existing proposal id so its stable target and expected hash are preserved.'
+          }
+        : {})
+    })
+  }
+  return anchorFirst(next, session?.anchor_proposal_id)
+}
+
+function mergePlanningSessionUpdate(source: PlanningSession, update: PlanningSessionUpdate): PlanningSession {
+  const session = structuredClone(source)
+  session.messages = normalizeSessionMessages(update.messages)
+  const incoming = update.proposals
+    ? normalizePlanningProposals(update.proposals, session)
+    : update.proposal
+      ? updateLegacyProposal(session, update.proposal)
+      : session.proposals
+  session.proposals = anchorFirst(incoming, session.anchor_proposal_id)
+  session.selected_proposal_id = selectExistingProposalId(
+    update.selectedProposalId ?? session.selected_proposal_id,
+    session.proposals
+  )
+  session.proposal =
+    session.proposals.find((proposal) => proposal.id === session.selected_proposal_id)?.draft ?? null
+  session.updated_at = new Date().toISOString()
+  return session
+}
+
+function normalizePlanningProposals(
+  proposals: PlanningProposal[],
+  session: PlanningSession
+): PlanningProposal[] {
+  const existing = new Map(session.proposals.map((proposal) => [proposal.id, proposal]))
+  const normalized: PlanningProposal[] = proposals
+    .filter((proposal) => validProposalId(proposal.id))
+    .map<PlanningProposal>((proposal) => {
+      const previous = existing.get(proposal.id)
+      const draft = normalizePlanningDraft(proposal.draft)
+      const revision = planningRevision(draft, proposal.source === 'ai' ? 'ai' : 'author')
+      const changed = previous ? planningDraftHash(previous.draft) !== revision.content_sha256 : false
+      const status = changed && proposal.status !== 'draft' ? 'draft' : proposal.status
+      const target = previous?.target ?? proposal.target
+      return {
+        ...proposal,
+        operation: previous?.operation ?? proposal.operation,
+        source: previous?.source ?? proposal.source,
+        status,
+        draft,
+        ...(target ? { target } : {}),
+        revisions: appendRevision(previous?.revisions ?? proposal.revisions ?? [], revision)
+      }
+    })
+  const anchor = session.anchor_proposal_id
+    ? session.proposals.find((proposal) => proposal.id === session.anchor_proposal_id)
+    : undefined
+  if (anchor && !normalized.some((proposal) => proposal.id === anchor.id)) normalized.unshift(anchor)
+  return normalized
+}
+
+function updateLegacyProposal(session: PlanningSession, draftValue: PlanningDraft): PlanningProposal[] {
+  const draft = normalizePlanningDraft(draftValue)
+  const selectedId = session.selected_proposal_id ?? session.proposals[0]?.id
+  const existing = session.proposals.find((proposal) => proposal.id === selectedId)
+  if (!existing) {
+    const id = `proposal-${sha256Text(canonicalJson(draft)).slice(0, 16)}`
+    return [
+      ...session.proposals,
+      {
+        id,
+        operation: 'create',
+        source: 'author',
+        status: 'draft',
+        draft,
+        revisions: [planningRevision(draft, 'author')]
+      }
+    ]
+  }
+  return session.proposals.map((proposal) =>
+    proposal.id === existing.id
+      ? {
+          ...proposal,
+          status: planningDraftHash(proposal.draft) === planningDraftHash(draft) ? proposal.status : 'draft',
+          draft,
+          revisions: appendRevision(proposal.revisions, planningRevision(draft, 'author'))
+        }
+      : proposal
+  )
+}
+
+function planningRevision(
+  draft: PlanningDraft,
+  source: PlanningProposalRevision['source'],
+  createdAt = new Date().toISOString()
+): PlanningProposalRevision {
+  const contentSha256 = planningDraftHash(draft)
+  return {
+    id: `revision-${contentSha256.slice(0, 16)}`,
+    created_at: createdAt,
+    source,
+    content_sha256: contentSha256
+  }
+}
+
+function planningDraftHash(draft: PlanningDraft): string {
+  return sha256Text(canonicalJson(draft))
+}
+
+function appendRevision(
+  revisions: PlanningProposalRevision[],
+  revision: PlanningProposalRevision
+): PlanningProposalRevision[] {
+  return revisions.at(-1)?.content_sha256 === revision.content_sha256 ? revisions : [...revisions, revision]
+}
+
+function anchorFirst(proposals: PlanningProposal[], anchorId?: string): PlanningProposal[] {
+  const unique = new Map<string, PlanningProposal>()
+  for (const proposal of proposals) if (!unique.has(proposal.id)) unique.set(proposal.id, proposal)
+  if (!anchorId) return [...unique.values()]
+  const anchor = unique.get(anchorId)
+  if (!anchor) return [...unique.values()]
+  return [anchor, ...[...unique.values()].filter((proposal) => proposal.id !== anchorId)]
+}
+
+function selectExistingProposalId(
+  value: string | null | undefined,
+  proposals: PlanningProposal[]
+): string | null {
+  if (value && proposals.some((proposal) => proposal.id === value)) return value
+  return proposals[0]?.id ?? null
+}
+
+function validProposalId(value: unknown): value is string {
+  return typeof value === 'string' && /^[a-z0-9][a-z0-9._:-]{0,127}$/iu.test(value)
+}
+
 export function buildPlanningPrompt(
   project: ProjectConfig,
-  docs: Array<{ data: BaseDoc; content: string }>,
+  docs: Array<{ path?: string; data: BaseDoc; content: string }>,
   input: PlanningChatRequest,
-  editingExisting = false
+  editingExisting = false,
+  projectRoot?: string
 ): string {
   const recentMessages = normalizeMessages(input.messages)
-  const catalog = docs.slice(0, 80).map((doc) => ({
-    id: doc.data.id,
-    type: doc.data.type,
-    title: doc.data.title,
-    status: doc.data.status
-  }))
+  const anchorKind = (input.proposals ?? []).find((proposal) => proposal.source === 'anchor')?.target?.type
+  const allowedKinds = planningKindsForModule(input.module, anchorKind)
+  const allowedKindSet = new Set(allowedKinds)
+  const scopedProposals = (input.proposals ?? []).filter((proposal) =>
+    allowedKindSet.has(proposal.draft.kind)
+  )
+  const catalog = docs
+    .filter((doc) => allowedKindSet.has(doc.data.type as PlanningDocumentKind))
+    .slice(0, 80)
+    .map((doc) => ({
+      id: doc.data.id,
+      type: doc.data.type,
+      title: doc.data.title,
+      status: doc.data.status
+    }))
+  const issueContext = buildIssuePlanningContext(docs, input, projectRoot)
   return [
     `Current project: ${project.title}`,
     `Genre: ${project.genre}`,
     `Planning module opened by the author: ${limitText(input.module, 80)}`,
+    `Allowed proposal kinds for this module: ${allowedKinds.join(', ')}`,
+    'The module boundary is code-owned. Do not inspect, discuss, or propose unrelated card kinds.',
     '',
     editingExisting
       ? 'Existing project document catalog (metadata only; edit only the card linked to this conversation):'
       : 'Existing project document catalog (metadata only; do not overwrite it):',
     JSON.stringify(catalog, null, 2),
+    ...(issueContext
+      ? [
+          '',
+          'Issue-specific context. The anchored issue is first, followed by same-kind issues, explicit targets, and locally resolved references:',
+          JSON.stringify(issueContext, null, 2)
+        ]
+      : []),
     '',
-    'Current editable proposal, if any:',
-    input.proposal ? JSON.stringify(normalizePlanningDraft(input.proposal), null, 2) : 'null',
+    'Current proposal collection (stable proposal ids; never discard or replace earlier cards):',
+    JSON.stringify(
+      scopedProposals.map((proposal) => ({
+        id: proposal.id,
+        operation: proposal.operation,
+        status: proposal.status,
+        target_id: proposal.target?.id,
+        draft: proposal.draft
+      })),
+      null,
+      2
+    ),
     '',
     'Conversation:',
     recentMessages.map((message) => `${message.role.toUpperCase()}: ${message.content}`).join('\n\n'),
     '',
     'Respond with one JSON object only:',
-    '{"message":"your next helpful reply","proposal":null}',
+    '{"message":"your next helpful reply","proposals":[]}',
     'or, once enough information is available:',
-    '{"message":"summary and remaining caveats","proposal":{"kind":"character | character_relation | world_entry | timeline_node | timeline_event | location | foreshadowing | narrative | issue | reference","title":"...","fields":{},"content":"Markdown body"}}',
+    `{"message":"summary and remaining caveats","proposals":[{"id":"reuse-an-existing-proposal-id-when-revising-it","operation":"create | update","target_id":"stable-project-card-id-for-update","kind":"${allowedKinds.join(' | ')}","title":"...","fields":{},"content":"Markdown body"}]}`,
     '',
     'The proposal must use only fields valid for the selected kind. Markdown belongs in content, not fields.',
     'For source_refs, relations, timeline_node, character endpoints, locations, and other links, use only exact IDs from the project catalog. Never invent a related card ID.',
@@ -773,18 +885,263 @@ export function buildPlanningPrompt(
   ].join('\n')
 }
 
-function planningSystemPrompt(editingExisting = false): string {
+function buildIssuePlanningContext(
+  docs: Array<{ path?: string; data: BaseDoc; content: string }>,
+  input: PlanningChatRequest,
+  projectRoot?: string
+): Record<string, unknown> | null {
+  const anchor = (input.proposals ?? []).find(
+    (proposal) => proposal.source === 'anchor' && proposal.draft.kind === 'issue'
+  )
+  const issue = anchor?.target
+    ? docs.find((document) => document.data.id === anchor.target?.id && document.data.type === 'issue')
+    : undefined
+  if (!issue) return null
+  const issueData = issue.data as BaseDoc & Record<string, unknown>
+  const relatedIds = new Set<string>([
+    ...(Array.isArray(issueData['related_docs'])
+      ? issueData['related_docs'].filter((value): value is string => typeof value === 'string')
+      : []),
+    ...(Array.isArray(issueData['relations'])
+      ? issueData['relations']
+          .filter((value): value is Record<string, unknown> => Boolean(value && typeof value === 'object'))
+          .map((value) => String(value['target_id'] ?? ''))
+          .filter(Boolean)
+      : [])
+  ])
+  let locallyResolved: unknown[] = []
+  if (projectRoot && docs.every((document) => typeof document.path === 'string')) {
+    const index = buildLocalDocumentLinkIndex(
+      docs as Array<{ path: string; data: BaseDoc; content: string }>,
+      projectRoot
+    )
+    locallyResolved = (index.forward[issue.data.id] ?? []).map((reference) => ({
+      raw_reference: reference.raw_reference,
+      status: reference.status,
+      target_id: reference.target_id ?? null,
+      candidates: reference.candidates.map((candidate) => candidate.id)
+    }))
+    for (const reference of index.forward[issue.data.id] ?? []) {
+      if (reference.target_id) relatedIds.add(reference.target_id)
+    }
+  }
+  const sameKind = docs
+    .filter(
+      (document) =>
+        document.data.type === 'issue' &&
+        document.data.id !== issue.data.id &&
+        String((document.data as BaseDoc & Record<string, unknown>)['rule_id'] ?? '') ===
+          String(issueData['rule_id'] ?? '')
+    )
+    .slice(0, 24)
+    .map(planningContextDocument)
+  return {
+    anchored_issue: planningContextDocument(issue),
+    same_kind_issues: sameKind,
+    explicitly_related_cards: docs
+      .filter((document) => relatedIds.has(document.data.id) && document.data.id !== issue.data.id)
+      .slice(0, 32)
+      .map(planningContextDocument),
+    local_reference_resolutions: locallyResolved,
+    authority_boundary:
+      'Return editable proposals only. Never change the issue or related project files without explicit author confirmation.'
+  }
+}
+
+function planningContextDocument(document: { data: BaseDoc; content: string }): Record<string, unknown> {
+  return {
+    id: document.data.id,
+    type: document.data.type,
+    title: document.data.title,
+    fields: Object.fromEntries(
+      Object.entries(document.data).filter(
+        ([key]) => !['id', 'type', 'schema_version', 'title', DOCUMENT_ORIGIN_FIELD].includes(key)
+      )
+    ),
+    content: limitText(document.content, 4_000)
+  }
+}
+
+function planningSystemPrompt(
+  editingExisting = false,
+  module = 'planning',
+  allowedKinds: readonly PlanningDocumentKind[] = CREATABLE_PLANNING_KINDS
+): string {
   return [
     'You are Quillarium Planning Curator for structured serialized fiction.',
-    editingExisting
-      ? 'Use the restored conversation and current proposal to revise exactly one existing planning record.'
-      : 'Use the author conversation and current project catalog to help create exactly one new planning record.',
+    `The author is working in the ${module} module. You may return only these proposal kinds: ${allowedKinds.join(', ')}.`,
+    'Use the restored conversation and proposal collection to discuss, create, or revise multiple planning records in one session.',
     'Ask focused questions across multiple turns when facts are incomplete. Never pretend a file was written.',
     editingExisting
-      ? 'Keep the existing record kind. Never propose canon, outline, scene, accepted prose, or edits to any other record.'
-      : 'Choose the best record kind yourself from the allowed list. Never propose canon, outline, scene, accepted prose, or edits to existing records.',
+      ? 'The first proposal is the immutable session anchor: reuse its proposal id when suggesting an edit, never duplicate it, and never reorder it. New cards follow it. Keep stable project identities and never write files directly.'
+      : 'Choose suitable record kinds and return every distinct card in proposals. Reuse a proposal id to revise that card; never let a later card overwrite an earlier one. Never propose canon, outline, scene, or accepted prose.',
     'Keep claims tentative when the author has not confirmed them. Return valid JSON only and follow the requested response shape.'
   ].join('\n')
+}
+
+export function planningKindsForModule(
+  module: string,
+  anchorKind?: PlanningDocumentKind
+): PlanningDocumentKind[] {
+  const scoped = MODULE_PLANNING_KINDS[module] ?? CREATABLE_PLANNING_KINDS
+  if (!MODULE_PLANNING_KINDS[module]) return anchorKind ? [anchorKind] : []
+  return anchorKind && !scoped.includes(anchorKind) ? [anchorKind, ...scoped] : [...scoped]
+}
+
+function assertPlanningProposalsInModuleScope(
+  proposals: PlanningProposal[],
+  module: string,
+  anchorKind?: PlanningDocumentKind
+): void {
+  const allowed = planningKindsForModule(module, anchorKind)
+  const allowedSet = new Set(allowed)
+  const rejected = [
+    ...new Set(proposals.map((proposal) => proposal.draft.kind).filter((kind) => !allowedSet.has(kind)))
+  ]
+  if (!rejected.length) return
+  throw new Error(
+    `AI 提案超出当前“${module}”页面范围：${rejected.join('、')}。此会话只允许 ${allowed.join('、')}；越界提案未写入项目。`
+  )
+}
+
+async function migratePlanningSession(root: string, value: unknown): Promise<PlanningSession> {
+  if (!value || typeof value !== 'object') throw new Error('Invalid planning session snapshot.')
+  const raw = value as Record<string, unknown>
+  const id = String(raw['id'] ?? '')
+  const module = String(raw['module'] ?? 'planning')
+  const createdAt = String(raw['created_at'] ?? new Date().toISOString())
+  const updatedAt = String(raw['updated_at'] ?? createdAt)
+  const messages = normalizeSessionMessages(
+    Array.isArray(raw['messages']) ? (raw['messages'] as PlanningChatRequest['messages']) : []
+  )
+  if (raw['schema_version'] === 2 && Array.isArray(raw['proposals'])) {
+    const provisional: PlanningSession = {
+      schema_version: 2,
+      id,
+      module,
+      created_at: createdAt,
+      updated_at: updatedAt,
+      messages,
+      proposal: null,
+      proposals: [],
+      selected_proposal_id:
+        typeof raw['selected_proposal_id'] === 'string' ? raw['selected_proposal_id'] : null,
+      ...(typeof raw['anchor_proposal_id'] === 'string'
+        ? { anchor_proposal_id: raw['anchor_proposal_id'] }
+        : {}),
+      ...(isPlanningDocumentRef(raw['document']) ? { document: raw['document'] } : {})
+    }
+    provisional.proposals = normalizePlanningProposals(
+      (raw['proposals'] as PlanningProposal[]).map((proposal) => ({
+        ...proposal,
+        revisions: Array.isArray(proposal.revisions) ? proposal.revisions : []
+      })),
+      provisional
+    )
+    provisional.proposals = anchorFirst(provisional.proposals, provisional.anchor_proposal_id)
+    provisional.selected_proposal_id = selectExistingProposalId(
+      provisional.selected_proposal_id,
+      provisional.proposals
+    )
+    provisional.proposal =
+      provisional.proposals.find((proposal) => proposal.id === provisional.selected_proposal_id)?.draft ??
+      null
+    return provisional
+  }
+
+  const legacyDraft = raw['proposal'] ? normalizePlanningDraft(raw['proposal'] as PlanningDraft) : null
+  const document = isPlanningDocumentRef(raw['document']) ? raw['document'] : undefined
+  const proposalId = document ? `anchor-${document.id}` : legacyDraft ? `proposal-${id || 'legacy'}` : null
+  let target: PlanningProposal['target'] | undefined
+  if (document) {
+    const source = assertProjectPath(root, document.path)
+    target = {
+      ...document,
+      expected_sha256: (await pathExists(source)) ? sha256Text(await readText(source)) : sha256Text('')
+    }
+  }
+  const proposals: PlanningProposal[] =
+    legacyDraft && proposalId
+      ? [
+          {
+            id: proposalId,
+            operation: document ? 'update' : 'create',
+            source: document ? 'anchor' : 'author',
+            status: 'draft',
+            draft: legacyDraft,
+            ...(target ? { target } : {}),
+            revisions: [planningRevision(legacyDraft, document ? 'anchor' : 'author', updatedAt)]
+          }
+        ]
+      : []
+  return {
+    schema_version: 2,
+    id,
+    module,
+    created_at: createdAt,
+    updated_at: updatedAt,
+    messages,
+    proposal: legacyDraft,
+    proposals,
+    selected_proposal_id: proposalId,
+    ...(document ? { document, anchor_proposal_id: proposalId! } : {})
+  }
+}
+
+function isPlanningDocumentRef(value: unknown): value is NonNullable<PlanningSession['document']> {
+  if (!value || typeof value !== 'object') return false
+  const item = value as Record<string, unknown>
+  return (
+    typeof item['path'] === 'string' &&
+    typeof item['id'] === 'string' &&
+    PLANNING_DOCUMENT_KINDS.includes(item['type'] as PlanningDocumentKind)
+  )
+}
+
+function planningHashConflict(
+  proposal: PlanningProposal,
+  currentSha256: string,
+  currentSource: string
+): Error {
+  const target = proposal.target!
+  const proposedSource = [
+    `title: ${proposal.draft.title}`,
+    `type: ${proposal.draft.kind}`,
+    JSON.stringify(proposal.draft.fields, null, 2),
+    '',
+    proposal.draft.content
+  ].join('\n')
+  const error = new Error(
+    [
+      `Planning card changed outside this conversation: ${target.id}.`,
+      `Expected SHA-256: ${target.expected_sha256}`,
+      `Current SHA-256: ${currentSha256}`,
+      'No project document was written.',
+      '',
+      '--- current external file',
+      boundedPlanningConflictPreview(currentSource),
+      '+++ proposed card',
+      boundedPlanningConflictPreview(proposedSource),
+      '',
+      'Reopen the card after reviewing this difference preview.'
+    ].join('\n')
+  ) as Error & {
+    code: string
+    expected_sha256: string
+    current_sha256: string
+    path: string
+  }
+  error.name = 'PlanningHashConflictError'
+  error.code = 'PLANNING_HASH_CONFLICT'
+  error.expected_sha256 = target.expected_sha256
+  error.current_sha256 = currentSha256
+  error.path = target.path
+  return error
+}
+
+function boundedPlanningConflictPreview(value: string): string {
+  const normalized = value.trim() || '(empty)'
+  return normalized.length > 1_500 ? `${normalized.slice(0, 1_500)}\n… [preview truncated]` : normalized
 }
 
 function planningSessionPath(root: string, sessionId: string): string {

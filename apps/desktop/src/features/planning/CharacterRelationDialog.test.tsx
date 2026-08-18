@@ -51,7 +51,8 @@ describe('CharacterRelationDialog', () => {
     expect(html).toContain('关系名称')
     expect(html).toContain('从本节点起生效')
     expect(html).toContain('到本节点前有效')
-    expect(html.indexOf('元年一月')).toBeLessThan(html.indexOf('元年三月'))
+    expect(html).toContain('role="combobox"')
+    expect(html).toContain('初见 · 时间节点 · time-1')
   })
 
   it('requires a strictly later exclusive end node', () => {

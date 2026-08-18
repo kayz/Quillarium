@@ -1,8 +1,8 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import { pathExists, readText } from './fs.js'
-import { loadProject } from './project.js'
+import { ensureDir, pathExists, readText } from './fs.js'
+import { loadProject, stableProjectId } from './project.js'
 import { workspaceManifestV1Schema } from './schema.js'
 import type {
   LoadedWorkspace,
@@ -15,6 +15,59 @@ import type {
 import { objectToYaml, parseMarkdown } from './yaml.js'
 
 export const WORKSPACE_MANIFEST_FILE = 'quillarium-workspace.yaml'
+
+export interface EnsureWorkspaceOptions {
+  id?: string
+  projects_dir?: string
+}
+
+/**
+ * Register an ordinary local directory as a Quillarium writing workspace.
+ * Existing manifests are only loaded and never rewritten. A new workspace
+ * contains no credentials or Git/GitHub configuration.
+ */
+export async function ensureWorkspaceAt(
+  root: string,
+  options: EnsureWorkspaceOptions = {}
+): Promise<LoadedWorkspace> {
+  const absoluteRoot = path.resolve(root)
+  await ensureDir(absoluteRoot)
+  const rootInfo = await stat(absoluteRoot)
+  if (!rootInfo.isDirectory()) throw new Error(`Workspace root is not a directory: ${absoluteRoot}`)
+
+  const manifestPath = path.join(absoluteRoot, WORKSPACE_MANIFEST_FILE)
+  if (await pathExists(manifestPath)) return loadWorkspace(absoluteRoot)
+
+  const projectsDir = options.projects_dir ?? 'projects'
+  const projectsRoot = resolveWorkspacePath(absoluteRoot, projectsDir, 'projects_dir')
+  await ensureDir(projectsRoot)
+  const rootReal = await realpath(absoluteRoot)
+  const projectsReal = await realpath(projectsRoot)
+  assertPathWithin(rootReal, projectsReal, 'projects_dir resolves outside the workspace')
+
+  const manifest = workspaceManifestV1Schema.parse({
+    schema_version: 1,
+    id: options.id ?? stableProjectId(path.basename(absoluteRoot) || 'local-workspace'),
+    projects_dir: normalizeManifestPath(projectsDir),
+    projects: [],
+    shared_guidance: []
+  }) as WorkspaceManifestV1
+  const content = `${objectToYaml(manifest as unknown as Record<string, unknown>)}\n`
+  let created = false
+  try {
+    await writeFile(manifestPath, content, { encoding: 'utf8', flag: 'wx' })
+    created = true
+  } catch (error) {
+    if (!hasErrorCode(error, 'EEXIST')) throw error
+  }
+
+  try {
+    return await loadWorkspace(absoluteRoot)
+  } catch (error) {
+    if (created) await rm(manifestPath, { force: true })
+    throw error
+  }
+}
 
 export async function loadWorkspace(root: string): Promise<LoadedWorkspace> {
   const absoluteRoot = path.resolve(root)
@@ -265,6 +318,10 @@ function samePath(left: string, right: string): boolean {
   return process.platform === 'win32'
     ? left.toLocaleLowerCase('en-US') === right.toLocaleLowerCase('en-US')
     : left === right
+}
+
+function hasErrorCode(error: unknown, code: string): boolean {
+  return typeof error === 'object' && error !== null && 'code' in error && error.code === code
 }
 
 async function atomicReplaceText(file: string, content: string): Promise<void> {

@@ -1,6 +1,6 @@
 {
   "name": "@quillarium/core",
-  "version": "0.2.0-alpha.2",
+  "version": "0.2.1",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
@@ -13,6 +13,10 @@
     "./planning-cards": {
       "types": "./dist/planning-cards.d.ts",
       "import": "./dist/planning-cards.js"
+    },
+    "./assistant-workflows": {
+      "types": "./dist/assistant-workflows.d.ts",
+      "import": "./dist/assistant-workflows.js"
     }
   },
   "scripts": {

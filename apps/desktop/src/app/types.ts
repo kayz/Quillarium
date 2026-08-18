@@ -1,4 +1,5 @@
 export type { CheckReport } from '@quillarium/checks'
+export type { PlanningCheckScope } from '@quillarium/agent-runtime'
 
 export type ThemeName = 'paper' | 'ink' | 'mist' | 'bamboo'
 export type ModuleName =
@@ -13,6 +14,7 @@ export type ModuleName =
   | 'narrative'
   | 'locations'
   | 'runs'
+  | 'assistants'
 export type CenterTab = 'editor' | 'outline' | 'beats'
 export type WorkLevel = 'overview' | 'book' | 'volume' | 'part' | 'act' | 'chapter' | 'ai'
 export type ViewMode = 'list' | 'tile'
@@ -63,14 +65,41 @@ export interface PlanningDraft {
   content: string
 }
 
+export type PlanningProposalOperation = 'create' | 'update'
+export type PlanningProposalStatus = 'draft' | 'confirmed' | 'applied'
+
+export interface PlanningProposal {
+  id: string
+  operation: PlanningProposalOperation
+  source: 'anchor' | 'ai' | 'author'
+  status: PlanningProposalStatus
+  draft: PlanningDraft
+  target?: {
+    path: string
+    id: string
+    type: PlanningDocumentKind
+    expected_sha256: string
+  }
+  revisions: Array<{
+    id: string
+    created_at: string
+    source: 'anchor' | 'ai' | 'author'
+    content_sha256: string
+  }>
+  validation_error?: string
+}
+
 export interface PlanningSession {
-  schema_version: 1
+  schema_version: 2
   id: string
   module: string
   created_at: string
   updated_at: string
   messages: PlanningChatMessage[]
   proposal: PlanningDraft | null
+  proposals: PlanningProposal[]
+  selected_proposal_id: string | null
+  anchor_proposal_id?: string
   document?: {
     path: string
     id: string
@@ -85,6 +114,7 @@ export interface AIProfileForm {
   model: string
   temperature: number
   maxTokens: number
+  contextWindowTokens: number
 }
 
 export interface AIStatus {
@@ -105,11 +135,21 @@ export interface ProjectListItem {
   id: string
   aliases: string[]
   title: string
+  synopsis?: string
   genre: string
   target_words: number
   chapter_words: number
   section_words: number
   default_theme?: ThemeName
+  cover?: {
+    original_path: string
+    thumbnail_path: string
+    export_png_path: string
+    focus_x: number
+    focus_y: number
+    source_width: number
+    source_height: number
+  } | null
 }
 
 export interface DocEntry {

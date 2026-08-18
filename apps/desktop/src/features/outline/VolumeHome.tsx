@@ -16,13 +16,14 @@ import {
 import type {
   DocEntry,
   LanguageName,
+  PlanningCheckScope,
   ProjectListItem,
   TargetSelection,
   ViewMode,
   VolumeSection
 } from '../../app/types.js'
 import { t } from '../../app/i18n.js'
-import { filterDocs, outlineSortKey } from '../../shared/outline.js'
+import { compareStoryEntries, filterDocs } from '../../shared/outline.js'
 import {
   applyVolumeScope,
   countVolumeSection,
@@ -41,6 +42,8 @@ import {
 import { MarkdownBodyEditor } from '../markdown/MarkdownBodyEditor.js'
 import { isAIPlanningContext } from '../planning/planning-model.js'
 import { clampPaneSize, SplitHandle } from '../layout/SplitHandle.js'
+import { BoundedPager } from '../layout/BoundedPager.js'
+import { boundedPage } from '../layout/bounded-page.js'
 import { OutlineCreateDialog } from './OutlineCreateDialog.js'
 import { EditableDocumentTitle } from './EditableDocumentTitle.js'
 import { enumChoiceLabel } from '../metadata/field-presentation.js'
@@ -77,6 +80,7 @@ export function VolumeHome({
   onDelete,
   onOpenExternal,
   onReloadDoc,
+  onReloadProject,
   onDocChange,
   onInspectTag,
   onSave,
@@ -109,22 +113,25 @@ export function VolumeHome({
   onCreate: (kind: string, input: Record<string, unknown>) => Promise<void>
   onAIPlanningCreate: (section: VolumeSection) => void
   onAIEditCard: (doc: DocEntry) => void
-  onPlanningCheck: () => Promise<void>
+  onPlanningCheck: (scope: PlanningCheckScope) => Promise<void>
   onDelete: () => Promise<void>
   onOpenExternal: () => Promise<void>
   onReloadDoc: () => Promise<void>
+  onReloadProject: () => Promise<void>
   onDocChange: (doc: { data: Record<string, unknown>; content: string; path: string }) => void
   onInspectTag: (tag: string, displayValue?: string) => void
   onSave: () => Promise<void>
   onImport: () => void
   language: LanguageName
 }) {
+  const listPageSize = viewMode === 'tile' ? 24 : 48
   const shellRef = useRef<HTMLDivElement | null>(null)
   const detailSplitRef = useRef<HTMLDivElement | null>(null)
   const [navigationWidth, setNavigationWidth] = React.useState(280)
   const [detailMetadataPct, setDetailMetadataPct] = React.useState(38)
   const [createSection, setCreateSection] = React.useState<VolumeSection | null>(null)
   const [creating, setCreating] = React.useState(false)
+  const [collectionPage, setCollectionPage] = React.useState(0)
   const zh = language === 'zh'
   const section = VOLUME_SECTIONS.find((item) => item.id === activeSection) ?? VOLUME_SECTIONS[0]
   const sectionHeading = zh ? section.heading : section.enHeading
@@ -135,11 +142,27 @@ export function VolumeHome({
         (item.data.level === 'part' || item.data.level === 'arc') &&
         item.data.parent === volume.data.id
     )
-    .sort((a, b) => outlineSortKey(a).localeCompare(outlineSortKey(b)))
-  const items = filterDocs(volumeSectionDocs(docs, volume, activeSection), search)
+    .sort(compareStoryEntries)
+  const deferredSearch = React.useDeferredValue(search)
+  const sectionItems = React.useMemo(
+    () => volumeSectionDocs(docs, volume, activeSection),
+    [activeSection, docs, volume]
+  )
+  const items = React.useMemo(() => filterDocs(sectionItems, deferredSearch), [deferredSearch, sectionItems])
+  const timelineNodes = React.useMemo(() => docs.filter((item) => item.data.type === 'timeline_node'), [docs])
+  const itemPage = boundedPage(items, collectionPage, listPageSize)
   const selected = selectedTarget
     ? docs.find((item) => item.data.id === selectedTarget.id && item.data.type === selectedTarget.type)
     : null
+
+  React.useEffect(() => {
+    const selectedIndex = selectedTarget
+      ? items.findIndex(
+          (item) => item.data.id === selectedTarget.id && item.data.type === selectedTarget.type
+        )
+      : -1
+    setCollectionPage(selectedIndex >= 0 ? Math.floor(selectedIndex / listPageSize) : 0)
+  }, [activeSection, items, listPageSize, selectedTarget?.id, selectedTarget?.type, volume.data.id])
 
   const createCurrent = (requestedSection: VolumeSection = activeSection) => {
     if (isAIPlanningContext(requestedSection)) {
@@ -171,9 +194,13 @@ export function VolumeHome({
           <button
             className="planning-check-button"
             type="button"
-            onClick={() => void onPlanningCheck()}
+            onClick={() => void onPlanningCheck('project')}
             disabled={busy}
-            title={zh ? '用 AI 检查所有已启用的规划卡片' : 'Check all enabled planning cards with AI'}
+            title={
+              zh
+                ? '检查全项目确定性规划（不检查世界书与参考资料）'
+                : 'Check deterministic project planning, excluding world books and references'
+            }
           >
             <ShieldCheck size={15} />
             {leftOpen && <span>{busy ? (zh ? '检查中…' : 'Checking…') : zh ? 'AI 检查' : 'AI check'}</span>}
@@ -305,15 +332,20 @@ export function VolumeHome({
           </div>
           {activeSection === 'timeline' ? (
             <TimelineChainView
-              items={items}
+              items={docs.filter(
+                (item) => item.data.type === 'timeline_node' || item.data.type === 'timeline_event'
+              )}
               selectedTarget={selectedTarget}
               onSelect={onSelect}
+              projectRoot={project.root}
+              onReloadProject={onReloadProject}
+              onPlanningCheck={() => onPlanningCheck('timeline')}
               language={language}
             />
           ) : activeSection === 'characters' ? (
             <CharacterRelationView
               items={items}
-              timelineNodes={docs.filter((item) => item.data.type === 'timeline_node')}
+              timelineNodes={timelineNodes}
               selectedTarget={selectedTarget}
               onSelect={onSelect}
               language={language}
@@ -326,40 +358,58 @@ export function VolumeHome({
               language={language}
             />
           ) : (
-            <div className={viewMode === 'tile' ? 'outline-tile-grid' : 'outline-list'}>
-              {items.map((item) => (
-                <button
-                  key={item.data.id}
-                  className={`outline-item ${item.data.enabled === false ? 'disabled-card' : ''} ${selectedTarget?.id === item.data.id ? 'active' : ''}`}
-                  onClick={() => onSelect({ type: item.data.type, id: item.data.id })}
-                >
-                  <span>
-                    <b>{item.data.title}</b>
-                    <small>
-                      {docTypeLabel(item, language)}
-                      {item.data.type === 'reference' ? (
-                        <> · {zh ? '材料来源' : 'Source material'}</>
-                      ) : (
-                        <>
-                          {' · '}
-                          {enumChoiceLabel('status', String(item.data.status ?? 'draft'), language, {
-                            documentType: String(item.data.type)
-                          })}
-                          {item.data.enabled === false ? (zh ? ' · 未启用' : ' · Disabled') : ''}
-                        </>
-                      )}
-                    </small>
-                  </span>
-                  {viewMode === 'list' && <em>{structuredLineForSection(item, language)}</em>}
-                  {viewMode === 'tile' && <StructuredTile doc={item} language={language} />}
-                </button>
-              ))}
-              {!items.length && (
-                <p className="empty-row">
-                  {zh ? '当前卷还没有匹配内容。' : 'No matching records in this volume.'}
-                </p>
-              )}
-            </div>
+            <>
+              <BoundedPager
+                page={itemPage.page}
+                total={itemPage.total}
+                pageSize={itemPage.pageSize}
+                onPage={setCollectionPage}
+                language={language}
+                label={zh ? '本卷卡片分页' : 'Volume card pagination'}
+              />
+              <div className={viewMode === 'tile' ? 'outline-tile-grid' : 'outline-list'}>
+                {itemPage.items.map((item) => (
+                  <button
+                    key={item.data.id}
+                    className={`outline-item ${item.data.enabled === false ? 'disabled-card' : ''} ${selectedTarget?.id === item.data.id ? 'active' : ''}`}
+                    onClick={() => onSelect({ type: item.data.type, id: item.data.id })}
+                  >
+                    <span>
+                      <b>{item.data.title}</b>
+                      <small>
+                        {docTypeLabel(item, language)}
+                        {item.data.type === 'reference' ? (
+                          <> · {zh ? '材料来源' : 'Source material'}</>
+                        ) : (
+                          <>
+                            {' · '}
+                            {enumChoiceLabel('status', String(item.data.status ?? 'draft'), language, {
+                              documentType: String(item.data.type)
+                            })}
+                            {item.data.enabled === false ? (zh ? ' · 未启用' : ' · Disabled') : ''}
+                          </>
+                        )}
+                      </small>
+                    </span>
+                    {viewMode === 'list' && <em>{structuredLineForSection(item, language)}</em>}
+                    {viewMode === 'tile' && <StructuredTile doc={item} language={language} />}
+                  </button>
+                ))}
+                {!items.length && (
+                  <p className="empty-row">
+                    {zh ? '当前卷还没有匹配内容。' : 'No matching records in this volume.'}
+                  </p>
+                )}
+              </div>
+              <BoundedPager
+                page={itemPage.page}
+                total={itemPage.total}
+                pageSize={itemPage.pageSize}
+                onPage={setCollectionPage}
+                language={language}
+                label={zh ? '本卷卡片分页' : 'Volume card pagination'}
+              />
+            </>
           )}
         </div>
         <SplitHandle
@@ -403,13 +453,18 @@ export function VolumeHome({
                     <PlanningCardSupportPanel
                       doc={{ path: doc.path, data: doc.data as DocEntry['data'], content: doc.content }}
                       docs={docs}
+                      projectRoot={project.root}
                       language={language}
                       onSelect={onSelect}
                       onAIEdit={onAIEditCard}
+                      onReload={onReloadProject}
                     />
                     <MetadataEditor
                       data={doc.data}
                       docs={docs}
+                      projectRoot={project.root}
+                      documentPath={doc.path}
+                      onSelectDocument={onSelect}
                       language={language}
                       onInspectTag={onInspectTag}
                       onChange={(data) => onDocChange({ ...doc, data })}
@@ -499,7 +554,6 @@ export function VolumeHome({
                   title,
                   level: 'part',
                   parent: volume.data.id,
-                  order: parts.length,
                   target_words: Math.max(project.chapter_words * 10, 1),
                   content: `## ${title}\n`
                 })

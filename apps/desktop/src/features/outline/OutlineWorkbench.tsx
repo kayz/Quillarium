@@ -46,7 +46,7 @@ export function OutlineWorkbench({
   const relatedWorld = relatedDocs(docs, outline.data.world_entries_used)
   const relatedPatterns = relatedDocs(docs, outline.data.related_patterns)
   const packetCounts = [
-    ['Canon', contextPacket?.canon.length ?? 0],
+    [language === 'zh' ? '正设' : 'Canon', contextPacket?.canon.length ?? 0],
     ['策略', contextPacket?.strategies.length ?? 0],
     ['模式', contextPacket?.patterns.length ?? 0],
     ['时间线', contextPacket?.timeline.length ?? 0],

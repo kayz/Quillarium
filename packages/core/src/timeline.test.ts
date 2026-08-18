@@ -48,6 +48,21 @@ describe('story time', () => {
       precision: 'month',
       fuzzy: true
     })
+    expect(parseStoryTime('第1周周二')).toMatchObject({
+      calendar: 'relative-week',
+      year: 1,
+      month: 1,
+      day: 2,
+      precision: 'day',
+      display_time: '第1周周二'
+    })
+    expect(parseStoryTime('第54周周一')).toMatchObject({
+      calendar: 'relative-week',
+      year: 1,
+      month: 12,
+      day: 31,
+      precision: 'day'
+    })
   })
 
   it('rejects a year-only or unparseable time', () => {

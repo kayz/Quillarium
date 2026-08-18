@@ -158,7 +158,7 @@ export function CanonWorkspace({
     <section className="module-view module-view-full canon-workspace">
       <div className="module-head">
         <div>
-          <h2>Canon</h2>
+          <h2>{t(language, 'canon')}</h2>
           <small>{t(language, 'canonWorkspaceHint')}</small>
         </div>
         <div className="inline-create">
@@ -330,7 +330,7 @@ function formatCanonAIError(err: unknown, language: LanguageName): string {
     return language === 'zh'
       ? [
           'AI 连接失败：请检查背景 AI 的接口地址、API 密钥和网络/代理。',
-          '如果上一轮输出很长，系统已在本次请求中自动裁剪旧讨论；仍失败时可以先点“归纳为 Canon”或手动删掉部分讨论记录后继续。'
+          '如果上一轮输出很长，系统已在本次请求中自动裁剪旧讨论；仍失败时可以先点“归纳为正设”或手动删掉部分讨论记录后继续。'
         ].join('')
       : [
           'AI connection failed. Check the background AI endpoint, API key, and network/proxy.',
@@ -339,7 +339,7 @@ function formatCanonAIError(err: unknown, language: LanguageName): string {
   }
   if (/context|maximum|too large|413|400/i.test(message)) {
     return language === 'zh'
-      ? 'AI 请求过大：请先点“归纳为 Canon”，或删掉部分讨论记录后继续。'
+      ? 'AI 请求过大：请先点“归纳为正设”，或删掉部分讨论记录后继续。'
       : 'AI request is too large. Summarize to Canon or remove part of the transcript before continuing.'
   }
   return formatDesktopError(message, language)

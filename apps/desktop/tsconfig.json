@@ -7,5 +7,6 @@
     "outDir": "dist/renderer",
     "lib": ["ES2022", "DOM", "DOM.Iterable"]
   },
+  "references": [{ "path": "./tsconfig.main.json" }],
   "include": ["src/**/*.ts", "src/**/*.tsx"]
 }

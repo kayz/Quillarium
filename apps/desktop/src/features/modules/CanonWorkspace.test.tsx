@@ -33,11 +33,13 @@ describe('CanonWorkspace field copy', () => {
     )
 
     expect(html).toContain('约束强度')
+    expect(html).toContain('<h2>正设</h2>')
     expect(html).toContain('决定生成与检查时应当多严格地遵守这项设定')
     expect(html).toContain('硬约束')
     expect(html).toContain('作者')
     expect(html).not.toContain('>hard<')
     expect(html).not.toContain('>user<')
+    expect(html).not.toContain('<h2>Canon</h2>')
   })
 
   it('shows English labels and explanations in the English interface', () => {

@@ -6,6 +6,8 @@ import { projectConfigSchema, projectConfigV1Schema } from './schema.js'
 import type { ProjectConfig, ProjectPaths } from './types.js'
 import { ensureDefaultPrompts } from './prompts.js'
 import { ensureDefaultWritingPreset } from './writing-presets.js'
+import { withProjectWriteLock } from './project-write-lock.js'
+import { sha256Text, StaleProjectWriteError } from './versioned-yaml-store.js'
 
 export const PROJECT_DIRS = [
   '.obsidian',
@@ -27,9 +29,13 @@ export const PROJECT_DIRS = [
   'chapters',
   'scenes',
   'prompts',
+  'assistant-prompts',
   'presets',
   'runs',
   'imports',
+  'imports/archive',
+  'assets',
+  'assets/cover',
   'reviews',
   'style',
   'exports',
@@ -40,6 +46,7 @@ export const PROJECT_DIRS = [
 export interface ProjectConfigInput {
   id: string
   title: string
+  synopsis?: string
   aliases?: string[]
   genre?: string
   target_words?: number
@@ -49,6 +56,7 @@ export interface ProjectConfigInput {
   current_timeline_node?: string | null
   writing_preset?: string | null
   default_theme?: ProjectConfig['default_theme']
+  cover?: ProjectConfig['cover']
   schema_version?: 2
 }
 
@@ -105,9 +113,59 @@ export async function createProjectAt(root: string, configInput: ProjectConfigIn
     path.join(absoluteRoot, 'README.md'),
     `# ${config.title}\n\nCreated by Quillarium.\n\nOpen this folder in Obsidian or manage it with the \`quill\` CLI.\n`
   )
+  const ignorePath = path.join(absoluteRoot, '.gitignore')
+  const existingIgnore = (await pathExists(ignorePath)) ? await readText(ignorePath) : ''
+  const ignoreLines = ['.quillarium/', 'exports/', '.obsidian/workspace*.json', '*.tmp']
+  const missingIgnoreLines = ignoreLines.filter(
+    (line) => !existingIgnore.split(/\r?\n/u).some((existing) => existing.trim() === line)
+  )
+  if (missingIgnoreLines.length) {
+    await writeText(
+      ignorePath,
+      `${existingIgnore}${existingIgnore && !existingIgnore.endsWith('\n') ? '\n' : ''}${missingIgnoreLines.join('\n')}\n`
+    )
+  }
   await ensureDefaultPrompts(absoluteRoot)
   if (config.writing_preset) await ensureDefaultWritingPreset(absoluteRoot, config.writing_preset)
   return paths
+}
+
+export async function updateProjectConfig(
+  root: string,
+  patch: Partial<Omit<ProjectConfig, 'id' | 'schema_version'>>,
+  expectedSha256?: string
+): Promise<ProjectConfig> {
+  return withProjectWriteLock(root, async () => {
+    const file = projectPaths(path.resolve(root)).projectFile
+    const raw = await readText(file)
+    if (expectedSha256 && sha256Text(raw) !== expectedSha256) {
+      throw new StaleProjectWriteError('project.yaml')
+    }
+    const current = await loadProject(root)
+    const next = projectConfigSchema.parse({
+      ...current,
+      ...patch,
+      id: current.id,
+      schema_version: 2
+    }) as ProjectConfig
+    validateProjectCoverPaths(next.cover)
+    await writeText(file, `${objectToYaml(next as unknown as Record<string, unknown>)}\n`)
+    return next
+  })
+}
+
+export function validateProjectCoverPaths(cover: ProjectConfig['cover']): void {
+  if (!cover) return
+  for (const value of [cover.original_path, cover.thumbnail_path, cover.export_png_path]) {
+    const normalized = value.replace(/\\/gu, '/')
+    if (
+      path.isAbsolute(value) ||
+      normalized.split('/').includes('..') ||
+      !normalized.startsWith('assets/cover/')
+    ) {
+      throw new Error(`Project cover path must be relative and contained in assets/cover: ${value}`)
+    }
+  }
 }
 
 /**

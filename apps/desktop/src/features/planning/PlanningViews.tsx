@@ -1,16 +1,30 @@
-import { useEffect, useMemo, useState, type CSSProperties } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import {
   ArrowRight,
   CalendarClock,
   CalendarPlus2,
+  CheckCircle2,
+  GripVertical,
   History,
+  Layers3,
   Link2,
   Map as MapIcon,
   Plus,
   Users
 } from 'lucide-react'
+import type { StoryTimeImportPlanV1, TimelineCatalogV1, TimelineDeterministicIssueV1 } from '@quillarium/core'
 import type { DocEntry, LanguageName, TargetSelection } from '../../app/types.js'
 import { documentTypeLabel, enumChoiceLabel, fieldLabel } from '../metadata/field-presentation.js'
+import { PlanningCardSelector } from './PlanningCardSelector.js'
+import { TimelineRailBoard } from './TimelineRailBoard.js'
+import { buildTimelineBoard, inferTimelineTracks } from './timeline-board-model.js'
+import {
+  buildCharacterRelationEgoGraph,
+  layoutCharacterRelationEgoGraph,
+  nextGraphPaneSize,
+  personPointerAction,
+  resolveEgoCharacterId
+} from './character-relation-graph.js'
 
 export interface TimelineLane {
   node: DocEntry
@@ -55,27 +69,90 @@ export interface LocationExplorerModel {
 
 const LOCATION_SCALE_ORDER = ['global', 'region', 'city', 'district', 'estate', 'interior'] as const
 
-export function buildTimelineLanes(items: DocEntry[]): {
+export function buildTimelineLanes(
+  items: DocEntry[],
+  trackId = 'main'
+): {
   lanes: TimelineLane[]
   unattached: DocEntry[]
 } {
   const nodes = items
     .filter((item) => item.data.type === 'timeline_node')
+    .filter((item) => timelineNodeBelongsToTrack(item, trackId))
     .slice()
-    .sort(compareTimelineEntries)
+    .sort((left, right) => compareTimelineEntriesForTrack(left, right, trackId))
   const events = items.filter((item) => item.data.type === 'timeline_event')
   const nodeIds = new Set(nodes.map((node) => node.data.id))
   return {
     lanes: nodes.map((node) => ({
       node,
       events: events
-        .filter((event) => event.data.timeline_node === node.data.id)
-        .sort((left, right) => left.data.title.localeCompare(right.data.title))
+        .filter((event) => timelineEventStartNode(event, trackId) === node.data.id)
+        .sort((left, right) => compareTimelineEventsForTrack(left, right, trackId))
     })),
-    unattached: events.filter(
-      (event) => !event.data.timeline_node || !nodeIds.has(String(event.data.timeline_node))
+    unattached: events.filter((event) => {
+      const start = timelineEventStartNode(event, trackId)
+      return !start || !nodeIds.has(start)
+    })
+  }
+}
+
+function timelineNodeBelongsToTrack(node: DocEntry, trackId: string): boolean {
+  const placements = Array.isArray(node.data.timeline_tracks) ? node.data.timeline_tracks : []
+  if (!placements.length) return trackId === 'main'
+  return placements.some(
+    (placement) => isRecordValue(placement) && String(placement.timeline_id ?? '') === trackId
+  )
+}
+
+function timelineNodePlacement(node: DocEntry, trackId: string): Record<string, unknown> | undefined {
+  return (Array.isArray(node.data.timeline_tracks) ? node.data.timeline_tracks : []).find(
+    (placement) => isRecordValue(placement) && String(placement.timeline_id ?? '') === trackId
+  ) as Record<string, unknown> | undefined
+}
+
+function timelineEventPlacement(event: DocEntry, trackId: string): Record<string, unknown> | undefined {
+  return (Array.isArray(event.data.placements) ? event.data.placements : []).find(
+    (placement) => isRecordValue(placement) && String(placement.timeline_id ?? '') === trackId
+  ) as Record<string, unknown> | undefined
+}
+
+function timelineEventStartNode(event: DocEntry, trackId: string): string | null {
+  const placement = timelineEventPlacement(event, trackId)
+  if (placement) return String(placement.start_node_id ?? '') || null
+  if (trackId === 'main' && !(Array.isArray(event.data.placements) && event.data.placements.length)) {
+    return typeof event.data.timeline_node === 'string' ? event.data.timeline_node : null
+  }
+  return null
+}
+
+function compareTimelineEntriesForTrack(left: DocEntry, right: DocEntry, trackId: string): number {
+  const leftPlacement = timelineNodePlacement(left, trackId)
+  const rightPlacement = timelineNodePlacement(right, trackId)
+  if (leftPlacement || rightPlacement) {
+    return (
+      Number(leftPlacement?.order ?? Number.MAX_SAFE_INTEGER) -
+        Number(rightPlacement?.order ?? Number.MAX_SAFE_INTEGER) ||
+      Number(leftPlacement?.narrative_order ?? Number.MAX_SAFE_INTEGER) -
+        Number(rightPlacement?.narrative_order ?? Number.MAX_SAFE_INTEGER) ||
+      left.data.id.localeCompare(right.data.id, 'en')
     )
   }
+  return compareTimelineEntries(left, right)
+}
+
+function compareTimelineEventsForTrack(left: DocEntry, right: DocEntry, trackId: string): number {
+  const leftPlacement = timelineEventPlacement(left, trackId)
+  const rightPlacement = timelineEventPlacement(right, trackId)
+  return (
+    Number(leftPlacement?.order ?? 0) - Number(rightPlacement?.order ?? 0) ||
+    Number(leftPlacement?.narrative_order ?? 0) - Number(rightPlacement?.narrative_order ?? 0) ||
+    left.data.id.localeCompare(right.data.id, 'en')
+  )
+}
+
+function isRecordValue(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value)
 }
 
 export function characterRelationSnapshot(
@@ -241,6 +318,9 @@ export function TimelineChainView({
   onSelect,
   onCreateCoordinate,
   onCreateCoordinateFromEvent,
+  projectRoot,
+  onReloadProject,
+  onPlanningCheck,
   language
 }: {
   items: DocEntry[]
@@ -248,83 +328,231 @@ export function TimelineChainView({
   onSelect: (target: TargetSelection) => void
   onCreateCoordinate?: () => void
   onCreateCoordinateFromEvent?: (event: DocEntry) => void
+  projectRoot?: string
+  onReloadProject?: () => Promise<void>
+  onPlanningCheck?: () => Promise<void>
   language: LanguageName
 }) {
   const zh = language === 'zh'
-  const { lanes, unattached } = buildTimelineLanes(items)
+  const [catalog, setCatalog] = useState<TimelineCatalogV1>()
+  const [selectedTrackId, setSelectedTrackId] = useState('main')
+  const [dragged, setDragged] = useState<{ kind: 'track'; id: string } | undefined>()
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [storyPlan, setStoryPlan] = useState<StoryTimeImportPlanV1>()
+  const [approvedStorySuggestions, setApprovedStorySuggestions] = useState<Set<string>>(new Set())
+  const [ambiguityAnswers, setAmbiguityAnswers] = useState<Record<string, string>>({})
+  const [checkIssues, setCheckIssues] = useState<TimelineDeterministicIssueV1[]>()
+  const tracks = catalog?.tracks ?? []
+  const selectedTrack = tracks.find((track) => track.value.id === selectedTrackId) ?? tracks[0]
+  const effectiveTrackId = selectedTrack?.value.id ?? selectedTrackId
+  const boardTracks = useMemo(() => {
+    const catalogTracks = (catalog?.tracks ?? []).map((track) => ({
+      id: track.value.id,
+      title: track.value.title
+    }))
+    if (catalogTracks.length) return catalogTracks
+    const inferred = inferTimelineTracks(items)
+    if (inferred.length) return inferred
+    return [{ id: 'main', title: zh ? '主时间线' : 'Main timeline' }]
+  }, [catalog, items, zh])
+  const board = useMemo(() => buildTimelineBoard(items, boardTracks), [boardTracks, items])
+  const unattached = useMemo(() => {
+    const attachedIds = new Set<string>()
+    for (const station of board.stations) {
+      for (const event of station.pointEvents) attachedIds.add(event.eventId)
+    }
+    for (const overlay of board.overlays) attachedIds.add(overlay.eventId)
+    return items.filter((item) => item.data.type === 'timeline_event' && !attachedIds.has(item.data.id))
+  }, [board, items])
+
+  useEffect(() => {
+    let active = true
+    if (!projectRoot) return () => undefined
+    void window.quillarium
+      .loadTimelineCatalog(projectRoot)
+      .then((loaded) => {
+        if (!active) return
+        setCatalog(loaded)
+        if (!loaded.tracks.some((track) => track.value.id === selectedTrackId)) {
+          setSelectedTrackId(loaded.tracks[0]?.value.id ?? 'main')
+        }
+      })
+      .catch((cause) => {
+        if (active) setError(cause instanceof Error ? cause.message : String(cause))
+      })
+    return () => {
+      active = false
+    }
+  }, [projectRoot, items.length])
+
+  const afterMutation = async () => {
+    if (!projectRoot) return
+    await onReloadProject?.()
+    setCatalog(await window.quillarium.loadTimelineCatalog(projectRoot))
+  }
+
+  const runMutation = async (action: () => Promise<unknown>) => {
+    setBusy(true)
+    setError('')
+    try {
+      await action()
+      await afterMutation()
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      setBusy(false)
+      setDragged(undefined)
+    }
+  }
+
   return (
     <section className="timeline-chain-workbench">
       <header className="planning-view-intro">
-        <CalendarClock size={18} />
+        <Layers3 size={18} />
         <div>
-          <strong>{zh ? '时间主链' : 'Timeline chain'}</strong>
+          <strong>{zh ? '时间体系与叙事轨道' : 'Time systems and narrative tracks'}</strong>
           <small>
             {zh
-              ? '节点顺序唯一；同一时间点的多个事件并列显示。'
-              : 'Nodes have one fixed order; concurrent events share a node.'}
+              ? '画板同时显示各条轨道。点选站点或事件卡片即可编辑；尚未挂到节点上的事件列在下方。'
+              : 'The board shows every track at once. Select a station or event card to edit. Unattached events stay in the list below.'}
           </small>
         </div>
-      </header>
-      <div className={`timeline-chain-scroll ${lanes.length ? '' : 'empty'}`}>
-        {lanes.map(({ node, events }, index) => (
-          <article
-            className={`timeline-node-lane ${node.data.enabled === false ? 'disabled-card' : ''}`}
-            key={node.data.id}
-          >
+        <div className="timeline-toolbar">
+          {projectRoot && (
             <button
-              className={`timeline-node-card ${selectedTarget?.id === node.data.id ? 'active' : ''}`}
-              onClick={() => onSelect({ type: 'timeline_node', id: node.data.id })}
+              type="button"
+              onClick={() => {
+                setBusy(true)
+                setError('')
+                void window.quillarium
+                  .checkTimelineDeterministically(projectRoot)
+                  .then(setCheckIssues)
+                  .catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)))
+                  .finally(() => setBusy(false))
+              }}
             >
-              <small>{zh ? `节点 ${index + 1}` : `Node ${index + 1}`}</small>
-              <strong>{timelineEntryLabel(node)}</strong>
-              <span>{node.data.title}</span>
-              <em>
-                {fieldLabel('precision', language)}：
-                {enumChoiceLabel('precision', String(node.data.precision ?? 'month'), language)}
-              </em>
+              <CheckCircle2 size={14} /> {zh ? '规则检查' : 'Rule check'}
             </button>
-            {index < lanes.length - 1 && (
-              <div className="timeline-chain-arrow" aria-hidden="true">
-                <ArrowRight size={17} />
-              </div>
-            )}
-            <div className="timeline-concurrent-events">
-              {events.map((event) => (
-                <button
-                  key={event.data.id}
-                  className={`${selectedTarget?.id === event.data.id ? 'active' : ''} ${event.data.enabled === false ? 'disabled-card' : ''}`}
-                  onClick={() => onSelect({ type: 'timeline_event', id: event.data.id })}
-                >
-                  <span>{event.data.title}</span>
-                  <small>{zh ? '同时事件' : 'Concurrent event'}</small>
-                </button>
-              ))}
-              {!events.length && <small>{zh ? '暂无挂载事件' : 'No attached events'}</small>}
+          )}
+          {onPlanningCheck && (
+            <button type="button" onClick={() => void onPlanningCheck()}>
+              {zh ? 'AI 语义检查' : 'AI semantic check'}
+            </button>
+          )}
+        </div>
+      </header>
+
+      {!!tracks.length && (
+        <div
+          className="timeline-track-tabs"
+          role="tablist"
+          aria-label={zh ? '时间线轨道' : 'Timeline tracks'}
+        >
+          {tracks.map((track, index) => (
+            <div
+              key={track.value.id}
+              className={`timeline-track-tab ${effectiveTrackId === track.value.id ? 'active' : ''}`}
+              onDragOver={(event) => event.preventDefault()}
+              onDrop={() => {
+                if (!projectRoot || !dragged || dragged.id === track.value.id) return
+                const persistedTracks = tracks.filter((item) => !item.virtual)
+                if (persistedTracks.length !== tracks.length) {
+                  setError(
+                    zh
+                      ? '请先完成旧时间线迁移，再调整轨道顺序。'
+                      : 'Migrate the legacy timeline before reordering tracks.'
+                  )
+                  return
+                }
+                const ordered = moveIdentifier(
+                  tracks.map((item) => item.value.id),
+                  dragged.id,
+                  track.value.id
+                )
+                void runMutation(() =>
+                  window.quillarium.reorderTimelineTracks(
+                    projectRoot,
+                    ordered,
+                    Object.fromEntries(tracks.map((item) => [item.value.id, item.source_sha256]))
+                  )
+                )
+              }}
+            >
+              <button
+                type="button"
+                draggable={!track.virtual}
+                className="timeline-drag-handle"
+                aria-label={zh ? `拖动轨道 ${track.value.title}` : `Drag track ${track.value.title}`}
+                onDragStart={() => setDragged({ kind: 'track', id: track.value.id })}
+                onKeyDown={(event) => {
+                  if (!projectRoot || track.virtual || !['ArrowUp', 'ArrowDown'].includes(event.key)) return
+                  event.preventDefault()
+                  const target = tracks[index + (event.key === 'ArrowUp' ? -1 : 1)]
+                  if (!target || target.virtual) return
+                  const ordered = moveIdentifier(
+                    tracks.map((item) => item.value.id),
+                    track.value.id,
+                    target.value.id
+                  )
+                  void runMutation(() =>
+                    window.quillarium.reorderTimelineTracks(
+                      projectRoot,
+                      ordered,
+                      Object.fromEntries(tracks.map((item) => [item.value.id, item.source_sha256]))
+                    )
+                  )
+                }}
+              >
+                <GripVertical size={14} />
+              </button>
+              <button type="button" role="tab" onClick={() => setSelectedTrackId(track.value.id)}>
+                <strong>{track.value.title}</strong>
+                <small>{track.value.purpose}</small>
+              </button>
             </div>
-          </article>
-        ))}
-        {!lanes.length && (
-          <button className="timeline-empty-callout" type="button" onClick={onCreateCoordinate}>
-            <CalendarClock size={21} />
-            <div>
-              <strong>{zh ? '建立第一个时间节点' : 'Create the first timeline node'}</strong>
-              <small>
-                {zh
-                  ? '点击建立坐标；也可以直接使用下方事件已有的“故事时间”。'
-                  : 'Create a coordinate, or reuse Story time from an existing event below.'}
-              </small>
-            </div>
-            <CalendarPlus2 size={17} />
-          </button>
-        )}
-      </div>
+          ))}
+        </div>
+      )}
+
+      {projectRoot && catalog && (
+        <TimelineConfigurationPanel
+          projectRoot={projectRoot}
+          catalog={catalog}
+          language={language}
+          busy={busy}
+          runMutation={runMutation}
+        />
+      )}
+
+      <TimelineRailBoard
+        model={board}
+        selectedTarget={selectedTarget}
+        onSelect={onSelect}
+        language={language}
+      />
+
+      {!board.stations.length && onCreateCoordinate && (
+        <button className="timeline-empty-callout" type="button" onClick={onCreateCoordinate}>
+          <CalendarClock size={21} />
+          <div>
+            <strong>{zh ? '建立第一个时间节点' : 'Create the first timeline node'}</strong>
+            <small>
+              {zh
+                ? '点击建立坐标；也可以直接使用下方事件已有的“故事时间”。'
+                : 'Create a coordinate, or reuse Story time from an existing event below.'}
+            </small>
+          </div>
+          <CalendarPlus2 size={17} />
+        </button>
+      )}
       {!!unattached.length && (
         <section className="timeline-unattached">
           <strong>{zh ? '待挂载事件' : 'Unattached events'}</strong>
           <small>
             {zh
-              ? '这些事件尚未选择时间节点，不会进入主链。'
-              : 'These events do not have a valid timeline node and are outside the main chain.'}
+              ? '这些事件尚未挂到时间节点上，不会出现在画板里。'
+              : 'These events are not placed on a timeline node yet, so they stay off the board.'}
           </small>
           <div className="timeline-unattached-list">
             {unattached.map((event) => (
@@ -356,8 +584,353 @@ export function TimelineChainView({
           </div>
         </section>
       )}
+      {projectRoot && (
+        <StoryTimeImportPreview
+          projectRoot={projectRoot}
+          language={language}
+          plan={storyPlan}
+          setPlan={(plan) => {
+            setStoryPlan(plan)
+            setApprovedStorySuggestions(new Set(plan?.suggestions.map((item) => item.suggestion_id) ?? []))
+            setAmbiguityAnswers({})
+          }}
+          approved={approvedStorySuggestions}
+          setApproved={setApprovedStorySuggestions}
+          ambiguityAnswers={ambiguityAnswers}
+          setAmbiguityAnswers={setAmbiguityAnswers}
+          busy={busy}
+          runMutation={runMutation}
+        />
+      )}
+      {checkIssues && (
+        <section className="timeline-check-results" aria-live="polite">
+          <strong>
+            {zh
+              ? `确定性时间轴检查：${checkIssues.length} 项`
+              : `Deterministic timeline check: ${checkIssues.length}`}
+          </strong>
+          {checkIssues.length ? (
+            <ul>
+              {checkIssues.map((issue, index) => (
+                <li key={`${issue.code}:${index}`} className={issue.severity}>
+                  <b>{issue.code}</b> · {issue.summary}
+                  <small>{issue.evidence.join('；')}</small>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p>{zh ? '没有发现确定性时间轴问题。' : 'No deterministic timeline issues found.'}</p>
+          )}
+        </section>
+      )}
+      {error && (
+        <p className="timeline-local-error" role="alert">
+          {error}
+        </p>
+      )}
+      {busy && <p className="timeline-busy">{zh ? '正在处理并验证…' : 'Working and verifying…'}</p>}
     </section>
   )
+}
+
+function TimelineConfigurationPanel({
+  projectRoot,
+  catalog,
+  language,
+  busy,
+  runMutation
+}: {
+  projectRoot: string
+  catalog: TimelineCatalogV1
+  language: LanguageName
+  busy: boolean
+  runMutation: (action: () => Promise<unknown>) => Promise<void>
+}) {
+  const zh = language === 'zh'
+  const [systemTitle, setSystemTitle] = useState('')
+  const [systemKind, setSystemKind] = useState<'gregorian' | 'fictional' | 'relative' | 'cyclic'>('fictional')
+  const [unitText, setUnitText] = useState('年,月,日,时辰,分钟')
+  const [trackTitle, setTrackTitle] = useState('')
+  const [trackSystemId, setTrackSystemId] = useState(catalog.time_systems[0]?.value.id ?? 'legacy-story')
+  const [trackPurpose, setTrackPurpose] = useState('')
+  useEffect(() => {
+    if (!catalog.time_systems.some((item) => item.value.id === trackSystemId)) {
+      setTrackSystemId(catalog.time_systems[0]?.value.id ?? 'legacy-story')
+    }
+  }, [catalog.time_systems, trackSystemId])
+  return (
+    <details className="timeline-configuration-panel">
+      <summary>{zh ? '管理时间体系与轨道' : 'Manage time systems and tracks'}</summary>
+      <div className="timeline-system-list">
+        {catalog.time_systems.map((system) => (
+          <span key={system.value.id}>
+            <b>{system.value.title}</b>
+            <small>
+              {system.value.kind} · {system.value.units.map((unit) => unit.label).join(' / ')}
+              {system.virtual ? (zh ? ' · 兼容虚拟项' : ' · virtual fallback') : ''}
+            </small>
+          </span>
+        ))}
+      </div>
+      <div className="timeline-config-grid">
+        <section>
+          <strong>{zh ? '新增版本化时间体系' : 'New versioned time system'}</strong>
+          <label>
+            <span>{zh ? '名称' : 'Title'}</span>
+            <input value={systemTitle} onChange={(event) => setSystemTitle(event.target.value)} />
+          </label>
+          <label>
+            <span>{zh ? '类型' : 'Kind'}</span>
+            <select
+              value={systemKind}
+              onChange={(event) =>
+                setSystemKind(event.target.value as 'gregorian' | 'fictional' | 'relative' | 'cyclic')
+              }
+            >
+              <option value="gregorian">{zh ? '公历' : 'Gregorian'}</option>
+              <option value="fictional">{zh ? '架空历法' : 'Fictional'}</option>
+              <option value="relative">{zh ? '相对时间' : 'Relative'}</option>
+              <option value="cyclic">{zh ? '循环时间' : 'Cyclic'}</option>
+            </select>
+          </label>
+          <label>
+            <span>{zh ? '时间单位（逗号分隔）' : 'Units (comma-separated)'}</span>
+            <input value={unitText} onChange={(event) => setUnitText(event.target.value)} />
+          </label>
+          <button
+            type="button"
+            disabled={busy || !systemTitle.trim() || !parseUnitLabels(unitText).length}
+            onClick={() => {
+              const id = uniqueTimelineConfigId(
+                systemTitle,
+                new Set(catalog.time_systems.map((item) => item.value.id))
+              )
+              const labels = parseUnitLabels(unitText)
+              void runMutation(async () => {
+                await window.quillarium.createTimeSystem(projectRoot, {
+                  schema_version: 1,
+                  id,
+                  version: 1,
+                  title: systemTitle.trim(),
+                  kind: systemKind,
+                  units: labels.map((label, order) => ({
+                    id: uniqueUnitId(label, order),
+                    label,
+                    order,
+                    radix: null,
+                    aliases: []
+                  })),
+                  conversion: null
+                })
+                setSystemTitle('')
+              })
+            }}
+          >
+            <Plus size={14} /> {zh ? '建立时间体系' : 'Create time system'}
+          </button>
+        </section>
+        <section>
+          <strong>{zh ? '新增叙事轨道' : 'New narrative track'}</strong>
+          <label>
+            <span>{zh ? '名称' : 'Title'}</span>
+            <input value={trackTitle} onChange={(event) => setTrackTitle(event.target.value)} />
+          </label>
+          <label>
+            <span>{zh ? '时间体系' : 'Time system'}</span>
+            <select value={trackSystemId} onChange={(event) => setTrackSystemId(event.target.value)}>
+              {catalog.time_systems.map((system) => (
+                <option key={system.value.id} value={system.value.id}>
+                  {system.value.title}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>{zh ? '用途' : 'Purpose'}</span>
+            <input value={trackPurpose} onChange={(event) => setTrackPurpose(event.target.value)} />
+          </label>
+          <button
+            type="button"
+            disabled={busy || !trackTitle.trim() || !trackSystemId}
+            onClick={() => {
+              const id = uniqueTimelineConfigId(
+                trackTitle,
+                new Set(catalog.tracks.map((item) => item.value.id))
+              )
+              void runMutation(async () => {
+                await window.quillarium.createTimelineTrack(projectRoot, {
+                  schema_version: 1,
+                  id,
+                  version: 1,
+                  title: trackTitle.trim(),
+                  time_system_id: trackSystemId,
+                  display_order: catalog.tracks.filter((item) => !item.virtual).length,
+                  purpose: trackPurpose.trim()
+                })
+                setTrackTitle('')
+                setTrackPurpose('')
+              })
+            }}
+          >
+            <Plus size={14} /> {zh ? '建立轨道' : 'Create track'}
+          </button>
+        </section>
+      </div>
+      <p>
+        {zh
+          ? '未配置换算关系时，系统只使用作者明确的顺序值，不会猜测不同历法之间的先后。'
+          : 'Without conversion rules, only explicit author order is used; cross-calendar order is never guessed.'}
+      </p>
+    </details>
+  )
+}
+
+function parseUnitLabels(value: string): string[] {
+  return [
+    ...new Set(
+      value
+        .split(/[,，]/u)
+        .map((item) => item.trim())
+        .filter(Boolean)
+    )
+  ]
+}
+
+function uniqueTimelineConfigId(title: string, existing: Set<string>): string {
+  const base =
+    title
+      .normalize('NFKD')
+      .toLocaleLowerCase('en-US')
+      .replace(/[^a-z0-9]+/gu, '-')
+      .replace(/^-+|-+$/gu, '') || `timeline-${Date.now().toString(36)}`
+  let id = base.slice(0, 72)
+  let suffix = 2
+  while (existing.has(id)) id = `${base.slice(0, 66)}-${suffix++}`
+  return id
+}
+
+function uniqueUnitId(label: string, order: number): string {
+  const normalized = label
+    .normalize('NFKD')
+    .toLocaleLowerCase('en-US')
+    .replace(/[^a-z0-9]+/gu, '-')
+    .replace(/^-+|-+$/gu, '')
+  return normalized || `unit-${order + 1}`
+}
+
+function StoryTimeImportPreview({
+  projectRoot,
+  language,
+  plan,
+  setPlan,
+  approved,
+  setApproved,
+  ambiguityAnswers,
+  setAmbiguityAnswers,
+  busy,
+  runMutation
+}: {
+  projectRoot: string
+  language: LanguageName
+  plan: StoryTimeImportPlanV1 | undefined
+  setPlan: (plan: StoryTimeImportPlanV1 | undefined) => void
+  approved: Set<string>
+  setApproved: (value: Set<string>) => void
+  ambiguityAnswers: Record<string, string>
+  setAmbiguityAnswers: (value: Record<string, string>) => void
+  busy: boolean
+  runMutation: (action: () => Promise<unknown>) => Promise<void>
+}) {
+  const zh = language === 'zh'
+  return (
+    <details className="story-time-import-panel">
+      <summary>{zh ? '从现有“故事时间”建立时间轴' : 'Build timeline from Story time'}</summary>
+      {!plan ? (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void window.quillarium.planStoryTimeTimelineImport(projectRoot).then(setPlan)}
+        >
+          {zh ? '扫描并预览' : 'Scan and preview'}
+        </button>
+      ) : (
+        <div className="story-time-import-preview">
+          <p>
+            {zh
+              ? `${plan.suggestions.length} 组可解析建议，${plan.ambiguities.length} 个待确认项，${plan.skipped_event_ids.length} 个已挂载事件跳过。`
+              : `${plan.suggestions.length} parsed groups, ${plan.ambiguities.length} ambiguities, ${plan.skipped_event_ids.length} already placed events skipped.`}
+          </p>
+          {plan.suggestions.map((suggestion) => (
+            <label key={suggestion.suggestion_id}>
+              <input
+                type="checkbox"
+                checked={approved.has(suggestion.suggestion_id)}
+                onChange={(event) => {
+                  const next = new Set(approved)
+                  if (event.target.checked) next.add(suggestion.suggestion_id)
+                  else next.delete(suggestion.suggestion_id)
+                  setApproved(next)
+                }}
+              />
+              <span>
+                {suggestion.raw_story_time} · {suggestion.event_ids.length} {zh ? '个事件' : 'events'}
+              </span>
+            </label>
+          ))}
+          {plan.ambiguities.map((ambiguity) => (
+            <label key={ambiguity.event_id}>
+              <span>
+                {ambiguity.event_title} · {ambiguity.reason}
+              </span>
+              <input
+                value={ambiguityAnswers[ambiguity.event_id] ?? ''}
+                placeholder={
+                  zh
+                    ? '留空则暂不处理，或填写可解析的故事时间'
+                    : 'Leave blank, or enter a parseable Story time'
+                }
+                onChange={(event) =>
+                  setAmbiguityAnswers({ ...ambiguityAnswers, [ambiguity.event_id]: event.target.value })
+                }
+              />
+            </label>
+          ))}
+          <div>
+            <button type="button" onClick={() => setPlan(undefined)} disabled={busy}>
+              {zh ? '关闭预览' : 'Close preview'}
+            </button>
+            <button
+              type="button"
+              disabled={busy || (approved.size === 0 && !Object.values(ambiguityAnswers).some(Boolean))}
+              onClick={() =>
+                void runMutation(async () => {
+                  await window.quillarium.applyStoryTimeTimelineImport(projectRoot, plan, {
+                    approved_suggestion_ids: [...approved],
+                    ambiguity_resolutions: Object.entries(ambiguityAnswers)
+                      .filter(([, value]) => value.trim())
+                      .map(([event_id, story_time]) => ({ event_id, story_time: story_time.trim() }))
+                  })
+                  setPlan(undefined)
+                })
+              }
+            >
+              {zh ? '确认并原子写入' : 'Confirm and apply atomically'}
+            </button>
+          </div>
+        </div>
+      )}
+    </details>
+  )
+}
+
+function moveIdentifier(ids: string[], sourceId: string, targetId: string): string[] {
+  const sourceIndex = ids.indexOf(sourceId)
+  const targetIndex = ids.indexOf(targetId)
+  if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) return ids
+  const next = [...ids]
+  const [source] = next.splice(sourceIndex, 1)
+  next.splice(targetIndex, 0, source)
+  return next
 }
 
 export function CharacterRelationView({
@@ -387,21 +960,87 @@ export function CharacterRelationView({
     [timelineNodes]
   )
   const [nodeId, setNodeId] = useState<string | null>(nodes.at(-1)?.data.id ?? null)
+  const [egoId, setEgoId] = useState<string | null>(() =>
+    resolveEgoCharacterId(
+      selectedTarget,
+      null,
+      characterRelationSnapshot(items, nodes, nodes.at(-1)?.data.id ?? null),
+      items
+    )
+  )
+  const [size, setSize] = useState({ width: 640, height: 400 })
+  const paneRef = useRef<HTMLDivElement>(null)
+  const pendingPersonClick = useRef<{ id: string; at: number } | null>(null)
+  const lastPersonId = useRef<string | null>(null)
   useEffect(() => {
     if (!nodeId || !nodes.some((node) => node.data.id === nodeId)) setNodeId(nodes.at(-1)?.data.id ?? null)
   }, [nodeId, nodes])
+  useEffect(() => {
+    const stillThere = Boolean(
+      egoId && items.some((item) => item.data.type === 'character' && item.data.id === egoId)
+    )
+    if (stillThere) return
+    setEgoId(resolveEgoCharacterId(null, egoId, characterRelationSnapshot(items, nodes, nodeId), items))
+  }, [egoId, items, nodeId, nodes])
+  useEffect(() => {
+    const pane = paneRef.current
+    if (!pane || typeof ResizeObserver === 'undefined') return
+    const apply = (width: number, height: number) => {
+      setSize((current) => nextGraphPaneSize(current, { width, height }) ?? current)
+    }
+    apply(pane.clientWidth, pane.clientHeight)
+    const observer = new ResizeObserver((entries) => {
+      const box = entries[0]?.contentRect
+      if (box) apply(box.width, box.height)
+    })
+    observer.observe(pane)
+    return () => observer.disconnect()
+  }, [nodes.length])
   const selectedIndex = Math.max(
     0,
     nodes.findIndex((node) => node.data.id === nodeId)
   )
-  const snapshot = characterRelationSnapshot(items, nodes, nodeId)
-  const positions = graphPositions(snapshot.characters.length)
-  const byId = new Map(snapshot.characters.map((character, index) => [character.data.id, positions[index]]))
-  const characterById = new Map(
-    items
-      .filter((item) => item.data.type === 'character')
-      .map((character) => [character.data.id, character] as const)
+  const snapshot = useMemo(() => characterRelationSnapshot(items, nodes, nodeId), [items, nodeId, nodes])
+  const timeIndex = useMemo(
+    () => new Map(nodes.map((node, index) => [node.data.id, index] as const)),
+    [nodes]
   )
+  const graph = useMemo(
+    () =>
+      buildCharacterRelationEgoGraph({
+        snapshot,
+        items,
+        egoId,
+        timeIndex
+      }),
+    [snapshot, items, egoId, timeIndex]
+  )
+  const layout = useMemo(
+    () => layoutCharacterRelationEgoGraph(graph, size.width, size.height),
+    [graph, size.height, size.width]
+  )
+  const characterById = useMemo(
+    () =>
+      new Map(
+        items
+          .filter((item) => item.data.type === 'character')
+          .map((character) => [character.data.id, character] as const)
+      ),
+    [items]
+  )
+  const selectCharacter = (id: string) => onSelect({ type: 'character', id })
+  const recenter = (id: string) => {
+    setEgoId(id)
+    selectCharacter(id)
+  }
+  const handlePersonActivate = (id: string) => {
+    lastPersonId.current = id
+    const result = personPointerAction(pendingPersonClick.current, id, Date.now())
+    pendingPersonClick.current = result.next
+    if (result.kind === 'recenter') recenter(id)
+    else selectCharacter(id)
+    paneRef.current?.focus()
+  }
 
   return (
     <section className="character-relation-workbench">
@@ -411,8 +1050,8 @@ export function CharacterRelationView({
           <strong>{zh ? '时态人物关系' : 'Time-aware character relationships'}</strong>
           <small>
             {zh
-              ? '主图聚焦当前时点；其他人物和关系始终保留在下方索引。'
-              : 'The graph focuses on one point in time; every other card remains indexed below.'}
+              ? '以当前人物为中心画两圈关系，时间轴只改变这一帧里谁还在、哪条关系还有效。'
+              : 'Two rings around the current person. The time slider only changes who and which ties are in this frame.'}
           </small>
         </div>
         {onCreateRelation && (
@@ -446,81 +1085,114 @@ export function CharacterRelationView({
                 : `${snapshot.hiddenCharacters} characters · ${snapshot.hiddenRelations} relationships outside this view`}
             </span>
           </div>
-          <div className={`relationship-graph ${snapshot.characters.length ? '' : 'empty'}`}>
-            <svg
-              viewBox="0 0 1000 560"
-              role="img"
-              aria-label={zh ? '当前时间点的人物关系图' : 'Character relationships at the selected time'}
-            >
-              <defs>
-                <marker
-                  id="relationship-arrow"
-                  viewBox="0 0 10 10"
-                  refX="8"
-                  refY="5"
-                  markerWidth="7"
-                  markerHeight="7"
-                  orient="auto-start-reverse"
-                >
-                  <path d="M 0 0 L 10 5 L 0 10 z" />
-                </marker>
-              </defs>
-              {snapshot.relations.map((relation) => {
-                const from = byId.get(String(relation.data.from_character))
-                const to = byId.get(String(relation.data.to_character))
-                if (!from || !to) return null
-                const edge = relationshipEdgeGeometry(from, to)
-                const label = String(relation.data.relation_type || relation.data.title)
-                const openRelation = () => onSelect({ type: 'character_relation', id: relation.data.id })
+          <div
+            ref={paneRef}
+            className={`relationship-graph ${graph.nodes.length ? '' : 'empty'}`}
+            tabIndex={-1}
+            onKeyDown={(event) => {
+              if (!(event.key === 'Enter' && event.shiftKey)) return
+              const id = lastPersonId.current ?? egoId
+              if (!id) return
+              event.preventDefault()
+              pendingPersonClick.current = null
+              recenter(id)
+            }}
+          >
+            <div className="relationship-graph-inner">
+              <svg
+                viewBox={`0 0 ${layout.viewBox.width} ${layout.viewBox.height}`}
+                role="group"
+                aria-label={
+                  zh ? '当前人物的两圈关系图' : 'Two-ring relationship graph for the current person'
+                }
+              >
+                <defs>
+                  <marker
+                    id="relationship-arrow"
+                    viewBox="0 0 10 10"
+                    refX="8"
+                    refY="5"
+                    markerWidth="7"
+                    markerHeight="7"
+                    orient="auto-start-reverse"
+                  >
+                    <path d="M 0 0 L 10 5 L 0 10 z" />
+                  </marker>
+                </defs>
+                {layout.edges.map((edge) => {
+                  const relation = graph.edges.find(
+                    (item) => item.relation.data.id === edge.relationId
+                  )?.relation
+                  if (!relation) return null
+                  const label = String(relation.data.relation_type || relation.data.title)
+                  const openRelation = () => onSelect({ type: 'character_relation', id: relation.data.id })
+                  return (
+                    <g
+                      key={relation.data.id}
+                      className={`relationship-graph-edge ${edge.faded ? 'relationship-graph-layer2' : ''} ${selectedTarget?.id === relation.data.id ? 'active' : ''}`}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={zh ? `编辑关系：${label}` : `Edit relationship: ${label}`}
+                      onClick={openRelation}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault()
+                          openRelation()
+                        }
+                      }}
+                    >
+                      <title>{label}</title>
+                      <line
+                        x1={edge.x1}
+                        y1={edge.y1}
+                        x2={edge.x2}
+                        y2={edge.y2}
+                        markerEnd={
+                          relation.data.direction === 'directed' ? 'url(#relationship-arrow)' : undefined
+                        }
+                      />
+                      <text x={edge.labelX} y={edge.labelY}>
+                        {label}
+                      </text>
+                    </g>
+                  )
+                })}
+              </svg>
+              {layout.nodes.map((node) => {
+                const person = graph.nodes.find((item) => item.character.data.id === node.id)
+                if (!person) return null
+                const role = String(person.character.data.role || (zh ? '人物' : 'Character'))
+                const absent = person.layer === 'ego' && !person.present
                 return (
-                  <g
-                    key={relation.data.id}
-                    className={`relationship-graph-edge ${selectedTarget?.id === relation.data.id ? 'active' : ''}`}
-                    role="button"
-                    tabIndex={0}
-                    aria-label={zh ? `编辑关系：${label}` : `Edit relationship: ${label}`}
-                    onClick={openRelation}
+                  <button
+                    type="button"
+                    key={node.id}
+                    className={`relationship-graph-chip relationship-graph-${node.layer} ${absent ? 'absent' : ''} ${selectedTarget?.id === node.id ? 'active' : ''}`}
+                    style={{
+                      left: node.x,
+                      top: node.y,
+                      width: node.width,
+                      height: node.height
+                    }}
+                    aria-label={person.character.data.title}
+                    onClick={() => handlePersonActivate(node.id)}
                     onKeyDown={(event) => {
-                      if (event.key === 'Enter' || event.key === ' ') {
+                      if (event.key === 'Enter' && event.shiftKey) {
                         event.preventDefault()
-                        openRelation()
+                        event.stopPropagation()
+                        pendingPersonClick.current = null
+                        lastPersonId.current = node.id
+                        recenter(node.id)
                       }
                     }}
                   >
-                    <title>{label}</title>
-                    <line
-                      x1={edge.x1}
-                      y1={edge.y1}
-                      x2={edge.x2}
-                      y2={edge.y2}
-                      markerEnd={
-                        relation.data.direction === 'directed' ? 'url(#relationship-arrow)' : undefined
-                      }
-                    />
-                    <text x={edge.labelX} y={edge.labelY}>
-                      {label}
-                    </text>
-                  </g>
+                    <strong>{person.character.data.title}</strong>
+                    <small>{absent ? (zh ? '此时未在场' : 'Not present at this time') : role}</small>
+                  </button>
                 )
               })}
-            </svg>
-            {snapshot.characters.map((character, index) => (
-              <button
-                key={character.data.id}
-                className={`relationship-person ${selectedTarget?.id === character.data.id ? 'active' : ''}`}
-                style={
-                  {
-                    '--graph-x': `${positions[index].x}%`,
-                    '--graph-y': `${positions[index].y}%`
-                  } as CSSProperties
-                }
-                onClick={() => onSelect({ type: 'character', id: character.data.id })}
-              >
-                <strong>{character.data.title}</strong>
-                <small>{String(character.data.role || (zh ? '人物' : 'Character'))}</small>
-              </button>
-            ))}
-            {!snapshot.characters.length && (
+            </div>
+            {!graph.nodes.length && (
               <p className="empty-row relationship-empty">
                 {zh
                   ? '当前时点没有已标注出场时间的人物。'
@@ -528,17 +1200,17 @@ export function CharacterRelationView({
               </p>
             )}
           </div>
-          {!!snapshot.relations.length && (
+          {!!graph.edges.length && (
             <div className="relationship-edge-list">
-              {snapshot.relations.map((relation) => (
+              {graph.edges.map((edge) => (
                 <button
-                  key={`relation-${relation.data.id}`}
-                  className={`relationship-edge-card ${selectedTarget?.id === relation.data.id ? 'active' : ''}`}
-                  onClick={() => onSelect({ type: 'character_relation', id: relation.data.id })}
+                  key={`relation-${edge.relation.data.id}`}
+                  className={`relationship-edge-card ${selectedTarget?.id === edge.relation.data.id ? 'active' : ''}`}
+                  onClick={() => onSelect({ type: 'character_relation', id: edge.relation.data.id })}
                 >
                   <Link2 size={13} />
-                  <span>{relation.data.title}</span>
-                  <small>{String(relation.data.relation_type)}</small>
+                  <span>{edge.relation.data.title}</span>
+                  <small>{String(edge.relation.data.relation_type)}</small>
                   <span className="relationship-edge-action">
                     {zh ? '调整关系' : 'Edit relation'} <ArrowRight size={12} />
                   </span>
@@ -1193,30 +1865,6 @@ function CompassOverview({
       {!children.length && <small>{zh ? '暂无布局节点' : 'No layout nodes yet'}</small>}
     </div>
   )
-}
-
-function relationshipEdgeGeometry(
-  from: { x: number; y: number },
-  to: { x: number; y: number }
-): { x1: number; y1: number; x2: number; y2: number; labelX: number; labelY: number } {
-  const rawX1 = from.x * 10
-  const rawY1 = from.y * 5.6
-  const rawX2 = to.x * 10
-  const rawY2 = to.y * 5.6
-  const dx = rawX2 - rawX1
-  const dy = rawY2 - rawY1
-  const distance = Math.max(Math.hypot(dx, dy), 1)
-  const inset = Math.min(70, distance * 0.22)
-  const unitX = dx / distance
-  const unitY = dy / distance
-  return {
-    x1: rawX1 + unitX * inset,
-    y1: rawY1 + unitY * inset,
-    x2: rawX2 - unitX * inset,
-    y2: rawY2 - unitY * inset,
-    labelX: (rawX1 + rawX2) / 2,
-    labelY: (rawY1 + rawY2) / 2 - 9
-  }
 }
 
 function isSimpleRecord(value: unknown): value is Record<string, unknown> {

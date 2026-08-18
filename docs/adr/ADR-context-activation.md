@@ -93,10 +93,13 @@ prompt composition before generation.
 
 ### Real token budget
 
-Budgeting uses the tokenizer associated with the selected provider/model, including prompt framing
-overhead and reserved output tokens. Packaged exact vocabularies currently cover DeepSeek V4 and the
-OpenAI `o200k`/`cl100k` model families. A counter with a different tokenizer identity cannot silently
-claim exactness. If exact counting is unavailable, compilation fails closed for generation.
+Budgeting uses the tokenizer associated with the selected provider/model. `ContextPolicy.token_budget`
+caps selected project input, while the machine-local model profile separately supplies the total
+context window and requested output cap. The compiler accounts for prompt framing and reserved output
+against that model window, then uses the smaller of the remaining model input capacity and the policy
+input cap. Packaged exact vocabularies currently cover DeepSeek V4 and the OpenAI `o200k`/`cl100k`
+model families. A counter with a different tokenizer identity cannot silently claim exactness. If
+exact counting is unavailable, compilation fails closed for generation.
 
 Mandatory high-authority blocks reserve budget first. Optional blocks are admitted in stable order.
 Truncation is document-type-specific, records the original and retained token counts, and never cuts

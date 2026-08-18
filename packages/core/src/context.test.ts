@@ -8,6 +8,7 @@ import {
   createCanon,
   createCharacter,
   createCharacterState,
+  createChapterProse,
   createForeshadowing,
   createIssue,
   createLocation,
@@ -76,6 +77,50 @@ async function createChapterHierarchy(
 }
 
 describe('context selection', () => {
+  it('selects accepted prose in persisted story order instead of timestamps or titles', async () => {
+    const root = await project()
+    await createOutline(root, 'book', 'Book', { id: 'ordered-book' })
+    await createOutline(root, 'volume', 'Volume', { id: 'ordered-volume', parent: 'ordered-book' })
+    await createOutline(root, 'part', 'Part', { id: 'ordered-part', parent: 'ordered-volume' })
+    for (const [id, order] of [
+      ['chapter-third', 2],
+      ['chapter-first', 0],
+      ['chapter-second', 1],
+      ['chapter-current', 3]
+    ] as const) {
+      await createOutline(root, 'chapter', id, { id, parent: 'ordered-part', order })
+    }
+    await createChapterProse(
+      root,
+      'chapter-third',
+      'Third prose',
+      { id: 'prose-third', status: 'final', finalized_at: '2020-01-01T00:00:00.000Z' },
+      'THIRD'
+    )
+    await createChapterProse(
+      root,
+      'chapter-first',
+      'First prose',
+      { id: 'prose-first', status: 'final', finalized_at: '2030-01-01T00:00:00.000Z' },
+      'FIRST'
+    )
+    await createChapterProse(
+      root,
+      'chapter-second',
+      'Second prose',
+      { id: 'prose-second', status: 'final', finalized_at: '2010-01-01T00:00:00.000Z' },
+      'SECOND'
+    )
+
+    const packet = await assembleContextPacket(root, {
+      type: 'outline',
+      id: 'chapter-current'
+    })
+    expect(
+      packet.prompt_blocks.filter((block) => block.kind === 'accepted_prose').map((block) => block.source.id)
+    ).toEqual(['prose-first', 'prose-second', 'prose-third'])
+  })
+
   it('combines inherited pins and explicit relations while exclusions always win', async () => {
     const root = await project()
     await createCanon(root, 'Active Canon', 'Active constraint.', { id: 'canon-active' })
@@ -377,6 +422,83 @@ describe('context selection', () => {
     expect(new Set(twoHops.context_trace.final_block_ids).size).toBe(
       twoHops.context_trace.final_block_ids.length
     )
+  })
+
+  it('resolves code and title wikilinks to stable IDs and records the resolution in ContextTrace', async () => {
+    const root = await project()
+    await createChapterHierarchy(root, 'chapter-resolved-links', 'Resolved links', {
+      world_entries_used: ['world-source']
+    })
+    await createWorldEntry(
+      root,
+      'Source',
+      {
+        id: 'world-source',
+        links: ['LORE-0077']
+      },
+      'Also see [[Unique title target|the target]].'
+    )
+    await createWorldEntry(root, 'Code target', {
+      id: 'lore-0077',
+      code: 'LORE-0077'
+    })
+    await createWorldEntry(root, 'Unique title target', { id: 'world-title-target' })
+
+    const packet = await assembleContextPacket(
+      root,
+      { type: 'outline', id: 'chapter-resolved-links' },
+      { policy: { max_recursion_depth: 1 } }
+    )
+
+    expect(packet.world_entries.map((item) => item.data.id)).toEqual([
+      'lore-0077',
+      'world-source',
+      'world-title-target'
+    ])
+    expect(packet.context_trace.entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          source_id: 'lore-0077',
+          reference_resolutions: [
+            expect.objectContaining({
+              raw_reference: 'LORE-0077',
+              resolved_target_id: 'lore-0077',
+              matched_by: 'code',
+              origin: 'structured_link'
+            })
+          ]
+        }),
+        expect.objectContaining({
+          source_id: 'world-title-target',
+          reference_resolutions: [
+            expect.objectContaining({
+              raw_reference: '[[Unique title target|the target]]',
+              resolved_target_id: 'world-title-target',
+              matched_by: 'title',
+              origin: 'wikilink'
+            })
+          ]
+        })
+      ])
+    )
+  })
+
+  it('does not activate an ambiguous title wikilink', async () => {
+    const root = await project()
+    await createChapterHierarchy(root, 'chapter-ambiguous-link', 'Ambiguous link', {
+      world_entries_used: ['world-ambiguous-source']
+    })
+    await createWorldEntry(root, 'Source', { id: 'world-ambiguous-source' }, 'See [[Duplicate title]].')
+    await createWorldEntry(root, 'Duplicate title', { id: 'world-duplicate-a' })
+    await createWorldEntry(root, 'Duplicate title', { id: 'world-duplicate-b' })
+
+    const packet = await assembleContextPacket(
+      root,
+      { type: 'outline', id: 'chapter-ambiguous-link' },
+      { policy: { max_recursion_depth: 1 } }
+    )
+
+    expect(packet.world_entries.map((item) => item.data.id)).toEqual(['world-ambiguous-source'])
   })
 
   it('fails explicitly instead of dropping an atomic hard Canon block for lower authority material', async () => {

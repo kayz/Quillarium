@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type { PromptSourceSelection, ReorderStorySiblingsRequest } from '@quillarium/core'
 import type {
   AIStatus,
   CheckReport,
@@ -9,6 +10,7 @@ import type {
   LanguageName,
   ModuleName,
   OutlineHomeSection,
+  PlanningCheckScope,
   TargetSelection,
   ThemeName,
   ViewMode,
@@ -25,15 +27,20 @@ import {
   buildOutlinePath,
   buildOutlineHierarchy,
   buildScenePath,
+  compareStoryEntries,
   filterDocs,
   findAncestor,
   firstSelectableForLevel,
   isWorkLevel,
   nextWorkLevel,
-  outlineItemsForLevel,
-  outlineSortKey
+  outlineItemsForLevel
 } from '../../shared/outline.js'
 import { WorkspaceView } from './WorkspaceView.js'
+import type {
+  PlanningCheckApplyPanelOutcome,
+  PlanningCheckPanelOutcome
+} from '../agents/PlanningCheckPanel.js'
+import { AILongTaskProgressDialog, useAIStreamPreview } from '../ai/AIStreamPreview.js'
 
 export function Workspace({
   root,
@@ -87,6 +94,9 @@ export function Workspace({
   const [gitMessage, setGitMessage] = useState('')
   const [actionError, setActionError] = useState('')
   const [assembledPrompt, setAssembledPrompt] = useState('')
+  const [planningCheck, setPlanningCheck] = useState<PlanningCheckPanelOutcome | null>(null)
+  const planningStream = useAIStreamPreview('planning-check')
+  const planningCancelRequested = useRef(false)
 
   const load = async () => {
     const loaded = await bridge.loadProject(root)
@@ -191,7 +201,7 @@ export function Workspace({
   const docs = data.docs
   const volumes = docs
     .filter((item) => item.data.type === 'outline' && item.data.level === 'volume')
-    .sort((a, b) => outlineSortKey(a).localeCompare(outlineSortKey(b)))
+    .sort(compareStoryEntries)
   const activeVolume =
     volumes.find((item) => item.data.id === activeVolumeId) ??
     (selectedOutline?.data.level === 'volume'
@@ -315,28 +325,101 @@ export function Workspace({
     })
   }
 
-  const runProjectPlanningCheck = async () => {
-    await runWorkspaceAction(async () => {
+  const runProjectPlanningCheck = async (scope: PlanningCheckScope = 'project') => {
+    setBusy(true)
+    setActionError('')
+    planningCancelRequested.current = false
+    const clientRequestId = planningStream.begin()
+    try {
       if (dirty) await persistCurrentDoc()
-      const summary = await bridge.checkPlanningCards(root, language)
+      setPlanningCheck(
+        (await bridge.checkPlanningCards(root, language, clientRequestId, scope)) as PlanningCheckPanelOutcome
+      )
+    } catch (error) {
+      if (!planningCancelRequested.current) setPlanningCheck(localPlanningCheckFailure(error, language))
+    } finally {
+      planningStream.clear()
+      planningCancelRequested.current = false
+      setBusy(false)
+    }
+  }
+
+  const retryProjectPlanningCheck = async (executionId: string) => {
+    setBusy(true)
+    planningCancelRequested.current = false
+    const clientRequestId = planningStream.begin()
+    try {
+      setPlanningCheck(
+        (await bridge.retryPlanningCheck(
+          root,
+          executionId,
+          language,
+          clientRequestId
+        )) as PlanningCheckPanelOutcome
+      )
+    } catch (error) {
+      if (!planningCancelRequested.current) setPlanningCheck(localPlanningCheckFailure(error, language))
+    } finally {
+      planningStream.clear()
+      planningCancelRequested.current = false
+      setBusy(false)
+    }
+  }
+
+  const cancelPlanningCheck = async () => {
+    planningCancelRequested.current = true
+    const cancelled = await planningStream.cancel()
+    if (!cancelled) {
+      planningCancelRequested.current = false
+      setActionError(
+        language === 'zh'
+          ? '当前模型请求尚未建立可取消通道，请稍候再试。'
+          : 'The provider request is not cancellable yet. Please try again shortly.'
+      )
+    }
+  }
+
+  const applyProjectPlanningCheck = async (
+    executionId: string,
+    selectedResultIds: string[]
+  ): Promise<PlanningCheckApplyPanelOutcome> => {
+    setBusy(true)
+    try {
+      const decisionOutcome = await bridge.decidePlanningCheck(root, {
+        executionId,
+        selectedResultIds,
+        decision: 'approved',
+        createdBy: 'desktop-author'
+      })
+      if (decisionOutcome.status === 'failed') return decisionOutcome
+      const applicationOutcome = await bridge.applyPlanningCheck(
+        root,
+        executionId,
+        decisionOutcome.decision.id
+      )
+      if (applicationOutcome.status === 'failed') return applicationOutcome
+      const applied = applicationOutcome.result
       await load()
       setWorkspaceMode('planning')
       setWorkspacePage('outline')
       setOutlineSection('issues')
-      setDoc(null)
-      const issueId = summary.created_issue_ids[0] ?? summary.updated_issue_ids[0]
-      setSelectedTarget(issueId ? { type: 'issue', id: issueId } : null)
-      setRightOpen(Boolean(issueId))
-      const findings = summary.rule_findings + summary.ai_findings
-      setGitMessage(
-        language === 'zh'
-          ? `AI 检查完成：检查 ${summary.checked_cards} 项，发现 ${findings} 个问题；新建 ${summary.created_issue_ids.length} 张问题卡，更新 ${summary.updated_issue_ids.length} 张，跳过 ${summary.skipped_disabled} 张未启用卡片。`
-          : `AI check complete: checked ${summary.checked_cards}, found ${findings}; created ${summary.created_issue_ids.length} issue cards, updated ${summary.updated_issue_ids.length}, and skipped ${summary.skipped_disabled} disabled cards.`
-      )
-    })
+      const issueId = applied.created_issue_ids[0] ?? applied.updated_issue_ids[0]
+      if (issueId) {
+        setSelectedTarget({ type: 'issue', id: issueId })
+        setRightOpen(true)
+      }
+      return { status: 'applied', result: applied }
+    } finally {
+      setBusy(false)
+    }
   }
 
-  const generateFromPrompt = async (prompt: string, count = 3, parentRunId?: string) => {
+  const generateFromPrompt = async (
+    prompt: string,
+    count = 3,
+    parentRunId?: string,
+    promptSources?: PromptSourceSelection[]
+  ) => {
     if (!writingOutline || writingOutline.data.level !== 'chapter' || !prompt.trim()) return
     await runWorkspaceAction(async () => {
       try {
@@ -346,7 +429,8 @@ export function Workspace({
           prompt,
           selectedScene?.data.id,
           count,
-          parentRunId
+          parentRunId,
+          promptSources
         )
       } finally {
         // A provider can fail after earlier candidates completed; always reveal retained Runs.
@@ -445,15 +529,10 @@ export function Workspace({
 
   const createOutlineAtLevel = async (level: WorkLevel, title: string, parent?: string | null) => {
     if (level === 'ai' || !title.trim()) return
-    const siblings = docs.filter(
-      (item) =>
-        item.data.type === 'outline' && item.data.level === level && item.data.parent === (parent ?? null)
-    )
     const created = await createDoc('outline', {
       title: title.trim(),
       level,
       parent: parent ?? null,
-      order: siblings.length,
       target_words: level === 'chapter' ? data.project.chapter_words : undefined,
       content: `## ${title.trim()}\n`
     })
@@ -461,6 +540,13 @@ export function Workspace({
     setDoc({ ...loaded, path: String(created) })
     setSelectedTarget({ type: 'outline', id: String(loaded.data.id) })
     setWorkLevel(level)
+  }
+
+  const reorderStory = async (request: ReorderStorySiblingsRequest) => {
+    await runWorkspaceAction(async () => {
+      await bridge.reorderStorySiblings(root, request)
+      await load()
+    })
   }
 
   const deleteSelectedDoc = async () => {
@@ -498,80 +584,118 @@ export function Workspace({
   }
 
   return (
-    <WorkspaceView
-      app={{ root, theme, density, language, aiStatus, onTheme, onDensity, onLanguage, onAIStatus, onBack }}
-      state={{
-        data,
-        workspaceMode,
-        workLevel,
-        leftOpen,
-        rightOpen,
-        git,
-        gitBusy,
-        projectPath,
-        activeVolume,
-        workspacePage,
-        docs,
-        selectedTarget,
-        activeModule,
-        viewMode,
-        search,
-        writingOutline,
-        selectedScene,
-        doc,
-        context,
-        contextPacket,
-        checkReport,
-        dirty,
-        busy,
-        filteredItems,
-        finalizedScenes,
-        leftMode,
-        volumes,
-        volumeSection,
-        middlePct,
-        outlineSection,
-        importOpen,
-        gitMessage,
-        actionError,
-        assembledPrompt
-      }}
-      actions={{
-        createGitHubRepo,
-        syncGitHub,
-        setWorkspaceMode,
-        setActiveModule,
-        selectWritingTarget,
-        setLeftOpen,
-        selectWorkLevel,
-        setSearch,
-        setViewMode,
-        createOutlineAtLevel,
-        setDoc,
-        setDirty,
-        save,
-        finalizeChapterProse,
-        publishChapterProse,
-        runCheck,
-        runProjectPlanningCheck,
-        setAssembledPrompt,
-        generateFromPrompt,
-        setImportOpen,
-        createDoc,
-        load,
-        setWorkspacePage,
-        setOutlineSection,
-        setSelectedTarget,
-        setActiveVolumeId,
-        setVolumeSection,
-        setRightOpen,
-        setMiddlePct,
-        deleteSelectedDoc,
-        clearNotice: () => {
-          setActionError('')
-          setGitMessage('')
-        }
-      }}
-    />
+    <>
+      <WorkspaceView
+        app={{ root, theme, density, language, aiStatus, onTheme, onDensity, onLanguage, onAIStatus, onBack }}
+        state={{
+          data,
+          workspaceMode,
+          workLevel,
+          leftOpen,
+          rightOpen,
+          git,
+          gitBusy,
+          projectPath,
+          activeVolume,
+          workspacePage,
+          docs,
+          selectedTarget,
+          activeModule,
+          viewMode,
+          search,
+          writingOutline,
+          selectedScene,
+          doc,
+          context,
+          contextPacket,
+          checkReport,
+          dirty,
+          busy,
+          filteredItems,
+          finalizedScenes,
+          leftMode,
+          volumes,
+          volumeSection,
+          middlePct,
+          outlineSection,
+          importOpen,
+          gitMessage,
+          actionError,
+          assembledPrompt,
+          planningCheck
+        }}
+        actions={{
+          createGitHubRepo,
+          syncGitHub,
+          setWorkspaceMode,
+          setActiveModule,
+          selectWritingTarget,
+          reorderStory,
+          setLeftOpen,
+          selectWorkLevel,
+          setSearch,
+          setViewMode,
+          createOutlineAtLevel,
+          setDoc,
+          setDirty,
+          save,
+          finalizeChapterProse,
+          publishChapterProse,
+          runCheck,
+          runProjectPlanningCheck,
+          retryProjectPlanningCheck,
+          applyProjectPlanningCheck,
+          closePlanningCheck: () => setPlanningCheck(null),
+          inspectPlanningCheck: async (executionId: string) => {
+            await bridge.openPlanningCheckRun(root, executionId)
+          },
+          setAssembledPrompt,
+          generateFromPrompt,
+          setImportOpen,
+          createDoc,
+          load,
+          setWorkspacePage,
+          setOutlineSection,
+          setSelectedTarget,
+          setActiveVolumeId,
+          setVolumeSection,
+          setRightOpen,
+          setMiddlePct,
+          deleteSelectedDoc,
+          clearNotice: () => {
+            setActionError('')
+            setGitMessage('')
+          }
+        }}
+      />
+      <AILongTaskProgressDialog
+        state={planningStream.state}
+        language={language}
+        title={language === 'zh' ? '项目 AI 检查进行中' : 'Project AI check in progress'}
+        onCancel={cancelPlanningCheck}
+      />
+    </>
   )
+}
+
+function localPlanningCheckFailure(error: unknown, language: LanguageName): PlanningCheckPanelOutcome {
+  const executionId = `agent-local-${Date.now()}`
+  return {
+    status: 'failed',
+    execution_id: executionId,
+    task_id: 'planning-integrity-review',
+    run_path: `runs/agents/${executionId}`,
+    error: {
+      schema_version: 1,
+      code: 'AGENT_PROVIDER_TRANSPORT_FAILED',
+      phase: 'provider',
+      task_id: 'planning-integrity-review',
+      execution_id: executionId,
+      retry_safe: true,
+      message_key: 'agent.error.agent_provider_transport_failed',
+      technical_detail: error instanceof Error ? error.message : formatDesktopError(error, language),
+      validation_paths: [],
+      artifacts: {}
+    }
+  }
 }

@@ -189,6 +189,17 @@ describe('localized field presentation catalog', () => {
       'final',
       'published'
     ])
+    expect(enumOptionsForField('status', { documentType: 'world_entry' })).toEqual([
+      'canon',
+      'draft',
+      'confirmed',
+      'deprecated'
+    ])
+    expect(enumChoiceLabel('status', 'canon', 'zh', { documentType: 'world_entry' })).toBe('正设')
+    expect(fieldPresentation('status', 'zh', { documentType: 'world_entry' })).toMatchObject({
+      label: '资料状态',
+      known: true
+    })
     expect(enumChoiceLabel('level', 'volume', 'zh', { documentType: 'outline' })).toBe('卷')
     expect(enumChoiceLabel('level', 'volume', 'en', { documentType: 'outline' })).toBe('Volume')
     expect(enumChoiceLabel('status', 'published', 'zh')).toBe('已发布')

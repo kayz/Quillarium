@@ -1,7 +1,31 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import type { DocEntry } from '../../app/types.js'
-import { MetadataEditor, PlanningCardSupportPanel, metadataGroupForField } from './OutlineShared.js'
+import {
+  MetadataEditor,
+  PlanningCardSupportPanel,
+  documentLinkIndexLoadKey,
+  metadataGroupForField,
+  shouldFetchDocumentLinkIndex
+} from './OutlineShared.js'
+
+describe('document link index loading', () => {
+  it('does not refetch the project-wide index when the open card path changes', () => {
+    expect(documentLinkIndexLoadKey('C:/novel', 'characters/a.md')).toBe('C:/novel')
+    expect(documentLinkIndexLoadKey('C:/novel', 'characters/b.md')).toBe('C:/novel')
+    expect(documentLinkIndexLoadKey('C:/novel', 'characters/a.md')).toBe(
+      documentLinkIndexLoadKey('C:/novel', 'characters/b.md')
+    )
+  })
+
+  it('skips the support-panel index fetch for ordinary character cards', () => {
+    expect(shouldFetchDocumentLinkIndex('character')).toBe(false)
+    expect(shouldFetchDocumentLinkIndex('character_relation')).toBe(false)
+    expect(shouldFetchDocumentLinkIndex('timeline_node')).toBe(false)
+    expect(shouldFetchDocumentLinkIndex('reference')).toBe(true)
+    expect(shouldFetchDocumentLinkIndex('issue')).toBe(true)
+  })
+})
 
 describe('friendly frontmatter fields', () => {
   it('groups identity, index, relation and detail fields without exposing serialization syntax', () => {

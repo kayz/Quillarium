@@ -1,5 +1,9 @@
 import { useRef, useState, type CSSProperties, type Dispatch, type SetStateAction } from 'react'
-import type { DocumentOriginResolution } from '@quillarium/core'
+import type {
+  DocumentOriginResolution,
+  PromptSourceSelection,
+  ReorderStorySiblingsRequest
+} from '@quillarium/core'
 import type {
   AIStatus,
   CheckReport,
@@ -10,6 +14,7 @@ import type {
   LanguageName,
   ModuleName,
   OutlineHomeSection,
+  PlanningCheckScope,
   TargetSelection,
   ThemeName,
   ViewMode,
@@ -38,6 +43,12 @@ import { TagIndexDrawer } from '../metadata/TagIndexDrawer.js'
 import { clampPaneSize, SplitHandle } from '../layout/SplitHandle.js'
 import { outlineLevelLabel } from '../../shared/outline.js'
 import { ToastNotice } from '../feedback/ToastNotice.js'
+import { CreatorAssistantWorkspace } from '../assistants/CreatorAssistantWorkspace.js'
+import {
+  PlanningCheckPanel,
+  type PlanningCheckApplyPanelOutcome,
+  type PlanningCheckPanelOutcome
+} from '../agents/PlanningCheckPanel.js'
 
 type EditableDoc = { data: Record<string, unknown>; content: string; path: string }
 
@@ -89,6 +100,7 @@ interface WorkspaceViewProps {
     gitMessage: string
     actionError: string
     assembledPrompt: string
+    planningCheck: PlanningCheckPanelOutcome | null
   }
   actions: {
     createGitHubRepo: () => Promise<void>
@@ -96,6 +108,7 @@ interface WorkspaceViewProps {
     setWorkspaceMode: Dispatch<SetStateAction<WorkspaceMode>>
     setActiveModule: Dispatch<SetStateAction<ModuleName>>
     selectWritingTarget: (target: TargetSelection) => void
+    reorderStory: (request: ReorderStorySiblingsRequest) => Promise<void>
     setLeftOpen: Dispatch<SetStateAction<boolean>>
     selectWorkLevel: (level: WorkLevel) => void
     setSearch: Dispatch<SetStateAction<string>>
@@ -107,9 +120,21 @@ interface WorkspaceViewProps {
     finalizeChapterProse: (chapterId: string) => Promise<void>
     publishChapterProse: (chapterId: string, confirmation: string) => Promise<void>
     runCheck: (contentOverride?: string) => Promise<void>
-    runProjectPlanningCheck: () => Promise<void>
+    runProjectPlanningCheck: (scope?: PlanningCheckScope) => Promise<void>
+    retryProjectPlanningCheck: (executionId: string) => Promise<void>
+    applyProjectPlanningCheck: (
+      executionId: string,
+      selectedResultIds: string[]
+    ) => Promise<PlanningCheckApplyPanelOutcome>
+    closePlanningCheck: () => void
+    inspectPlanningCheck: (executionId: string) => Promise<void>
     setAssembledPrompt: Dispatch<SetStateAction<string>>
-    generateFromPrompt: (prompt: string, count?: number, parentRunId?: string) => Promise<void>
+    generateFromPrompt: (
+      prompt: string,
+      count?: number,
+      parentRunId?: string,
+      promptSources?: PromptSourceSelection[]
+    ) => Promise<void>
     setImportOpen: Dispatch<SetStateAction<boolean>>
     createDoc: (kind: string, input: Record<string, unknown>) => Promise<unknown>
     load: () => Promise<void>
@@ -141,6 +166,8 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
   const [outlineCreating, setOutlineCreating] = useState(false)
   const shellRef = useRef<HTMLDivElement | null>(null)
   const [writingSidebarWidth, setWritingSidebarWidth] = useState(380)
+  const [assistantRoleHint, setAssistantRoleHint] = useState<string | undefined>()
+  const [assistantInitialMessage, setAssistantInitialMessage] = useState<string | undefined>()
   const { root, theme, density, language, aiStatus, onTheme, onDensity, onLanguage, onAIStatus, onBack } = app
   const {
     data,
@@ -176,7 +203,8 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
     importOpen,
     gitMessage,
     actionError,
-    assembledPrompt
+    assembledPrompt,
+    planningCheck
   } = state
   const {
     createGitHubRepo,
@@ -184,6 +212,7 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
     setWorkspaceMode,
     setActiveModule,
     selectWritingTarget,
+    reorderStory,
     setLeftOpen,
     selectWorkLevel,
     setSearch,
@@ -196,6 +225,10 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
     publishChapterProse,
     runCheck,
     runProjectPlanningCheck,
+    retryProjectPlanningCheck,
+    applyProjectPlanningCheck,
+    closePlanningCheck,
+    inspectPlanningCheck,
     setAssembledPrompt,
     generateFromPrompt,
     setImportOpen,
@@ -288,6 +321,7 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
                 docs={docs}
                 selectedTarget={selectedTarget}
                 onSelect={selectWritingTarget}
+                onReorder={reorderStory}
                 language={language}
               />
               <ModuleNav
@@ -316,7 +350,18 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
                   {t(language, 'bookOutline')}
                 </button>
               )}
-              {activeModule === 'write' ? (
+              {activeModule === 'assistants' ? (
+                <CreatorAssistantWorkspace
+                  root={root}
+                  projectId={data.project.id}
+                  docs={docs}
+                  selectedTarget={selectedTarget}
+                  preferredRoleId={assistantRoleHint}
+                  initialMessage={assistantInitialMessage}
+                  onProjectChanged={load}
+                  language={language}
+                />
+              ) : activeModule === 'write' ? (
                 selectedTarget?.type === 'chapter_prose' && doc && writingOutline ? (
                   <ChapterProseWorkspace
                     key={writingOutline.data.id}
@@ -368,6 +413,10 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
                         view: 'prose'
                       })
                     }
+                    onContinuityReview={() => {
+                      setAssistantRoleHint('continuity-review')
+                      setActiveModule('assistants')
+                    }}
                     language={language}
                   />
                 ) : (
@@ -449,6 +498,11 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
                       setImportOriginDoc(card)
                     }
                   }}
+                  onOpenAssistant={(roleId, target) => {
+                    setSelectedTarget(target)
+                    setAssistantRoleHint(roleId)
+                    setActiveModule('assistants')
+                  }}
                   onReload={load}
                   language={language}
                 />
@@ -528,6 +582,7 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
             setDoc({ ...parsed, path: doc.path })
             setDirty(false)
           }}
+          onReloadProject={load}
           onDocChange={(next) => {
             setDoc(next)
             setDirty(true)
@@ -603,6 +658,7 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
             setDoc({ ...parsed, path: doc.path })
             setDirty(false)
           }}
+          onReloadProject={load}
           onDocChange={(next) => {
             setDoc(next)
             setDirty(true)
@@ -620,6 +676,13 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
           language={language}
           onClose={() => setImportOpen(false)}
           onImported={load}
+          onOpenAssistant={(sourceText) => {
+            setImportOpen(false)
+            setAssistantRoleHint('setting-organizer')
+            setAssistantInitialMessage(sourceText)
+            setWorkspaceMode('writing')
+            setActiveModule('assistants')
+          }}
         />
       )}
       {planningDialog && (
@@ -690,6 +753,17 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
           setRightOpen(true)
         }}
       />
+      {planningCheck && (
+        <PlanningCheckPanel
+          outcome={planningCheck}
+          language={language}
+          busy={busy}
+          onClose={closePlanningCheck}
+          onRetry={retryProjectPlanningCheck}
+          onApply={applyProjectPlanningCheck}
+          onInspect={inspectPlanningCheck}
+        />
+      )}
       {(actionError || gitMessage) && (
         <ToastNotice
           message={actionError || gitMessage}

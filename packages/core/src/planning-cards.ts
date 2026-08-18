@@ -1,4 +1,5 @@
 import type { CardRelation, DocType, DocumentIdentity, PlanningCardDoc, ReferenceDoc } from './types.js'
+import { createLocalDocumentReferenceResolver, type LocalReferenceCandidate } from './document-references.js'
 
 export const PLANNING_CARD_TYPES = new Set<DocType>([
   'canon',
@@ -19,14 +20,23 @@ export const PLANNING_CARD_TYPES = new Set<DocType>([
 
 export interface PlanningCardGraphIssue {
   severity: 'error' | 'warning' | 'info'
-  code: 'missing-source-reference' | 'missing-relation-target' | 'self-relation' | 'isolated-card'
+  code:
+    | 'missing-source-reference'
+    | 'ambiguous-source-reference'
+    | 'missing-relation-target'
+    | 'ambiguous-relation-target'
+    | 'self-relation'
+    | 'isolated-card'
   card_id: string
   target_id?: string
+  resolved_target_id?: string
   relation_field?: string
+  candidates?: LocalReferenceCandidate[]
   message: string
 }
 
 export interface PlanningCardGraphOptions {
+  projectRoot?: string
   includeCard?: (document: PlanningCardDoc) => boolean
   countInboundFrom?: (document: PlanningCardDoc) => boolean
 }
@@ -77,6 +87,7 @@ export function validatePlanningCardGraph(
   options: PlanningCardGraphOptions = {}
 ): PlanningCardGraphIssue[] {
   const byId = new Map(documents.map((document) => [document.data.id, document.data]))
+  const resolver = createLocalDocumentReferenceResolver(documents, options.projectRoot)
   const inbound = new Map<string, number>()
   const issues: PlanningCardGraphIssue[] = []
   const includeCard = options.includeCard ?? (() => true)
@@ -86,8 +97,24 @@ export function validatePlanningCardGraph(
     if (!isPlanningCard(document.data)) continue
     const included = includeCard(document.data)
     for (const sourceId of document.data.source_refs ?? []) {
-      const source = byId.get(sourceId)
-      if (!source || source.type !== 'reference') {
+      const resolved = resolver.resolve(sourceId, {
+        sourcePath: document.path,
+        origin: 'structured_link'
+      })
+      const source = resolved.target_id ? byId.get(resolved.target_id) : undefined
+      if (resolved.status === 'ambiguous') {
+        if (included) {
+          issues.push({
+            severity: 'error',
+            code: 'ambiguous-source-reference',
+            card_id: document.data.id,
+            target_id: sourceId,
+            relation_field: 'source_refs',
+            candidates: resolved.candidates,
+            message: `Card ${document.data.id} cites ambiguous reference material ${sourceId}.`
+          })
+        }
+      } else if (!source || source.type !== 'reference') {
         if (included) {
           issues.push({
             severity: 'error',
@@ -98,8 +125,8 @@ export function validatePlanningCardGraph(
             message: `Card ${document.data.id} cites missing reference material ${sourceId}.`
           })
         }
-      } else if (countInboundFrom(document.data)) {
-        inbound.set(sourceId, (inbound.get(sourceId) ?? 0) + 1)
+      } else if (countInboundFrom(document.data) && resolved.target_id) {
+        inbound.set(resolved.target_id, (inbound.get(resolved.target_id) ?? 0) + 1)
       }
     }
     const links = [
@@ -110,20 +137,40 @@ export function validatePlanningCardGraph(
       ...intrinsicCardLinks(document.data)
     ]
     for (const relation of links) {
-      if (relation.target_id === document.data.id) {
+      const resolved = resolver.resolve(relation.target_id, {
+        sourcePath: document.path,
+        origin: 'structured_link'
+      })
+      if (resolved.status === 'ambiguous') {
+        if (included) {
+          issues.push({
+            severity: 'error',
+            code: 'ambiguous-relation-target',
+            card_id: document.data.id,
+            target_id: relation.target_id,
+            relation_field: relation.field,
+            candidates: resolved.candidates,
+            message: `Card ${document.data.id} links to ambiguous card ${relation.target_id} through ${relation.field}.`
+          })
+        }
+        continue
+      }
+      const targetId = resolved.target_id
+      if (targetId === document.data.id) {
         if (included) {
           issues.push({
             severity: 'warning',
             code: 'self-relation',
             card_id: document.data.id,
             target_id: relation.target_id,
+            resolved_target_id: targetId,
             relation_field: relation.field,
             message: `Card ${document.data.id} links to itself through ${relation.field}.`
           })
         }
         continue
       }
-      if (!byId.has(relation.target_id)) {
+      if (!targetId || !byId.has(targetId)) {
         if (included) {
           issues.push({
             severity: 'error',
@@ -135,7 +182,7 @@ export function validatePlanningCardGraph(
           })
         }
       } else if (countInboundFrom(document.data)) {
-        inbound.set(relation.target_id, (inbound.get(relation.target_id) ?? 0) + 1)
+        inbound.set(targetId, (inbound.get(targetId) ?? 0) + 1)
       }
     }
   }
@@ -178,6 +225,14 @@ function intrinsicCardLinks(document: PlanningCardDoc): Array<{ target_id: strin
     case 'foreshadowing': {
       add('planted_at', data['planted_at'])
       add('related_arc', data['related_arc'])
+      for (const field of ['planned_plant_ref', 'planned_resolve_ref']) {
+        const position = data[field]
+        if (typeof position === 'object' && position !== null) {
+          const record = position as Record<string, unknown>
+          if (record['target_type'] !== 'timeline') add(`${field}.target_id`, record['target_id'])
+          add(`${field}.outline_id`, record['outline_id'])
+        }
+      }
       addMany('reinforced_at', data['reinforced_at'])
       addMany('related_characters', data['related_characters'])
       const triggers = Array.isArray(data['trigger_conditions']) ? data['trigger_conditions'] : []
@@ -245,17 +300,23 @@ function intrinsicCardLinks(document: PlanningCardDoc): Array<{ target_id: strin
 
 export function assertCardReferencesExist(
   document: DocumentIdentity,
-  documents: Array<DocumentWithContent<DocumentIdentity>>
+  documents: Array<DocumentWithContent<DocumentIdentity>>,
+  projectRoot?: string
 ): void {
   if (!isPlanningCard(document)) return
-  const ids = new Set(documents.map((item) => item.data.id))
-  const references = new Set(
-    documents.filter((item) => item.data.type === 'reference').map((item) => item.data.id)
-  )
-  const missingSource = (document.source_refs ?? []).find((id) => !references.has(id))
-  if (missingSource) throw new Error(`Reference material not found: ${missingSource}`)
-  const missingRelation = (document.relations ?? []).find((relation) => !ids.has(relation.target_id))
-  if (missingRelation) throw new Error(`Related card not found: ${missingRelation.target_id}`)
+  const resolver = createLocalDocumentReferenceResolver(documents, projectRoot)
+  for (const source of document.source_refs ?? []) {
+    const resolved = resolver.resolve(source, { origin: 'structured_link' })
+    if (resolved.status === 'ambiguous') throw new Error(`Reference material is ambiguous: ${source}`)
+    const target = documents.find((item) => item.data.id === resolved.target_id)
+    if (!target || target.data.type !== 'reference')
+      throw new Error(`Reference material not found: ${source}`)
+  }
+  for (const relation of document.relations ?? []) {
+    const resolved = resolver.resolve(relation.target_id, { origin: 'structured_link' })
+    if (resolved.status === 'ambiguous') throw new Error(`Related card is ambiguous: ${relation.target_id}`)
+    if (!resolved.target_id) throw new Error(`Related card not found: ${relation.target_id}`)
+  }
 }
 
 export function normalizeCardRelations(value: CardRelation[]): CardRelation[] {

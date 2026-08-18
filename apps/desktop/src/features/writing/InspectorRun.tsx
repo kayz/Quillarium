@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
-import { CheckCircle2, GitBranch, ListChecks, MousePointerClick } from 'lucide-react'
+import { CheckCircle2, GitBranch, ListChecks, MousePointerClick, ScanText } from 'lucide-react'
+import type { AgentPromptEnvelopeV1, PromptBlock } from '@quillarium/core'
 import type {
   CheckReport,
   ContextPacketSummary,
@@ -12,6 +13,11 @@ import { bridge } from '../../app/bridge.js'
 import { buildSimpleDiff, runFileLabel } from '../../shared/text.js'
 import { formatDesktopError } from '../../shared/errors.js'
 import { enumChoiceLabel, outlineLevelDisplayLabel } from '../metadata/field-presentation.js'
+import {
+  createLegacyPromptViewerData,
+  PromptEnvelopeViewer,
+  type PromptViewerData
+} from './PromptEnvelopeViewer.js'
 
 export function Inspector({
   docs,
@@ -329,6 +335,7 @@ export function RunPanel({
   const [comparison, setComparison] = useState<
     Record<string, { raw: string; report: string; evaluation: string }>
   >({})
+  const [promptViewer, setPromptViewer] = useState<PromptViewerData | null>(null)
   const currentRun = filtered.some((run) => run.id === selectedRun) ? selectedRun : (filtered[0]?.id ?? null)
   const currentRunSummary = filtered.find((run) => run.id === currentRun) ?? null
   const currentGroupRuns = currentRunSummary?.candidate_group_id
@@ -448,6 +455,29 @@ export function RunPanel({
     }
   }
 
+  const openRunPrompt = async () => {
+    if (!currentRun) return
+    setAcceptError('')
+    try {
+      const [envelopeRaw, providerRaw, blocksRaw] = await Promise.all([
+        bridge.readRunFile(root, currentRun, 'prompt-envelope.json').catch(() => ''),
+        bridge.readRunFile(root, currentRun, 'provider-request.json').catch(() => '{}'),
+        bridge.readRunFile(root, currentRun, 'prompt-blocks.json').catch(() => '{"blocks":[]}')
+      ])
+      if (envelopeRaw) {
+        setPromptViewer(parseRunPromptViewerData(envelopeRaw, providerRaw, blocksRaw))
+      } else {
+        const [prompt, presetRaw] = await Promise.all([
+          bridge.readRunFile(root, currentRun, 'prompt.md'),
+          bridge.readRunFile(root, currentRun, 'writing-preset.json').catch(() => '{}')
+        ])
+        setPromptViewer(parseLegacyRunPromptViewerData(prompt, presetRaw))
+      }
+    } catch (error) {
+      setAcceptError(formatDesktopError(error, language))
+    }
+  }
+
   const canAccept =
     currentRunSummary &&
     ['generated', 'checked'].includes(currentRunSummary.status) &&
@@ -475,6 +505,9 @@ export function RunPanel({
           {language === 'zh' ? '候选对比' : 'Candidate compare'}
         </button>
         <span className="spacer" />
+        <button onClick={() => void openRunPrompt()} disabled={!currentRun}>
+          <ScanText size={14} /> {language === 'zh' ? '本次完整提示词' : 'Run prompt'}
+        </button>
         <button onClick={() => void checkCandidate()} disabled={accepting || !currentRun}>
           <ListChecks size={14} /> {language === 'zh' ? '检查本稿' : 'Check'}
         </button>
@@ -623,8 +656,38 @@ export function RunPanel({
           <pre className="run-preview">{preview}</pre>
         )}
       </div>
+      {promptViewer && (
+        <PromptEnvelopeViewer
+          data={promptViewer}
+          language={language}
+          title={language === 'zh' ? '本次 Run · 提示词与上下文' : 'Run · Prompt and context'}
+          onClose={() => setPromptViewer(null)}
+        />
+      )}
     </footer>
   )
+}
+
+export function parseRunPromptViewerData(
+  envelopeRaw: string,
+  providerRaw: string,
+  blocksRaw: string
+): PromptViewerData {
+  const promptEnvelope = JSON.parse(envelopeRaw) as AgentPromptEnvelopeV1
+  const providerRequest = JSON.parse(providerRaw) as Record<string, unknown>
+  const parsedBlocks = JSON.parse(blocksRaw) as { blocks?: PromptBlock[] }
+  return {
+    promptEnvelope,
+    providerRequest,
+    promptBlocks: parsedBlocks.blocks ?? [],
+    providerTransformed:
+      Array.isArray(providerRequest['messages']) &&
+      JSON.stringify(providerRequest['messages']) !== JSON.stringify(promptEnvelope.messages)
+  }
+}
+
+export function parseLegacyRunPromptViewerData(prompt: string, presetRaw: string): PromptViewerData {
+  return createLegacyPromptViewerData(prompt, presetRaw)
 }
 
 export function WordProgress({ content, target }: { content: string; target: number }) {

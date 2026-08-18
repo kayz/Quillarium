@@ -9,9 +9,23 @@ import {
   listDocs,
   requireDoc
 } from './documents.js'
+import { createProjectAt } from './project.js'
 import type { BaseDoc, CharacterDoc, CharacterRelationDoc, ReferenceDoc, SceneDoc } from './types.js'
 
 describe('document reads', () => {
+  it('keeps pure Markdown prompt assets out of ordinary document listings', async () => {
+    const base = await mkdtemp(path.join(os.tmpdir(), 'quillarium-documents-prompts-'))
+    const projectRoot = path.join(base, 'project')
+    try {
+      await createProjectAt(projectRoot, { id: 'prompt-filter-project', title: 'Prompt Filter Project' })
+      const docs = await listDocs(projectRoot)
+      expect(docs.some((doc) => doc.path.includes(`${path.sep}prompts${path.sep}`))).toBe(false)
+      expect(await listDocs(projectRoot, 'prompt')).toEqual([])
+    } finally {
+      await rm(base, { recursive: true, force: true })
+    }
+  })
+
   it('applies schema defaults to legacy documents', async () => {
     const projectRoot = await mkdtemp(path.join(os.tmpdir(), 'quillarium-documents-'))
     const scenesDir = path.join(projectRoot, 'scenes')

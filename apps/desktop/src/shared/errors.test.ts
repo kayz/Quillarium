@@ -33,13 +33,34 @@ describe('formatDesktopError', () => {
     ).toBe('The desktop bridge was updated. Restart Quillarium, then choose the file again.')
   })
 
-  it('explains invalid story-time coordinates in the selected language', () => {
-    expect(formatDesktopError('Unsupported timeline time “a long time ago”.', 'zh')).toContain(
-      '例如“1449-08”'
+  it('explains incomplete AI import output in the selected language', () => {
+    expect(formatDesktopError('AI_IMPORT_INVALID_RESPONSE: incomplete JSON', 'zh')).toContain(
+      '拆分结果不完整'
     )
+    expect(formatDesktopError('AI_IMPORT_INVALID_RESPONSE: incomplete JSON', 'en')).toContain(
+      'Nothing was imported'
+    )
+  })
+
+  it('shows provider truncation details verbatim even in the Chinese interface', () => {
+    const message = 'AI_OUTPUT_TRUNCATED: deepseek stopped with finish_reason=length at max_tokens=2000.'
+    expect(formatDesktopError(message, 'zh')).toBe(message)
+  })
+
+  it('explains invalid story-time coordinates in the selected language', () => {
+    expect(formatDesktopError('Unsupported timeline time “a long time ago”.', 'zh')).toContain('第1周周二')
     expect(formatDesktopError('Timeline month must be between 1 and 12.', 'en')).toBe(
       'The Story time month must be between 1 and 12.'
     )
+  })
+
+  it('explains planning type migration conflicts without hiding the retained original', () => {
+    expect(
+      formatDesktopError('Planning card type migration target already exists: location-card.md', 'zh')
+    ).toContain('原卡片仍然保留')
+    expect(
+      formatDesktopError('Planning card type migration failed and rollback was incomplete.', 'en')
+    ).toContain('diagnostic log')
   })
 
   it('localizes missing and incompatible writing presets with an actionable next step', () => {
@@ -76,5 +97,24 @@ describe('formatDesktopError', () => {
     expect(formatDesktopError('内部实现失败。', 'en')).toBe(
       'The operation could not be completed. Try again; if it persists, restart Quillarium.'
     )
+  })
+
+  it('localizes story-order conflicts and scope violations', () => {
+    expect(formatDesktopError('STORY_ORDER_CONFLICT: sibling order changed', 'zh')).toContain(
+      '没有覆盖新内容'
+    )
+    expect(formatDesktopError('STORY_ORDER_CROSS_PARENT: rejected', 'en')).toContain('one parent')
+  })
+
+  it('localizes creator-assistant context, permission, and structured-output errors', () => {
+    expect(formatDesktopError('Error: AGENT_AI_NOT_CONFIGURED', 'zh')).toContain('AI 配置')
+    expect(
+      formatDesktopError('Required context source is missing or unreadable: canon:rule', 'zh')
+    ).toContain('缺少必需资料')
+    expect(formatDesktopError('AGENT_PERMISSION_DENIED: cannot propose issue', 'en')).toContain('not allowed')
+    expect(
+      formatDesktopError('Structured AI response still failed validation after one repair attempt.', 'zh')
+    ).toContain('一次修复')
+    expect(formatDesktopError('AGENT_EXECUTION_SNAPSHOT_CONFIGURATION_MISMATCH', 'zh')).toContain('运行快照')
   })
 })

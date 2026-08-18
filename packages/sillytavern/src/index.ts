@@ -1,4 +1,5 @@
 export * from './card.js'
+export * from './book-card.js'
 export * from './errors.js'
 export * from './files.js'
 export * from './png.js'

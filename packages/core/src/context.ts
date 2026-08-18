@@ -6,6 +6,14 @@ import { timelineIdsForOutline } from './chapter-relations.js'
 import { evaluateForeshadowingReminders } from './foreshadowing.js'
 import { isEnabledPlanningCard } from './planning-cards.js'
 import { sortTimelineEvents, validateTimelineChain } from './timeline.js'
+import { compareOutlineStoryPosition } from './story-order.js'
+import {
+  createLocalDocumentReferenceResolver,
+  extractLocalDocumentReferences,
+  extractStructuredDocumentReferences,
+  relativeDocumentPath,
+  type LocalDocumentReferenceResult
+} from './document-references.js'
 import {
   compileContextBlocks,
   renderPromptBlocks,
@@ -20,6 +28,7 @@ import type {
   CharacterDoc,
   CharacterStateDoc,
   ContextTrace,
+  ContextReferenceResolution,
   ForeshadowingDoc,
   IssueDoc,
   LocationDoc,
@@ -78,6 +87,7 @@ interface ContextActivation {
   reason: string
   trigger_chain: string[]
   depth: number
+  reference_resolutions?: ContextReferenceResolution[]
 }
 
 type PlanningContextDocument = DocWithContent<
@@ -242,7 +252,7 @@ export async function assembleContextPacket(
       .filter(
         (event) =>
           explicitTimeline.has(event.data.id) ||
-          Boolean(event.data.timeline_node && explicitTimeline.has(event.data.timeline_node))
+          timelineEventNodeIds(event.data).some((nodeId) => explicitTimeline.has(nodeId))
       )
       .map((event) => event.data.id)
   )
@@ -261,7 +271,7 @@ export async function assembleContextPacket(
   ).map((event) => chosenTimeline.find((item) => item.data.id === event.id)!)
   const selectedTimelineNodeIds = new Set([
     ...Array.from(explicitTimeline).filter((id) => all.timeline_node.some((node) => node.data.id === id)),
-    ...timeline.flatMap((event) => (event.data.timeline_node ? [event.data.timeline_node] : []))
+    ...timeline.flatMap((event) => timelineEventNodeIds(event.data))
   ])
   const timelineNodes = all.timeline_node.filter((node) => selectedTimelineNodeIds.has(node.data.id))
   const characters = chooseDocs(
@@ -468,15 +478,21 @@ export async function assembleContextPacket(
     })
   }
   const relationExpansion = expandContextRelations(
+    projectRoot,
     planningDocuments(all),
     activation,
     exclusions,
     policy.max_recursion_depth,
     policy.max_candidates,
     [
-      ...outlineChain.map((item) => ({ id: item.data.id, content: item.content })),
-      ...(scene ? [{ id: scene.data.id, content: scene.content }] : []),
-      ...acceptedProse.map((item) => ({ id: item.data.id, content: item.content }))
+      ...outlineChain.map((item) => ({
+        id: item.data.id,
+        path:
+          all.outline.find((candidate) => candidate.data.id === item.data.id)?.path ?? targetOutline!.path,
+        content: item.content
+      })),
+      ...(scene ? [{ id: scene.data.id, path: scene.path, content: scene.content }] : []),
+      ...acceptedProse.map((item) => ({ id: item.data.id, path: item.path, content: item.content }))
     ]
   )
   const uniqueWarnings = [...new Set(warnings)]
@@ -706,7 +722,9 @@ function renderTimeline(
   const renderedNodeIds = new Set(nodes.map((node) => node.data.id))
   const grouped = nodes
     .map((node) => {
-      const concurrent = events.filter((event) => event.data.timeline_node === node.data.id)
+      const concurrent = events.filter((event) =>
+        timelineEventStartNodeIds(event.data).includes(node.data.id)
+      )
       return [
         `### ${node.data.display_time || node.data.title}`,
         `timeline_node: ${node.data.id}`,
@@ -714,7 +732,7 @@ function renderTimeline(
         node.data.fuzzy ? `month_range: ${node.data.month}-${node.data.month_end ?? node.data.month}` : '',
         ...concurrent.map(
           (event) =>
-            `#### ${event.data.title}\n\nduration: ${event.data.duration}\nlocation: ${event.data.location}\ncharacters: ${event.data.characters.join(', ')}\n\n${event.content.trim()}`
+            `#### ${event.data.title}\n\nduration: ${event.data.duration}\nlocation: ${event.data.location}\ncharacters: ${event.data.characters.join(', ')}${(event.data.placements ?? []).length ? `\nplacements: ${JSON.stringify(event.data.placements)}` : ''}\n\n${event.content.trim()}`
         )
       ]
         .filter(Boolean)
@@ -722,7 +740,7 @@ function renderTimeline(
     })
     .join('\n\n')
   const legacy = events.filter(
-    (event) => !event.data.timeline_node || !renderedNodeIds.has(event.data.timeline_node)
+    (event) => !timelineEventStartNodeIds(event.data).some((nodeId) => renderedNodeIds.has(nodeId))
   )
   const legacyText = renderDocs(
     legacy,
@@ -730,6 +748,20 @@ function renderTimeline(
       `legacy_date: ${event.data.date}\nduration: ${event.data.duration}\nlocation: ${event.data.location}`
   )
   return [grouped, legacyText].filter(Boolean).join('\n\n')
+}
+
+function timelineEventStartNodeIds(event: TimelineEventDoc): string[] {
+  return [
+    ...(event.placements ?? []).map((placement) => placement.start_node_id),
+    ...(event.timeline_node ? [event.timeline_node] : [])
+  ].filter((id, index, values) => values.indexOf(id) === index)
+}
+
+function timelineEventNodeIds(event: TimelineEventDoc): string[] {
+  return [
+    ...timelineEventStartNodeIds(event),
+    ...(event.placements ?? []).flatMap((placement) => (placement.end_node_id ? [placement.end_node_id] : []))
+  ].filter((id, index, values) => values.indexOf(id) === index)
 }
 
 function collectOutlineChain(
@@ -969,20 +1001,27 @@ function planningDocuments(input: {
 }
 
 function expandContextRelations(
+  projectRoot: string,
   documents: PlanningContextDocument[],
   initial: Map<string, ContextActivation>,
   exclusions: Set<string>,
   maxDepth: number,
   maxCandidates: number,
-  seedTexts: Array<{ id: string; content: string }>
+  seedTexts: Array<{ id: string; path: string; content: string }>
 ): { activation: Map<string, ContextActivation>; reached_depth: number; capped_ids: Set<string> } {
   const activation = new Map(initial)
   const byId = new Map(documents.map((document) => [document.data.id, document]))
-  const knownIds = [...byId.keys()].sort((left, right) => left.localeCompare(right, 'en'))
+  const resolver = createLocalDocumentReferenceResolver(documents, projectRoot)
   const cappedIds = new Set<string>()
   let reachedDepth = 0
 
-  const activate = (targetId: string, sourceId: string, relation: string, depth: number): void => {
+  const activate = (
+    targetId: string,
+    sourceId: string,
+    relation: string,
+    depth: number,
+    resolution?: LocalDocumentReferenceResult
+  ): void => {
     if (!byId.has(targetId) || exclusions.has(targetId) || activation.has(targetId)) return
     if (activation.size >= maxCandidates) {
       cappedIds.add(targetId)
@@ -994,15 +1033,16 @@ function expandContextRelations(
         ...(activation.get(sourceId)?.trigger_chain ?? [`source:${sourceId}`]),
         `${relation}:${targetId}`
       ],
-      depth
+      depth,
+      ...(resolution ? { reference_resolutions: [contextReferenceResolution(resolution)] } : {})
     })
     reachedDepth = Math.max(reachedDepth, depth)
   }
 
   if (maxDepth > 0) {
     for (const seed of [...seedTexts].sort((left, right) => left.id.localeCompare(right.id, 'en'))) {
-      for (const targetId of extractLinkedDocumentIds(seed.content, knownIds, documents)) {
-        activate(targetId, seed.id, 'document-link', 1)
+      for (const resolution of resolveContentReferences(resolver, seed.content, seed.path, projectRoot)) {
+        activate(resolution.target_id!, seed.id, 'document-link', 1, resolution)
       }
     }
   }
@@ -1016,57 +1056,64 @@ function expandContextRelations(
     const [sourceId, info] = source
     expandedAt.set(sourceId, info.depth)
     const document = byId.get(sourceId)!
-    const linked = [
-      ...document.data.relations.map((relation) => ({
-        id: relation.target_id,
-        relation: `relation-${relation.kind}`
-      })),
-      ...document.data.source_refs.flatMap((reference) => {
-        const id = resolveReferenceId(reference, knownIds, documents)
-        return id ? [{ id, relation: 'source-reference' }] : []
-      }),
-      ...extractLinkedDocumentIds(document.content, knownIds, documents).map((id) => ({
-        id,
-        relation: 'document-link'
+    const sourcePath = relativeDocumentPath(document.path, projectRoot)
+    const tokens = [
+      ...extractLocalDocumentReferences(document.content),
+      ...extractStructuredDocumentReferences(document.data as unknown as Record<string, unknown>)
+    ]
+    const linked = tokens
+      .map((token) => resolver.resolve(token.target, { sourcePath, origin: token.origin }))
+      .filter(
+        (resolution): resolution is LocalDocumentReferenceResult & { target_id: string } =>
+          resolution.status === 'resolved' && Boolean(resolution.target_id)
+      )
+      .map((resolution) => ({
+        id: resolution.target_id,
+        relation: resolution.origin === 'structured_link' ? 'structured-link' : 'document-link',
+        resolution
       }))
-    ].sort(
-      (left, right) =>
-        left.id.localeCompare(right.id, 'en') || left.relation.localeCompare(right.relation, 'en')
-    )
-    for (const target of linked) activate(target.id, sourceId, target.relation, info.depth + 1)
+      .sort(
+        (left, right) =>
+          left.id.localeCompare(right.id, 'en') || left.relation.localeCompare(right.relation, 'en')
+      )
+    for (const target of linked)
+      activate(target.id, sourceId, target.relation, info.depth + 1, target.resolution)
   }
   return { activation, reached_depth: reachedDepth, capped_ids: cappedIds }
 }
 
-function extractLinkedDocumentIds(
+function resolveContentReferences(
+  resolver: ReturnType<typeof createLocalDocumentReferenceResolver>,
   content: string,
-  knownIds: string[],
-  documents: PlanningContextDocument[]
-): string[] {
-  const references = [
-    ...content.matchAll(/\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]/gu),
-    ...content.matchAll(/\[[^\]]*\]\(([^)#]+)(?:#[^)]*)?\)/gu)
-  ].map((match) => match[1]?.trim() ?? '')
-  const ids = references.flatMap((reference) => {
-    const id = resolveReferenceId(reference, knownIds, documents)
-    return id ? [id] : []
-  })
-  return [...new Set(ids)].sort((left, right) => left.localeCompare(right, 'en'))
+  sourcePath: string,
+  projectRoot: string
+): Array<LocalDocumentReferenceResult & { target_id: string }> {
+  const relativeSource = relativeDocumentPath(sourcePath, projectRoot)
+  const seen = new Set<string>()
+  return extractLocalDocumentReferences(content)
+    .map((token) => resolver.resolve(token.target, { sourcePath: relativeSource, origin: token.origin }))
+    .filter(
+      (resolution): resolution is LocalDocumentReferenceResult & { target_id: string } =>
+        resolution.status === 'resolved' && Boolean(resolution.target_id)
+    )
+    .filter((resolution) => {
+      const key = `${resolution.target_id}\0${resolution.raw_reference}\0${resolution.origin}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
 }
 
-function resolveReferenceId(
-  reference: string,
-  knownIds: string[],
-  documents: PlanningContextDocument[]
-): string | undefined {
-  const normalized = reference.replace(/\\/gu, '/').replace(/\.md$/iu, '').trim()
-  if (knownIds.includes(normalized)) return normalized
-  const basename = path.posix.basename(normalized)
-  const byPath = documents.find((document) => {
-    const candidate = document.path.replace(/\\/gu, '/').replace(/\.md$/iu, '')
-    return candidate.endsWith(`/${normalized}`) || path.posix.basename(candidate) === basename
-  })
-  return byPath?.data.id
+function contextReferenceResolution(
+  resolution: LocalDocumentReferenceResult & { target_id?: string }
+): ContextReferenceResolution {
+  return {
+    raw_reference: resolution.raw_reference,
+    resolved_target_id: resolution.target_id ?? '',
+    matched_by: resolution.matched_by ?? 'unknown',
+    source_path: resolution.source_path,
+    origin: resolution.origin
+  }
 }
 
 function selectAcceptedProse(
@@ -1088,6 +1135,13 @@ function selectAcceptedProse(
   const current = prose.filter(
     (item) => item.data.chapter_id === chapter.id && item.content.trim() && item.data.status !== 'published'
   )
+  const chapterOrder = new Map(
+    outlines
+      .filter((item) => item.data.level === 'chapter')
+      .map((item) => item.data)
+      .sort((left, right) => compareOutlineStoryPosition(left, right, byId))
+      .map((item, index) => [item.id, index] as const)
+  )
   const finalized = prose
     .filter(
       (item) =>
@@ -1098,9 +1152,9 @@ function selectAcceptedProse(
     )
     .sort(
       (left, right) =>
-        (left.data.finalized_at ?? left.data.published_at ?? '').localeCompare(
-          right.data.finalized_at ?? right.data.published_at ?? ''
-        ) || left.data.id.localeCompare(right.data.id, 'en')
+        (chapterOrder.get(left.data.chapter_id) ?? Number.MAX_SAFE_INTEGER) -
+          (chapterOrder.get(right.data.chapter_id) ?? Number.MAX_SAFE_INTEGER) ||
+        left.data.id.localeCompare(right.data.id, 'en')
     )
     .slice(-3)
   return [...finalized, ...current].filter(
@@ -1235,14 +1289,14 @@ function buildPromptBlockCandidates(input: {
     }
   ]
 
-  for (const item of input.acceptedProse) {
+  for (const [index, item] of input.acceptedProse.entries()) {
     candidates.push(
       documentCandidate(input, item, {
         kind: 'accepted_prose',
         authority: 'accepted_prose',
         authority_rank: 500,
         priority: 500,
-        order: 100,
+        order: 100 + index,
         purpose: 'preserve accepted continuity and prose style',
         body: `### Accepted Prose: ${item.data.title}\n\n${item.content.trim()}`,
         required: true,
@@ -1441,7 +1495,7 @@ function buildPromptBlockCandidates(input: {
         priority: 315,
         order: 900,
         purpose: 'preserve foreshadowing commitments',
-        body: `### Foreshadowing: ${item.data.title}\n\nlevel: ${item.data.level}\nstate: ${item.data.state}\nsummary: ${item.data.summary}\nplant: ${item.data.planned_plant}\nresolve: ${item.data.planned_resolve}\n\n${item.content.trim()}`
+        body: `### Foreshadowing: ${item.data.title}\n\nlevel: ${item.data.level}\nstate: ${item.data.state}\nsummary: ${item.data.summary}\nplant: ${formatForeshadowingPosition(item.data.planned_plant_ref, item.data.planned_plant)}\nresolve: ${formatForeshadowingPosition(item.data.planned_resolve_ref, item.data.planned_resolve)}\n\n${item.content.trim()}`
       })
     )
   }
@@ -1568,6 +1622,9 @@ function documentCandidate<T extends BaseDoc>(
         ? { exclusion_reason: 'relationship expansion candidate limit reached' }
         : {}),
     trigger_chain: activation?.trigger_chain ?? [],
+    ...(activation?.reference_resolutions?.length
+      ? { reference_resolutions: activation.reference_resolutions }
+      : {}),
     truncation: config.truncation ?? 'head'
   }
 }
@@ -1644,4 +1701,24 @@ function normalizeDirective(value: string): { core: string; negative: boolean } 
     .replace(/\b(?:must|should|always|please)\b|必须|应当|应该|始终|务必/gu, '')
     .replace(/[^\p{L}\p{N}]+/gu, '')
   return { core, negative }
+}
+
+function formatForeshadowingPosition(
+  position:
+    | {
+        timeline_id: string
+        target_type: 'timeline' | 'timeline_node' | 'timeline_event'
+        target_id: string
+        display_name: string
+        outline_id: string | null
+      }
+    | null
+    | undefined,
+  legacyText: string
+): string {
+  if (!position) return legacyText
+  const human = position.display_name.trim() || position.target_id
+  const outline = position.outline_id ? `; outline=${position.outline_id}` : ''
+  const legacy = legacyText.trim() ? `; legacy=${legacyText.trim()}` : ''
+  return `${human} [timeline=${position.timeline_id}; ${position.target_type}=${position.target_id}${outline}${legacy}]`
 }

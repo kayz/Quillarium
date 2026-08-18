@@ -12,22 +12,26 @@ import {
   confirmFinalizeImpact,
   completeFinalizeReviewSession,
   createFinalizeReviewSession,
+  createAgentPromptEnvelope,
   createRun,
   createScene,
   finalizeChapter,
   listDocs,
   loadFinalizeReviewSession,
+  loadBookGenerationHeader,
   loadChapterLifecycle,
   publishChapter,
   readMarkdown,
   recoverFinalizationApplications,
   renderContextPacket,
+  savePromptSourcesAsContextBundle,
   timelineIdsForOutline,
   writeMarkdown,
   writeRunFile,
   type CharacterDoc,
   type LocationDoc,
   type OutlineDoc,
+  type PromptSourceSelection,
   type SceneDoc,
   type TimelineEventDoc
 } from '@quillarium/core'
@@ -42,6 +46,8 @@ import {
 } from '@quillarium/checks'
 import {
   createGenerationRun,
+  buildGenerationSystemMessage,
+  buildProviderRequestBody,
   generateCandidateGroup,
   buildSectionPrompt,
   contextCompileOptions,
@@ -49,6 +55,7 @@ import {
   generateText,
   isAIConfigured,
   resolveGenerationPreset,
+  sanitizeProviderVisibleValue,
   type AIConfig,
   type ResolvedGenerationPreset
 } from '@quillarium/ai'
@@ -106,6 +113,37 @@ export function registerSceneHandlers(): void {
       context_trace: packet.context_trace,
       writing_preset: resolved.snapshot
     })
+  })
+  typedHandle('scene:previewFullPrompt', async (_event, root, sceneId, prompt, promptSources) => {
+    const resolved = await resolveDesktopGenerationPreset(root)
+    const overlay = await buildEditableScenePromptPlan(
+      root,
+      { sceneId },
+      contextCompileOptions(resolved.config, resolved.snapshot),
+      promptSources
+    )
+    const header = await loadBookGenerationHeader(root)
+    const compiled = overlay.prompt.trim()
+    const sent = prompt.trim() ? prompt : compiled
+    const promptEnvelope = createAgentPromptEnvelope({
+      systemMessage: buildGenerationSystemMessage(header.text, resolved.snapshot),
+      userInstructions: [],
+      contextMarkdown: overlay.prompt,
+      conversation: [],
+      currentInput: compiled,
+      compiledUserContent: compiled,
+      sentUserContent: sent
+    })
+    const providerRequest = sanitizeProviderVisibleValue(
+      buildProviderRequestBody(promptEnvelope.messages, resolved.config)
+    ) as Record<string, unknown>
+    return {
+      promptEnvelope,
+      providerRequest,
+      promptBlocks: overlay.prompt_blocks,
+      providerTransformed:
+        JSON.stringify(providerRequest['messages']) !== JSON.stringify(promptEnvelope.messages)
+    }
   })
   typedHandle('scene:generate', async (_event, root, sceneId) => {
     const scene = await requireScene(root, sceneId)
@@ -187,16 +225,23 @@ export function registerSceneHandlers(): void {
   })
   typedHandle(
     'outline:generateCandidates',
-    async (_event, root, outlineId, prompt, sceneId, count, parentRunId) => {
+    async (_event, root, outlineId, prompt, sceneId, count, parentRunId, promptSources) => {
       await assertChapterAllowsAI(root, outlineId)
       const scene = await ensureSceneForOutline(root, outlineId, sceneId)
       const resolved = await resolveDesktopGenerationPreset(root)
-      const packet = await assembleContextPacket(
-        root,
-        { type: 'outline', id: outlineId },
-        contextCompileOptions(resolved.config, resolved.snapshot)
-      )
-      const context = renderContextPacket(packet)
+      const compilationOptions = contextCompileOptions(resolved.config, resolved.snapshot)
+      const overlay = promptSources
+        ? await buildEditableScenePromptPlan(
+            root,
+            { sceneId: scene.data.id },
+            compilationOptions,
+            promptSources
+          )
+        : null
+      const packet = overlay
+        ? null
+        : await assembleContextPacket(root, { type: 'outline', id: outlineId }, compilationOptions)
+      const context = overlay?.prompt ?? renderContextPacket(packet!)
       const group = await generateCandidateGroup(
         {
           projectRoot: root,
@@ -210,11 +255,13 @@ export function registerSceneHandlers(): void {
             target_id: outlineId,
             source_outline: outlineId
           },
-          sharedGuidance: packet.shared_guidance,
+          sharedGuidance: overlay?.shared_guidance ?? packet!.shared_guidance,
           promptOverride: prompt,
           compilation: {
-            prompt_blocks: packet.prompt_blocks,
-            context_trace: packet.context_trace,
+            prompt_blocks: overlay?.prompt_blocks ?? packet!.prompt_blocks,
+            context_trace: overlay?.context_trace ?? packet!.context_trace,
+            compiled_prompt: overlay?.prompt,
+            agent_task_id: 'scene-generation',
             writing_preset: resolved.snapshot
           }
         },
@@ -240,6 +287,18 @@ export function registerSceneHandlers(): void {
       contextCompileOptions(resolved.config, resolved.snapshot)
     )
   })
+  typedHandle('scene:compilePromptOverlay', async (_event, root, sceneId, sources) => {
+    const resolved = await resolveDesktopGenerationPreset(root)
+    return buildEditableScenePromptPlan(
+      root,
+      { sceneId },
+      contextCompileOptions(resolved.config, resolved.snapshot),
+      sources as PromptSourceSelection[]
+    )
+  })
+  typedHandle('scene:savePromptBundle', async (_event, root, title, sources) =>
+    savePromptSourcesAsContextBundle(root, title, sources as PromptSourceSelection[])
+  )
   typedHandle('chapter:lifecycle', async (_event, root, chapterId) => loadChapterLifecycle(root, chapterId))
   typedHandle('chapter:finalize', async (_event, root, chapterId) => finalizeChapter(root, chapterId))
   typedHandle('chapter:publish', async (_event, root, chapterId, confirmation) =>

@@ -5,6 +5,7 @@ import type {
   PlanningChatMessage,
   PlanningDocumentKind,
   PlanningDraft,
+  PlanningProposal,
   PlanningSession
 } from '../../app/types.js'
 import { bridge } from '../../app/bridge.js'
@@ -12,7 +13,7 @@ import { formatDesktopError } from '../../shared/errors.js'
 import { MarkdownBodyEditor } from '../markdown/MarkdownBodyEditor.js'
 import { fieldPresentation } from '../metadata/field-presentation.js'
 import { MetadataEditor } from '../outline/OutlineShared.js'
-import { CREATABLE_PLANNING_KINDS, PLANNING_KIND_LABELS, planningKindForContext } from './planning-model.js'
+import { PLANNING_KIND_LABELS, planningKindForContext, planningKindsForContext } from './planning-model.js'
 
 export function PlanningCreationDialog({
   root,
@@ -35,25 +36,37 @@ export function PlanningCreationDialog({
   const inputRef = useRef<HTMLTextAreaElement | null>(null)
   const [messages, setMessages] = useState<PlanningChatMessage[]>([])
   const [message, setMessage] = useState('')
-  const [proposal, setProposal] = useState<PlanningDraft | null>(null)
+  const [proposals, setProposals] = useState<PlanningProposal[]>([])
+  const [selectedProposalId, setSelectedProposalId] = useState<string | null>(null)
   const [session, setSession] = useState<PlanningSession | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState<'load' | 'discuss' | 'confirm' | null>('load')
   const zh = language === 'zh'
   const suggestedKind = planningKindForContext(module as never)
-  const editing = Boolean(session?.document)
+  const proposalRecord = proposals.find((item) => item.id === selectedProposalId) ?? proposals[0] ?? null
+  const proposal = proposalRecord?.draft ?? null
+  const editing = proposalRecord?.operation === 'update'
+  const originalKind = proposalRecord?.target?.type
+  const allowedKinds = planningKindsForContext(session?.module ?? module, originalKind)
+  const proposalKindOptions =
+    proposal && !allowedKinds.includes(proposal.kind) ? [proposal.kind, ...allowedKinds] : allowedKinds
+  const changingType = Boolean(originalKind && proposal && originalKind !== proposal.kind)
 
   const close = useCallback(async () => {
     if (session) {
       try {
-        await bridge.savePlanningSession(root, session.id, { messages, proposal })
+        await bridge.savePlanningSession(root, session.id, {
+          messages,
+          proposals,
+          selectedProposalId
+        })
       } catch (cause) {
         setError(formatDesktopError(cause, language))
         return
       }
     }
     onClose()
-  }, [messages, onClose, proposal, root, session])
+  }, [messages, onClose, proposals, root, selectedProposalId, session])
 
   useEffect(() => {
     let active = true
@@ -65,7 +78,8 @@ export function PlanningCreationDialog({
         if (!active) return
         setSession(loaded)
         setMessages(loaded.messages)
-        setProposal(loaded.proposal)
+        setProposals(loaded.proposals)
+        setSelectedProposalId(loaded.selected_proposal_id)
         setBusy(null)
       } catch (cause) {
         if (!active) return
@@ -90,12 +104,14 @@ export function PlanningCreationDialog({
   useEffect(() => {
     if (!session || busy === 'load') return
     const handle = window.setTimeout(() => {
-      void bridge.savePlanningSession(root, session.id, { messages, proposal }).catch((cause: unknown) => {
-        setError(formatDesktopError(cause, language))
-      })
+      void bridge
+        .savePlanningSession(root, session.id, { messages, proposals, selectedProposalId })
+        .catch((cause: unknown) => {
+          setError(formatDesktopError(cause, language))
+        })
     }, 500)
     return () => window.clearTimeout(handle)
-  }, [busy, messages, proposal, root, session])
+  }, [busy, messages, proposals, root, selectedProposalId, session])
 
   const discuss = async (retry = false) => {
     const authorMessage = retry ? (messages.at(-1)?.content ?? '') : message.trim()
@@ -109,13 +125,13 @@ export function PlanningCreationDialog({
       const response = await bridge.discussPlanningRecord(root, {
         module,
         messages: nextMessages,
-        proposal,
+        proposals,
+        selectedProposalId,
         sessionId: session.id
       })
       setMessages([...nextMessages, { role: 'assistant', content: response.message }])
-      if (response.proposal) {
-        setProposal(response.proposal)
-      }
+      setProposals(response.proposals)
+      setSelectedProposalId(response.selectedProposalId)
     } catch (cause) {
       setError(formatDesktopError(cause, language))
     } finally {
@@ -124,20 +140,41 @@ export function PlanningCreationDialog({
   }
 
   const confirm = async () => {
-    if (!proposal || !session) return
+    if (!session || !proposals.some((item) => item.status === 'confirmed')) return
     setBusy('confirm')
     setError(null)
     try {
       const result = await bridge.confirmPlanningRecord(root, {
         sessionId: session.id,
         messages,
-        proposal
+        proposals,
+        selectedProposalId
       })
       onCreated(result)
     } catch (cause) {
       setError(formatDesktopError(cause, language))
       setBusy(null)
     }
+  }
+
+  const updateProposal = (draft: PlanningDraft) => {
+    if (!proposalRecord) return
+    setProposals((current) =>
+      current.map((item) =>
+        item.id === proposalRecord.id ? { ...item, draft, status: 'draft' as const } : item
+      )
+    )
+  }
+
+  const toggleConfirmation = () => {
+    if (!proposalRecord) return
+    setProposals((current) =>
+      current.map((item) =>
+        item.id === proposalRecord.id
+          ? { ...item, status: item.status === 'confirmed' ? ('draft' as const) : ('confirmed' as const) }
+          : item
+      )
+    )
   }
 
   return (
@@ -194,8 +231,8 @@ export function PlanningCreationDialog({
                 <Bot size={16} />
                 <p>
                   {zh
-                    ? `请描述你要补充的资料。可以只给一个模糊想法，我会追问并判断最合适的文档类型${suggestedKind ? `（当前栏目常用：${PLANNING_KIND_LABELS[suggestedKind].zh}）` : ''}。`
-                    : 'Describe the record you need. A rough idea is enough; I will ask questions and choose the best document type.'}
+                    ? `请描述你要补充的资料。可以只给一个模糊想法，我会在当前栏目允许的类型内追问和整理${suggestedKind ? `（当前栏目：${PLANNING_KIND_LABELS[suggestedKind].zh}）` : ''}。`
+                    : 'Describe the record you need. I will ask questions and stay within the current module’s allowed document types.'}
                 </p>
               </article>
               {messages.map((item, index) => (
@@ -243,27 +280,68 @@ export function PlanningCreationDialog({
           </section>
 
           <section className="planning-proposal" aria-label={zh ? '建档提案' : 'Record proposal'}>
+            {proposals.length > 0 && (
+              <div
+                className="planning-proposal-rail"
+                role="tablist"
+                aria-label={zh ? '会话卡片' : 'Session cards'}
+              >
+                {proposals.map((item, index) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={item.id === proposalRecord?.id}
+                    className={item.id === proposalRecord?.id ? 'active' : ''}
+                    onClick={() => setSelectedProposalId(item.id)}
+                  >
+                    <span className={`proposal-operation ${item.operation}`}>
+                      {item.operation === 'update' ? (zh ? '更新' : 'UPDATE') : zh ? '新卡' : 'NEW'}
+                    </span>
+                    <strong>
+                      {index + 1}. {item.draft.title}
+                    </strong>
+                    <small>
+                      {item.source === 'anchor' ? (zh ? '锚定卡片 · ' : 'Anchor · ') : ''}
+                      {PLANNING_KIND_LABELS[item.draft.kind]?.[language] ?? item.draft.kind} · {item.id}
+                    </small>
+                    <span className={`proposal-state ${item.status}`}>
+                      {proposalStatusCopy(item.status, language)}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
             {proposal ? (
               <>
                 <div className="proposal-status">
                   <span>
-                    <Check size={14} /> {zh ? '可修改提案' : 'Editable proposal'}
+                    <Check size={14} /> {proposalStatusCopy(proposalRecord!.status, language)}
                   </span>
                   <small>
-                    {editing
+                    {changingType
                       ? zh
-                        ? '确认后更新原卡片'
-                        : 'Updates the original card'
-                      : zh
-                        ? '尚未写入项目'
-                        : 'Not written yet'}
+                        ? '确认后迁移类型；卡片 ID 与对话记录保持不变'
+                        : 'Confirmation migrates the type while preserving the card ID and conversation'
+                      : editing
+                        ? zh
+                          ? '确认后更新原卡片'
+                          : 'Updates the original card'
+                        : zh
+                          ? '尚未写入项目'
+                          : 'Not written yet'}
                   </small>
                 </div>
+                {proposalRecord?.validation_error && (
+                  <p className="proposal-validation-error" role="status">
+                    {proposalRecord.validation_error}
+                  </p>
+                )}
                 <label>
                   <PlanningFieldCopy name="title" language={language} />
                   <input
                     value={proposal.title}
-                    onChange={(event) => setProposal({ ...proposal, title: event.target.value })}
+                    onChange={(event) => updateProposal({ ...proposal, title: event.target.value })}
                     aria-label={zh ? '提案标题' : 'Proposal title'}
                   />
                 </label>
@@ -272,31 +350,34 @@ export function PlanningCreationDialog({
                   <select
                     value={proposal.kind}
                     onChange={(event) =>
-                      setProposal({ ...proposal, kind: event.target.value as PlanningDocumentKind })
+                      updateProposal({ ...proposal, kind: event.target.value as PlanningDocumentKind })
                     }
                     aria-label={zh ? '提案文档类型' : 'Proposal document type'}
-                    disabled={editing}
                   >
-                    {(editing && proposal.kind && !CREATABLE_PLANNING_KINDS.includes(proposal.kind)
-                      ? [proposal.kind, ...CREATABLE_PLANNING_KINDS]
-                      : CREATABLE_PLANNING_KINDS
-                    ).map((kind) => (
+                    {proposalKindOptions.map((kind) => (
                       <option key={kind} value={kind}>
                         {zh ? PLANNING_KIND_LABELS[kind].zh : PLANNING_KIND_LABELS[kind].en}
                       </option>
                     ))}
                   </select>
+                  {changingType && (
+                    <small className="planning-type-change-note">
+                      {zh
+                        ? `将从“${PLANNING_KIND_LABELS[originalKind!].zh}”迁移为“${PLANNING_KIND_LABELS[proposal.kind].zh}”。保存失败时不会删除原卡片。`
+                        : `This changes “${PLANNING_KIND_LABELS[originalKind!].en}” to “${PLANNING_KIND_LABELS[proposal.kind].en}”. The original card is retained if saving fails.`}
+                    </small>
+                  )}
                 </label>
                 <section className="proposal-fields" aria-label={zh ? '提案结构化字段' : 'Proposal fields'}>
                   <MetadataEditor
                     data={proposal.fields}
                     language={language}
-                    onChange={(fields) => setProposal({ ...proposal, fields })}
+                    onChange={(fields) => updateProposal({ ...proposal, fields })}
                   />
                 </section>
                 <MarkdownBodyEditor
                   value={proposal.content}
-                  onChange={(content) => setProposal({ ...proposal, content })}
+                  onChange={(content) => updateProposal({ ...proposal, content })}
                   language={language}
                 />
               </>
@@ -337,19 +418,29 @@ export function PlanningCreationDialog({
             {zh ? '取消' : 'Cancel'}
           </button>
           <span>
-            {editing
-              ? zh
-                ? '关闭会保留对话草案；确认后才更新卡片。'
-                : 'Closing keeps the draft; confirmation updates the card.'
-              : zh
-                ? '只有确认后才创建 Markdown 文件。'
-                : 'A Markdown file is created only after confirmation.'}
+            {zh
+              ? `关闭会保留全部草案；已确认 ${proposals.filter((item) => item.status === 'confirmed').length} 张。`
+              : `Closing keeps every draft; ${proposals.filter((item) => item.status === 'confirmed').length} confirmed.`}
           </span>
+          <button
+            className="secondary"
+            type="button"
+            onClick={toggleConfirmation}
+            disabled={Boolean(busy) || !proposal?.title.trim()}
+          >
+            {proposalRecord?.status === 'confirmed'
+              ? zh
+                ? '撤回确认'
+                : 'Undo confirmation'
+              : zh
+                ? '确认此卡'
+                : 'Confirm this card'}
+          </button>
           <button
             className="primary"
             type="button"
             onClick={() => void confirm()}
-            disabled={Boolean(busy) || !proposal?.title.trim()}
+            disabled={Boolean(busy) || !proposals.some((item) => item.status === 'confirmed')}
           >
             {busy === 'confirm' ? <LoaderCircle className="spin" size={15} /> : <Check size={15} />}
             {busy === 'confirm'
@@ -357,12 +448,8 @@ export function PlanningCreationDialog({
                 ? '正在原子写入…'
                 : 'Writing atomically…'
               : zh
-                ? editing
-                  ? '确认并更新'
-                  : '确认并创建'
-                : editing
-                  ? 'Confirm and update'
-                  : 'Confirm and create'}
+                ? '应用全部已确认卡片'
+                : 'Apply all confirmed cards'}
           </button>
         </footer>
       </section>
@@ -378,4 +465,13 @@ function PlanningFieldCopy({ name, language }: { name: string; language: Languag
       <small>{presentation.description}</small>
     </span>
   )
+}
+
+function proposalStatusCopy(status: PlanningProposal['status'], language: LanguageName): string {
+  const labels = {
+    draft: { zh: '可编辑草案', en: 'Editable draft' },
+    confirmed: { zh: '已确认，仍可编辑', en: 'Confirmed, still editable' },
+    applied: { zh: '已应用，可继续讨论', en: 'Applied, discussion can continue' }
+  }
+  return labels[status][language]
 }

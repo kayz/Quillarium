@@ -339,7 +339,7 @@ export function OutlineSummary({
           <b>{childCount}</b>
         </span>
         <span>
-          Canon
+          正设
           <b>{contextPacket?.canon.length ?? 0}</b>
         </span>
         <span>

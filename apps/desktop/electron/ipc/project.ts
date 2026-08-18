@@ -20,7 +20,6 @@ import {
   createNarrative,
   createOutline,
   createPattern,
-  createProjectAt,
   createReference,
   createRoute,
   createScene,
@@ -32,18 +31,17 @@ import {
   deleteStoryNode,
   getObsidianDir,
   getWorkspaceDir,
+  hasDocumentIdentity,
   inferUniqueLegacyOutlineParent,
   listDocs,
   listRuns,
   listWorkspaceProjects,
   loadProject,
-  loadWorkspace,
   parseKnownDocument,
   parseStoryTime,
   readMarkdown,
-  registerWorkspaceProject,
+  rebuildLocalDocumentLinkIndex,
   resolveDocumentOrigin,
-  stableProjectId,
   writeMarkdown,
   type CanonDoc,
   type CharacterDoc,
@@ -66,6 +64,7 @@ import {
   type WorldEntryDoc
 } from '@quillarium/core'
 import { typedHandle, type DesktopDocEntry } from './contract.js'
+import { createLocalWorkspaceProject } from './local-workspace.js'
 
 export function registerProjectHandlers(): void {
   typedHandle('project:list', async () => {
@@ -102,21 +101,7 @@ export function registerProjectHandlers(): void {
   typedHandle('project:create', async (_event, input) => {
     const workspaceRoot = await getWorkspaceDir()
     if (!workspaceRoot) throw new Error('请先注册写作工作区；旧 vault 仅用于兼容打开和无损迁移。')
-    const workspace = await loadWorkspace(workspaceRoot)
-    const id = input.id ?? stableProjectId(input.title)
-    const relativePath = path.posix.join(workspace.manifest.projects_dir.replace(/\\/g, '/'), id)
-    const root = path.join(workspace.root, ...relativePath.split('/'))
-    const paths = await createProjectAt(root, {
-      id,
-      title: input.title,
-      genre: input.genre,
-      target_words: input.targetWords,
-      chapter_words: input.chapterWords,
-      section_words: input.sectionWords,
-      default_theme: input.defaultTheme
-    })
-    await registerWorkspaceProject(workspace.root, { id, path: relativePath })
-    return { root: paths.root, ...(await loadProject(paths.root)) }
+    return createLocalWorkspaceProject(workspaceRoot, input)
   })
   typedHandle('project:choose', async () => {
     const result = await dialog.showOpenDialog({ properties: ['openDirectory'] })
@@ -127,9 +112,20 @@ export function registerProjectHandlers(): void {
 
   typedHandle('project:load', async (_event, root) => {
     const project = await loadProject(root)
-    const docs = await listDocs<DocumentIdentity>(root)
+    const docs = (await listDocs<DocumentIdentity>(root)).filter((entry) => hasDocumentIdentity(entry.data))
     const runs = await listRuns(root)
-    return { project, docs: docs as DesktopDocEntry[], runs }
+    await rebuildLocalDocumentLinkIndex(root).catch((error) =>
+      console.warn('Could not rebuild the derived document-link cache.', error)
+    )
+    return {
+      project,
+      docs: docs.map((entry): DesktopDocEntry => ({
+        path: entry.path,
+        data: { ...entry.data },
+        content: entry.content
+      })),
+      runs
+    }
   })
 
   typedHandle('doc:read', async (_event, filePath) => readDesktopDocument(filePath))
@@ -192,7 +188,8 @@ export async function saveDesktopDocument(
   await assertDocumentHumanEditable(projectRoot, normalizedData)
   await assertCardReferencesExist(
     normalizedData as unknown as DocumentIdentity,
-    await listDocs<DocumentIdentity>(projectRoot)
+    await listDocs<DocumentIdentity>(projectRoot),
+    projectRoot
   )
   let nextData = normalizedData
   if (normalizedData['type'] === 'outline') {
@@ -213,6 +210,9 @@ export async function saveDesktopDocument(
   }
   const parsed = parseKnownDocument(nextData, filePath)
   await writeMarkdown(filePath, parsed, body)
+  await rebuildLocalDocumentLinkIndex(projectRoot).catch((error) =>
+    console.warn('Could not rebuild the derived document-link cache.', error)
+  )
   return true
 }
 

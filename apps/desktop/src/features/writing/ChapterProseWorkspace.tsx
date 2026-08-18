@@ -493,7 +493,7 @@ function targetTypeLabel(type: string, language: LanguageName): string {
   if (language === 'en') return type
   return (
     {
-      canon: 'Canon',
+      canon: '正设',
       character: '人物',
       character_state: '人物状态',
       timeline_event: '时间线事件',

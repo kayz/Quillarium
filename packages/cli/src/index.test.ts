@@ -12,6 +12,7 @@ vi.mock('@quillarium/core', async (importOriginal) => {
 
 import {
   createCanon,
+  createForeshadowing,
   createOutline,
   createScene,
   createWorldEntry,
@@ -373,6 +374,68 @@ describe('CLI smoke flow', () => {
     expect(finalize?.commands.find((command) => command.name() === 'apply')?.helpInformation()).toContain(
       'Atomically apply'
     )
+  })
+
+  it('exposes one thin CLI surface for planning review, decision, and fail-closed apply', () => {
+    const agent = buildProgram().commands.find((command) => command.name() === 'agent')
+
+    expect(agent?.commands.map((command) => command.name())).toEqual([
+      'check-planning',
+      'decide-planning',
+      'apply-planning'
+    ])
+    expect(
+      agent?.commands.find((command) => command.name() === 'check-planning')?.helpInformation()
+    ).toContain('without writing issue cards')
+  })
+
+  it('keeps the Agent CLI adapter free of provider, prompt, parser, and domain-write implementations', async () => {
+    const source = await readFile(new URL('./agent.ts', import.meta.url), 'utf8')
+
+    expect(source).toContain('executeAgentTask')
+    expect(source).not.toMatch(
+      /generateText|generateMessages|parseStructuredResponse|compileContextBlocks|createIssue|writeMarkdown/u
+    )
+  })
+
+  it('keeps project planning findings read-only until two explicit CLI approval steps complete', async () => {
+    const { root } = await initProject()
+    await createForeshadowing(root, 'Unscheduled clue', {
+      id: 'foreshadow-unscheduled-clue',
+      enabled: true,
+      trigger_conditions: []
+    })
+
+    output = []
+    await run('agent', 'check-planning', '--no-semantic', '--language', 'en', '--project', root)
+    const review = JSON.parse(output.join('\n')) as {
+      status: 'completed'
+      execution_id: string
+      result: { deterministic_findings: Array<{ id: string }> }
+    }
+    expect(review.status).toBe('completed')
+    expect(review.result.deterministic_findings.length).toBeGreaterThan(0)
+    expect(await listDocs<IssueDoc>(root, 'issue')).toHaveLength(0)
+
+    output = []
+    await run(
+      'agent',
+      'decide-planning',
+      review.execution_id,
+      '--select',
+      review.result.deterministic_findings[0]!.id,
+      '--project',
+      root
+    )
+    const decision = JSON.parse(output.join('\n')) as { id: string; decision: string }
+    expect(decision.decision).toBe('approved')
+    expect(await listDocs<IssueDoc>(root, 'issue')).toHaveLength(0)
+
+    output = []
+    await run('agent', 'apply-planning', review.execution_id, '--decision', decision.id, '--project', root)
+    const application = JSON.parse(output.join('\n')) as { created_issue_ids: string[] }
+    expect(application.created_issue_ids).toHaveLength(1)
+    expect(await listDocs<IssueDoc>(root, 'issue')).toHaveLength(1)
   })
 
   it('keeps explicit legacy-vault creation available without making it the default', async () => {
@@ -980,6 +1043,10 @@ describe('CLI smoke flow', () => {
 
     output = []
     await run('run', 'show', runId!, '--file', 'prompt.md', '--project', root)
+    expect(output.join('\n')).toContain('# Quillarium Context Packet')
+
+    output = []
+    await run('run', 'show', runId!, '--file', 'prompt-envelope.json', '--project', root)
     expect(output.join('\n')).toContain('You are assisting with a long-form novel project.')
   })
 

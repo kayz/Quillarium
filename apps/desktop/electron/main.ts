@@ -2,6 +2,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { app, BrowserWindow, Menu } from 'electron'
 import { registerAllHandlers } from './ipc/index.js'
+import { initializeDesktopLogging, recordRendererConsole } from './logging.js'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const appIcon = path.join(__dirname, '../../assets/brand/quillarium-app-icon.png')
@@ -34,6 +35,13 @@ async function createWindow() {
     }
   })
 
+  win.webContents.on('console-message', (details) => {
+    if (details.level !== 'warning' && details.level !== 'error') return
+    void recordRendererConsole(details.level, details.message, details.lineNumber).catch((error) =>
+      console.error('Could not persist Quillarium renderer log.', error)
+    )
+  })
+
   const devUrl = process.env.VITE_DEV_SERVER_URL
   if (devUrl) {
     await win.loadURL(devUrl)
@@ -44,6 +52,9 @@ async function createWindow() {
 
 app.setAppUserModelId('com.quillarium.desktop')
 app.whenReady().then(async () => {
+  await initializeDesktopLogging().catch((error) =>
+    console.error('Could not initialize Quillarium desktop logging.', error)
+  )
   if (process.platform === 'darwin') app.dock?.setIcon(appIcon)
   await createWindow()
 })

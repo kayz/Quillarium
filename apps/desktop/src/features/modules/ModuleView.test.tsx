@@ -56,4 +56,22 @@ describe('ModuleView localized summaries', () => {
     expect(zh).toContain('已生成')
     expect(en).toContain('Generated')
   })
+
+  it('keeps large writing-module card grids bounded', () => {
+    const docs: DocEntry[] = Array.from({ length: 185 }, (_, index) => ({
+      path: `world/world-${index + 1}.md`,
+      data: {
+        id: `WORLD-${String(index + 1).padStart(4, '0')}`,
+        type: 'world_entry',
+        title: `世界设定 ${index + 1}`,
+        status: 'candidate'
+      },
+      content: ''
+    }))
+
+    const html = renderToStaticMarkup(<ModuleView {...baseProps} module="world" docs={docs} language="zh" />)
+
+    expect(html.match(/class="info-card module-info-card/g)).toHaveLength(30)
+    expect(html).toContain('1–30 / 185')
+  })
 })

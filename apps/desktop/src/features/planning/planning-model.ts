@@ -1,4 +1,10 @@
-import type { ModuleName, OutlineHomeSection, PlanningDocumentKind, VolumeSection } from '../../app/types.js'
+import type {
+  ModuleName,
+  OutlineHomeSection,
+  PlanningCheckScope,
+  PlanningDocumentKind,
+  VolumeSection
+} from '../../app/types.js'
 
 export const PLANNING_KIND_LABELS: Record<PlanningDocumentKind, { zh: string; en: string }> = {
   character: { zh: '人物', en: 'Character' },
@@ -37,4 +43,38 @@ export function planningKindForContext(
 
 export function isAIPlanningContext(context: ModuleName | OutlineHomeSection | VolumeSection): boolean {
   return planningKindForContext(context) !== null
+}
+
+export function planningCheckScopeForContext(
+  context: ModuleName | OutlineHomeSection | VolumeSection
+): PlanningCheckScope {
+  const map: Partial<Record<typeof context, PlanningCheckScope>> = {
+    canon: 'canon',
+    world: 'world',
+    characters: 'characters',
+    timeline: 'timeline',
+    locations: 'locations',
+    foreshadowing: 'foreshadowing',
+    narrative: 'narrative',
+    issues: 'issues',
+    references: 'references'
+  }
+  return map[context] ?? 'outline'
+}
+
+export function planningKindsForContext(
+  context: ModuleName | OutlineHomeSection | VolumeSection | string,
+  anchorKind?: PlanningDocumentKind
+): PlanningDocumentKind[] {
+  const map: Partial<Record<string, PlanningDocumentKind[]>> = {
+    world: ['world_entry'],
+    characters: ['character', 'character_relation'],
+    timeline: ['timeline_node', 'timeline_event'],
+    locations: ['location'],
+    foreshadowing: ['foreshadowing'],
+    narrative: ['narrative'],
+    references: ['reference']
+  }
+  const scoped = map[context] ?? CREATABLE_PLANNING_KINDS
+  return anchorKind && !scoped.includes(anchorKind) ? [anchorKind, ...scoped] : [...scoped]
 }

@@ -40,6 +40,34 @@ export function parseStoryTime(value: string): StoryTimeInput {
   const raw = value.trim()
   if (!raw) throw new Error('Timeline time is required and must be precise to at least a month.')
 
+  const relativeWeek = raw.match(/^第?\s*(\d{1,6})\s*周\s*(?:周|星期)?\s*([一二三四五六日天1-7])$/)
+  if (relativeWeek) {
+    const week = Number(relativeWeek[1])
+    const weekdays: Record<string, number> = {
+      一: 1,
+      二: 2,
+      三: 3,
+      四: 4,
+      五: 5,
+      六: 6,
+      日: 7,
+      天: 7
+    }
+    const weekday = weekdays[relativeWeek[2]] ?? Number(relativeWeek[2])
+    if (week < 1) throw new Error('Relative story week must be at least 1.')
+    const ordinalDay = (week - 1) * 7 + weekday
+    const dayWithinYear = ((ordinalDay - 1) % 372) + 1
+    return validateStoryTime({
+      calendar: 'relative-week',
+      year: Math.floor((ordinalDay - 1) / 372) + 1,
+      month: Math.floor((dayWithinYear - 1) / 31) + 1,
+      day: ((dayWithinYear - 1) % 31) + 1,
+      precision: 'day',
+      display_time: raw,
+      fuzzy: false
+    })
+  }
+
   const season = raw.match(/^(-?\d{1,6})\s*年?\s*(春|夏|秋|冬)(?:季)?$/)
   if (season) {
     const months: Record<string, [number, number]> = {
@@ -67,7 +95,7 @@ export function parseStoryTime(value: string): StoryTimeInput {
   const match = normalized.match(/^(-?\d{1,6})-(\d{1,2})(?:-(\d{1,2}))?(?:[ T](\d{1,2})(?::(\d{1,2}))?)?$/)
   if (!match) {
     throw new Error(
-      `Unsupported timeline time “${raw}”. Use YYYY-MM, YYYY-MM-DD, YYYY-MM-DD HH:mm, or a season such as “20年秋”.`
+      `Unsupported timeline time “${raw}”. Use YYYY-MM, YYYY-MM-DD, YYYY-MM-DD HH:mm, a season such as “20年秋”, or a relative day such as “第1周周二”.`
     )
   }
   const [, year, month, day, hour, minute] = match
@@ -125,8 +153,21 @@ export function validateStoryTime(input: StoryTimeInput): StoryTimeInput {
 }
 
 export function timelineNodeKey(
-  node: Pick<TimelineNodeDoc, 'calendar' | 'year' | 'month' | 'day' | 'hour' | 'minute'>
+  node: Pick<TimelineNodeDoc, 'calendar' | 'year' | 'month' | 'day' | 'hour' | 'minute' | 'coordinate_v2'>
 ): string {
+  if (node.coordinate_v2) {
+    const coordinate = node.coordinate_v2
+    return [
+      'v2',
+      coordinate.time_system_id,
+      coordinate.cycle ?? '',
+      coordinate.occurrence,
+      Object.entries(coordinate.components)
+        .sort(([left], [right]) => left.localeCompare(right, 'en'))
+        .map(([key, value]) => `${key}=${String(value)}`)
+        .join(';')
+    ].join(':')
+  }
   return [
     node.calendar,
     signedNumber(node.year, 8),
@@ -138,6 +179,34 @@ export function timelineNodeKey(
 }
 
 export function compareTimelineNodes(a: TimelineNodeDoc, b: TimelineNodeDoc): number {
+  const sharedTrack = [...new Set((a.timeline_tracks ?? []).map((item) => item.timeline_id))]
+    .filter((id) => (b.timeline_tracks ?? []).some((item) => item.timeline_id === id))
+    .sort((left, right) => {
+      if (left === 'main') return -1
+      if (right === 'main') return 1
+      return left.localeCompare(right, 'en')
+    })[0]
+  if (sharedTrack) {
+    const left = (a.timeline_tracks ?? []).find((item) => item.timeline_id === sharedTrack)!
+    const right = (b.timeline_tracks ?? []).find((item) => item.timeline_id === sharedTrack)!
+    const placementDifference = left.order - right.order || left.narrative_order - right.narrative_order
+    if (placementDifference) return placementDifference
+  }
+  if (a.coordinate_v2 && b.coordinate_v2) {
+    if (a.coordinate_v2.time_system_id === b.coordinate_v2.time_system_id) {
+      if (a.coordinate_v2.sort_value !== null && b.coordinate_v2.sort_value !== null) {
+        const difference = a.coordinate_v2.sort_value - b.coordinate_v2.sort_value
+        if (difference) return difference
+      } else if (a.coordinate_v2.explicit_order !== null && b.coordinate_v2.explicit_order !== null) {
+        const difference = a.coordinate_v2.explicit_order - b.coordinate_v2.explicit_order
+        if (difference) return difference
+      }
+      const occurrenceDifference =
+        (a.coordinate_v2.cycle ?? 0) - (b.coordinate_v2.cycle ?? 0) ||
+        a.coordinate_v2.occurrence - b.coordinate_v2.occurrence
+      if (occurrenceDifference) return occurrenceDifference
+    }
+  }
   return timelineNodeKey(a).localeCompare(timelineNodeKey(b)) || a.id.localeCompare(b.id)
 }
 
@@ -256,14 +325,29 @@ export function sortTimelineEvents(events: TimelineEventDoc[], nodes: TimelineNo
     [...nodes].sort(compareTimelineNodes).map((node, index) => [node.id, index] as const)
   )
   return [...events].sort((a, b) => {
-    const aOrder = a.timeline_node
-      ? (nodeOrder.get(a.timeline_node) ?? Number.MAX_SAFE_INTEGER)
-      : Number.MAX_SAFE_INTEGER
-    const bOrder = b.timeline_node
-      ? (nodeOrder.get(b.timeline_node) ?? Number.MAX_SAFE_INTEGER)
-      : Number.MAX_SAFE_INTEGER
-    return aOrder - bOrder || a.title.localeCompare(b.title) || a.id.localeCompare(b.id)
+    const aPlacement = preferredEventPlacement(a)
+    const bPlacement = preferredEventPlacement(b)
+    const aNode = aPlacement?.start_node_id ?? a.timeline_node
+    const bNode = bPlacement?.start_node_id ?? b.timeline_node
+    const aOrder = aNode ? (nodeOrder.get(aNode) ?? Number.MAX_SAFE_INTEGER) : Number.MAX_SAFE_INTEGER
+    const bOrder = bNode ? (nodeOrder.get(bNode) ?? Number.MAX_SAFE_INTEGER) : Number.MAX_SAFE_INTEGER
+    return (
+      aOrder - bOrder ||
+      (aPlacement?.order ?? 0) - (bPlacement?.order ?? 0) ||
+      (aPlacement?.narrative_order ?? 0) - (bPlacement?.narrative_order ?? 0) ||
+      a.title.localeCompare(b.title) ||
+      a.id.localeCompare(b.id)
+    )
   })
+}
+
+function preferredEventPlacement(event: TimelineEventDoc) {
+  return (
+    (event.placements ?? []).find((placement) => placement.timeline_id === 'main') ??
+    (event.placements ?? [])
+      .slice()
+      .sort((left, right) => left.timeline_id.localeCompare(right.timeline_id, 'en'))[0]
+  )
 }
 
 function inferPrecision(input: StoryTimeInput): TimelinePrecision {

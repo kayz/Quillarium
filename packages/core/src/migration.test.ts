@@ -70,6 +70,8 @@ describe('project and outline compatibility migrations', () => {
       id: 'archive-project',
       aliases: [],
       title: 'Archive Project',
+      synopsis: '',
+      cover: null,
       schema_version: 2
     })
     await expect(readFile(projectFile, 'utf8')).resolves.toBe(before)

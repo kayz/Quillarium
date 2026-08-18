@@ -7,9 +7,11 @@ judgment.
 ## Primary APIs
 
 - `checkTarget(projectRoot, { type, id })`, `checkOutline`, and `checkScene` return a `CheckReport`.
-- `checkPlanningCards(projectRoot)` validates enabled planning-card relations, timeline coordinates,
-  character and relationship time order, spatial hierarchy, world triggers, foreshadowing triggers,
-  and narrative-card completeness. It excludes disabled and issue cards.
+- `checkPlanningCards(projectRoot, scope?)` validates enabled deterministic planning-card relations,
+  timeline coordinates, character and relationship time order, spatial hierarchy, foreshadowing
+  triggers, and narrative-card completeness. Scope can narrow the candidate types (for example,
+  `timeline` selects only nodes and events). Every scope excludes world-book, reference, and issue
+  content because those are knowledge/material or check outputs rather than deterministic story truth.
 - `formatCheckReport` renders a report as Markdown.
 - `runSemanticChecks(projectRoot, sceneId, aiInvoke)` runs the `ooc`, `state-drift`, and
   `canon-conflict` semantic checks through a caller-supplied async function.

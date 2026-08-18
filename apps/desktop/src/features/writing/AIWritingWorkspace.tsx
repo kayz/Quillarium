@@ -1,6 +1,17 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowRight, CheckCircle2, FileText, Layers3, Play, Plus, RotateCcw, Trash2 } from 'lucide-react'
-import type { ChapterLifecycleSnapshot, PromptSourceBlock } from '@quillarium/core'
+import { useEffect, useRef, useState } from 'react'
+import {
+  ArrowRight,
+  CheckCircle2,
+  FileText,
+  Layers3,
+  Play,
+  Plus,
+  RotateCcw,
+  ScanText,
+  ShieldCheck,
+  Trash2
+} from 'lucide-react'
+import type { ChapterLifecycleSnapshot, PromptSourceBlock, PromptSourceSelection } from '@quillarium/core'
 import type {
   CheckReport,
   ContextPacketSummary,
@@ -12,8 +23,11 @@ import { t } from '../../app/i18n.js'
 import { Inspector, RunPanel } from './InspectorRun.js'
 import { bridge } from '../../app/bridge.js'
 import { formatDesktopError } from '../../shared/errors.js'
+import { compareStoryEntries } from '../../shared/outline.js'
 import { clampPaneSize, SplitHandle } from '../layout/SplitHandle.js'
 import { documentTypeLabel, enumChoiceLabel } from '../metadata/field-presentation.js'
+import { PlanningCardSelector } from '../planning/PlanningCardSelector.js'
+import { PromptEnvelopeViewer, type PromptViewerData } from './PromptEnvelopeViewer.js'
 
 export function AIWritingWorkspace({
   root,
@@ -34,6 +48,7 @@ export function AIWritingWorkspace({
   onScenePrepared,
   onSelectScene,
   onOpenProse,
+  onContinuityReview = () => undefined,
   language
 }: {
   root: string
@@ -48,12 +63,18 @@ export function AIWritingWorkspace({
   busy: boolean
   onPromptChange: (prompt: string) => void
   onCheck: (contentOverride?: string) => Promise<void>
-  onGenerate: (prompt: string, count?: number, parentRunId?: string) => Promise<void>
+  onGenerate: (
+    prompt: string,
+    count?: number,
+    parentRunId?: string,
+    promptSources?: PromptSourceSelection[]
+  ) => Promise<void>
   onDelete: () => Promise<void>
   onAccepted: () => Promise<void>
   onScenePrepared: (sceneId: string) => Promise<void>
   onSelectScene: (sceneId: string) => void
   onOpenProse: () => void
+  onContinuityReview?: () => void
   language: LanguageName
 }) {
   const zh = language === 'zh'
@@ -63,10 +84,13 @@ export function AIWritingWorkspace({
   const [lifecycle, setLifecycle] = useState<ChapterLifecycleSnapshot | null>(null)
   const [localError, setLocalError] = useState('')
   const [sourceToAdd, setSourceToAdd] = useState('')
+  const [bundleTitle, setBundleTitle] = useState('')
+  const [bundleNotice, setBundleNotice] = useState('')
   const promptGridRef = useRef<HTMLDivElement | null>(null)
   const [promptSourcePct, setPromptSourcePct] = useState(30)
   const [candidateDraft, setCandidateDraft] = useState('')
   const [candidateCount, setCandidateCount] = useState(3)
+  const [promptViewer, setPromptViewer] = useState<PromptViewerData | null>(null)
   const requestedSceneId = scene?.data.id
   const requestedScene = lifecycle?.scenes.find((item) => item.data.id === requestedSceneId)
   const currentScene = requestedScene ?? (scene?.data.id === requestedSceneId ? scene : null)
@@ -74,7 +98,7 @@ export function AIWritingWorkspace({
     .filter(
       (item) => item.data.type === 'scene' && (item.data.chapter_id ?? item.data.section) === outline?.data.id
     )
-    .sort((left, right) => Number(left.data.order ?? 0) - Number(right.data.order ?? 0))
+    .sort(compareStoryEntries)
   const chapterScenes = lifecycle?.scenes ?? (fallbackScenes as unknown as ChapterLifecycleSnapshot['scenes'])
   const fallbackProse = docs.find(
     (item) => item.data.type === 'chapter_prose' && item.data.chapter_id === outline?.data.id
@@ -102,6 +126,7 @@ export function AIWritingWorkspace({
     if (active && next.prose.data.status === 'draft') {
       const plan = await bridge.buildScenePromptPlan(root, active.data.id)
       setSourceBlocks(plan.sources)
+      setBundleTitle(`${outline.data.title} · ${active.data.title}`)
       onPromptChange(plan.prompt)
     } else {
       setSourceBlocks([])
@@ -115,42 +140,64 @@ export function AIWritingWorkspace({
     void refreshChapter().catch((error) => setLocalError(formatDesktopError(error, language)))
   }, [outline?.data.id, scene?.data.id])
 
-  const sourcePrompt = useMemo(
-    () =>
-      sourceBlocks.length
-        ? `${sourceBlocks
-            .map((block) => `【${block.title}】\n${block.content.trim()}`)
-            .join(
-              '\n\n'
-            )}\n\n【输出要求】\n只输出当前节的纯文字正文，不得输出标题、解释或任何 Markdown 语法。`
-        : '',
-    [sourceBlocks]
-  )
+  const compileSources = async (nextSources: PromptSourceBlock[], nextAvailable: PromptSourceBlock[]) => {
+    if (!currentScene) return
+    try {
+      setLocalError('')
+      setBundleNotice('')
+      const plan = await bridge.compileScenePromptOverlay(
+        root,
+        currentScene.data.id,
+        nextSources.map(promptSourceSelection)
+      )
+      setSourceBlocks(plan.sources)
+      setAvailableBlocks(nextAvailable)
+      onPromptChange(plan.prompt)
+    } catch (error) {
+      setLocalError(formatDesktopError(error, language))
+    }
+  }
 
   const removeSource = (source: PromptSourceBlock) => {
-    setSourceBlocks((items) => items.filter((item) => item.id !== source.id))
-    setAvailableBlocks((items) => [...items, source])
+    const nextSources = sourceBlocks.filter((item) => item.id !== source.id)
+    void compileSources(nextSources, [...availableBlocks, source])
   }
 
   const addSource = (source: PromptSourceBlock) => {
-    setAvailableBlocks((items) => items.filter((item) => item.id !== source.id))
-    setSourceBlocks((items) => [...items, source])
+    const nextAvailable = availableBlocks.filter((item) => item.id !== source.id)
+    void compileSources([...sourceBlocks, source], nextAvailable)
   }
 
   const addDocumentSource = () => {
     const source = docs.find((item) => item.data.id === sourceToAdd)
     if (!source) return
-    setSourceBlocks((items) => [
-      ...items,
-      {
-        id: `document:${source.data.type}:${source.data.id}`,
-        kind: 'context',
-        title: `${source.data.title} · ${documentTypeLabel(String(source.data.type), language)}`,
-        content: source.content,
-        required: false
-      }
-    ])
+    const nextSource: PromptSourceBlock = {
+      id: `document:${source.data.type}:${source.data.id}`,
+      kind: 'context',
+      title: `${source.data.title} · ${documentTypeLabel(String(source.data.type), language)}`,
+      content: source.content,
+      required: false,
+      source_type: String(source.data.type),
+      source_id: source.data.id
+    }
+    void compileSources([...sourceBlocks, nextSource], availableBlocks)
     setSourceToAdd('')
+  }
+
+  const saveAsContextBundle = async () => {
+    try {
+      setLocalError('')
+      const saved = await bridge.savePromptSourcesAsBundle(
+        root,
+        bundleTitle,
+        sourceBlocks.map(promptSourceSelection)
+      )
+      setBundleNotice(
+        zh ? `已保存资料包：${saved.value.title}` : `Context bundle saved: ${saved.value.title}`
+      )
+    } catch (error) {
+      setLocalError(formatDesktopError(error, language))
+    }
   }
 
   const prepareNextScene = async () => {
@@ -164,9 +211,22 @@ export function AIWritingWorkspace({
     }
   }
 
-  useEffect(() => {
-    onPromptChange(sourcePrompt)
-  }, [sourcePrompt])
+  const previewFullPrompt = async () => {
+    if (!currentScene || !assembledPrompt.trim()) return
+    try {
+      setLocalError('')
+      setPromptViewer(
+        await bridge.previewFullGenerationPrompt(
+          root,
+          currentScene.data.id,
+          assembledPrompt,
+          sourceBlocks.map(promptSourceSelection)
+        )
+      )
+    } catch (error) {
+      setLocalError(formatDesktopError(error, language))
+    }
+  }
 
   if (!outline) {
     return (
@@ -205,6 +265,9 @@ export function AIWritingWorkspace({
           </div>
         </div>
         <div className="ai-writing-actions">
+          <button onClick={onContinuityReview} disabled={busy}>
+            <ShieldCheck size={15} /> {zh ? '连续性审阅' : 'Continuity review'}
+          </button>
           {currentScene && (
             <button className="danger" onClick={onDelete} disabled={busy}>
               <Trash2 size={15} /> {zh ? '删除本节' : 'Delete scene'}
@@ -224,9 +287,19 @@ export function AIWritingWorkspace({
                 {assembledPrompt ? <RotateCcw size={15} /> : <Layers3 size={15} />}
                 {assembledPrompt ? (zh ? '重新组装' : 'Reassemble') : zh ? '组装提示词' : 'Assemble prompt'}
               </button>
+              <button onClick={() => void previewFullPrompt()} disabled={busy || !assembledPrompt.trim()}>
+                <ScanText size={15} /> {zh ? '预览完整提示词' : 'Preview full prompt'}
+              </button>
               <button
                 className="primary"
-                onClick={() => onGenerate(assembledPrompt, candidateCount)}
+                onClick={() =>
+                  onGenerate(
+                    assembledPrompt,
+                    candidateCount,
+                    undefined,
+                    sourceBlocks.map(promptSourceSelection)
+                  )
+                }
                 disabled={busy || sceneLocked || !assembledPrompt.trim()}
               >
                 <Play size={15} />{' '}
@@ -301,7 +374,7 @@ export function AIWritingWorkspace({
                   <strong>{zh ? '作者可调整' : 'Author editable'}</strong>
                   <span>
                     {zh
-                      ? '组装结果不会写回 Canon 或章；生成时会把此处实际文本保存到 run/prompt.md。'
+                      ? '组装结果不会写回正设或章；生成时会把此处实际文本保存到 run/prompt.md。'
                       : 'The exact edited prompt is snapshotted into the run.'}
                   </span>
                 </div>
@@ -344,23 +417,41 @@ export function AIWritingWorkspace({
                         </button>
                       ))}
                       <div className="prompt-source-picker">
-                        <select value={sourceToAdd} onChange={(event) => setSourceToAdd(event.target.value)}>
-                          <option value="">{zh ? '选择项目文档…' : 'Choose a project document…'}</option>
-                          {docs
-                            .filter(
-                              (item) =>
-                                !['scene', 'chapter_prose'].includes(String(item.data.type)) &&
-                                !sourceBlocks.some((source) => source.id.endsWith(`:${item.data.id}`))
-                            )
-                            .map((item) => (
-                              <option key={`${item.data.type}:${item.data.id}`} value={item.data.id}>
-                                {item.data.title} · {documentTypeLabel(String(item.data.type), language)}
-                              </option>
-                            ))}
-                        </select>
+                        <PlanningCardSelector
+                          docs={docs.filter(
+                            (item) =>
+                              !['scene', 'chapter_prose'].includes(String(item.data.type)) &&
+                              !sourceBlocks.some((source) => source.id.endsWith(`:${item.data.id}`))
+                          )}
+                          value={sourceToAdd}
+                          onChange={setSourceToAdd}
+                          language={language}
+                          ariaLabel={zh ? '选择提示词资料卡' : 'Choose prompt source card'}
+                          placeholder={zh ? '搜索项目文档…' : 'Search project documents…'}
+                        />
                         <button onClick={addDocumentSource} disabled={!sourceToAdd || sceneLocked}>
                           <Plus size={13} /> {zh ? '加入' : 'Add'}
                         </button>
+                      </div>
+                      <div className="prompt-bundle-save">
+                        <label>
+                          <span>{zh ? '保存为资料包' : 'Save as ContextBundle'}</span>
+                          <input
+                            value={bundleTitle}
+                            onChange={(event) => setBundleTitle(event.target.value)}
+                            placeholder={zh ? '资料包名称' : 'Bundle title'}
+                            disabled={sceneLocked}
+                          />
+                        </label>
+                        <button
+                          onClick={() => void saveAsContextBundle()}
+                          disabled={
+                            sceneLocked || !bundleTitle.trim() || !hasStableBundleSource(sourceBlocks)
+                          }
+                        >
+                          <Layers3 size={13} /> {zh ? '保存' : 'Save'}
+                        </button>
+                        {bundleNotice && <small className="success-note">{bundleNotice}</small>}
                       </div>
                     </aside>
                     <SplitHandle
@@ -404,7 +495,7 @@ export function AIWritingWorkspace({
                     <strong>{zh ? '组装本章提示词' : 'Assemble chapter prompt'}</strong>
                     <span>
                       {zh
-                        ? '读取本章规划、Canon、人物、时间线、世界书和伏笔。'
+                        ? '读取本章规划、正设、人物、时间线、世界书和伏笔。'
                         : 'Use current chapter context.'}
                     </span>
                   </button>
@@ -433,12 +524,27 @@ export function AIWritingWorkspace({
                   await onAccepted()
                   await refreshChapter()
                 }}
-                onBranch={(parentRunId) => onGenerate(assembledPrompt, candidateCount, parentRunId)}
+                onBranch={(parentRunId) =>
+                  onGenerate(
+                    assembledPrompt,
+                    candidateCount,
+                    parentRunId,
+                    sourceBlocks.map(promptSourceSelection)
+                  )
+                }
                 language={language}
               />
             )}
           </div>
         </>
+      )}
+      {promptViewer && (
+        <PromptEnvelopeViewer
+          data={promptViewer}
+          language={language}
+          title={zh ? '生成前 · 完整提示词' : 'Before generation · Full prompt'}
+          onClose={() => setPromptViewer(null)}
+        />
       )}
     </section>
   )
@@ -577,13 +683,66 @@ function statusLabel(value: string, language: LanguageName): string {
   return enumChoiceLabel('status', value, language, { documentType: 'chapter_prose' })
 }
 
+function promptSourceSelection(source: PromptSourceBlock): PromptSourceSelection {
+  return {
+    id: source.id,
+    ...(source.source_type ? { source_type: source.source_type } : {}),
+    ...(source.source_id ? { source_id: source.source_id } : {}),
+    mode: source.required ? 'required' : 'preferred',
+    usage: promptSourceUsage(source.kind)
+  }
+}
+
+function promptSourceUsage(kind: PromptSourceBlock['kind']): PromptSourceSelection['usage'] {
+  if (['instruction', 'guidance', 'narrative'].includes(kind)) return 'style'
+  if (['canon', 'outline', 'scene-outline', 'timeline', 'location'].includes(kind)) {
+    return 'constraint'
+  }
+  if (['finalized-prose', 'continuation'].includes(kind)) return 'evidence'
+  return 'subject'
+}
+
+const stableBundleDocumentTypes = new Set([
+  'canon',
+  'character',
+  'character_relation',
+  'timeline_node',
+  'timeline_event',
+  'location',
+  'route',
+  'foreshadowing',
+  'world_entry',
+  'reference',
+  'issue',
+  'strategy',
+  'pattern',
+  'narrative',
+  'character_state',
+  'resource',
+  'causality',
+  'outline',
+  'chapter_prose',
+  'scene',
+  'prompt',
+  'exploration'
+])
+
+function hasStableBundleSource(sources: PromptSourceBlock[]): boolean {
+  return sources.some(
+    (source) =>
+      Boolean(source.source_id) &&
+      Boolean(source.source_type) &&
+      stableBundleDocumentTypes.has(source.source_type ?? '')
+  )
+}
+
 function promptSourceKindLabel(kind: PromptSourceBlock['kind'], language: LanguageName): string {
   const labels: Record<PromptSourceBlock['kind'], { zh: string; en: string }> = {
     instruction: { zh: '写作要求', en: 'Instruction' },
     outline: { zh: '章规划', en: 'Chapter outline' },
     'scene-outline': { zh: '节规划', en: 'Scene outline' },
     guidance: { zh: '共享指导', en: 'Shared guidance' },
-    canon: { zh: 'Canon 约束', en: 'Canon constraint' },
+    canon: { zh: '正设约束', en: 'Canon constraint' },
     timeline: { zh: '时间线', en: 'Timeline' },
     location: { zh: '地点', en: 'Location' },
     character: { zh: '人物', en: 'Character' },

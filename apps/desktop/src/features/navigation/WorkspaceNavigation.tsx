@@ -5,15 +5,17 @@ import {
   Clock3,
   FileText,
   GitBranch,
+  GripVertical,
   Library,
   MapPin,
   PenLine,
   Sparkles,
   UserRound
 } from 'lucide-react'
+import type { ReorderStorySiblingsRequest, StoryNodeRef } from '@quillarium/core'
 import type { DocEntry, LanguageName, ModuleName, TargetSelection } from '../../app/types.js'
 import { t } from '../../app/i18n.js'
-import { buildOutlineHierarchy } from '../../shared/outline.js'
+import { buildOutlineHierarchy, compareStoryEntries } from '../../shared/outline.js'
 import {
   documentTypeLabel,
   enumChoiceLabel,
@@ -24,16 +26,106 @@ export function StructureTree({
   docs,
   selectedTarget,
   onSelect,
+  onReorder,
   language
 }: {
   docs: DocEntry[]
   selectedTarget: TargetSelection | null
   onSelect: (target: TargetSelection) => void
+  onReorder?: (request: ReorderStorySiblingsRequest) => void | Promise<void>
   language: LanguageName
 }) {
+  const [dragged, setDragged] = React.useState<StoryNodeRef | null>(null)
+  const [dropTarget, setDropTarget] = React.useState<{
+    node: StoryNodeRef
+    placement: 'before' | 'after'
+  } | null>(null)
   const { children } = buildOutlineHierarchy(docs)
-  const scenes = docs.filter((item) => item.data.type === 'scene')
+  const scenes = docs.filter((item) => item.data.type === 'scene').sort(compareStoryEntries)
   const chapterProse = docs.filter((item) => item.data.type === 'chapter_prose')
+  const reorder = (request: ReorderStorySiblingsRequest | null) => {
+    if (!request || !onReorder) return
+    void Promise.resolve(onReorder(request)).finally(() => {
+      setDragged(null)
+      setDropTarget(null)
+    })
+  }
+  const renderStoryButton = (
+    entry: DocEntry,
+    options: {
+      depth: number
+      className: string
+      active: boolean
+      label: React.ReactNode
+      onClick: () => void
+    }
+  ) => {
+    const ref = storyNodeRef(entry)
+    const currentDrop =
+      ref && dropTarget && dropTarget.node.kind === ref.kind && dropTarget.node.id === ref.id
+        ? dropTarget.placement
+        : null
+    return (
+      <div
+        key={`${entry.data.type}:${entry.data.id}`}
+        className={`story-tree-row ${dragged && ref?.id === dragged.id && ref.kind === dragged.kind ? 'dragging' : ''} ${
+          currentDrop ? `drop-${currentDrop}` : ''
+        }`}
+        onDragOver={(event) => {
+          if (!dragged || !ref || !canReorderTogether(docs, dragged, ref)) return
+          event.preventDefault()
+          const bounds = event.currentTarget.getBoundingClientRect()
+          setDropTarget({
+            node: ref,
+            placement: event.clientY < bounds.top + bounds.height / 2 ? 'before' : 'after'
+          })
+        }}
+        onDrop={(event) => {
+          event.preventDefault()
+          if (!dragged || !ref || (dragged.kind === ref.kind && dragged.id === ref.id)) return
+          reorder(buildStoryDropRequest(docs, dragged, ref, dropTarget?.placement ?? 'before'))
+        }}
+      >
+        <button
+          className={`tree-node ${options.className} ${options.active ? 'active' : ''}`}
+          style={{ paddingLeft: `${10 + options.depth * 14}px` }}
+          onClick={options.onClick}
+        >
+          {options.label}
+        </button>
+        {ref && onReorder && (
+          <button
+            type="button"
+            className="story-drag-handle"
+            draggable
+            aria-label={
+              language === 'zh'
+                ? `拖动“${entry.data.title}”排序；按上下方向键移动`
+                : `Reorder “${entry.data.title}”; use Up or Down arrow to move`
+            }
+            title={language === 'zh' ? '拖动排序；也可按上下方向键' : 'Drag to reorder; arrow keys also work'}
+            onClick={(event) => event.stopPropagation()}
+            onDragStart={(event) => {
+              event.dataTransfer.effectAllowed = 'move'
+              event.dataTransfer.setData('text/plain', `${ref.kind}:${ref.id}`)
+              setDragged(ref)
+            }}
+            onDragEnd={() => {
+              setDragged(null)
+              setDropTarget(null)
+            }}
+            onKeyDown={(event) => {
+              if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return
+              event.preventDefault()
+              reorder(buildStoryDirectionRequest(docs, ref, event.key === 'ArrowUp' ? 'up' : 'down'))
+            }}
+          >
+            <GripVertical size={14} aria-hidden="true" />
+          </button>
+        )}
+      </div>
+    )
+  }
   const renderOutline = (outline: DocEntry, depth: number): React.ReactNode => {
     const nestedOutlines = children.get(outline.data.id) ?? []
     const prose = chapterProse.find((item) => item.data.chapter_id === outline.data.id)
@@ -42,20 +134,21 @@ export function StructureTree({
     )
     return (
       <React.Fragment key={outline.data.id}>
-        <button
-          className={`tree-node level-${String(outline.data.level ?? 'section')} ${
+        {renderStoryButton(outline, {
+          depth,
+          className: `level-${String(outline.data.level ?? 'section')}`,
+          active:
             selectedTarget?.type === 'outline' &&
             selectedTarget.id === outline.data.id &&
-            !selectedTarget.view
-              ? 'active'
-              : ''
-          }`}
-          style={{ paddingLeft: `${10 + depth * 14}px` }}
-          onClick={() => onSelect({ type: 'outline', id: outline.data.id })}
-        >
-          <FileText size={14} /> {outlineLevelDisplayLabel(String(outline.data.level), language)} ·{' '}
-          {outline.data.title}
-        </button>
+            !selectedTarget.view,
+          label: (
+            <>
+              <FileText size={14} /> {outlineLevelDisplayLabel(String(outline.data.level), language)} ·{' '}
+              {outline.data.title}
+            </>
+          ),
+          onClick: () => onSelect({ type: 'outline', id: outline.data.id })
+        })}
         {nestedOutlines.map((child) => renderOutline(child, depth + 1))}
         {outline.data.level === 'chapter' && (
           <button
@@ -72,18 +165,19 @@ export function StructureTree({
             {proseStatusLabel(String(prose?.data.status ?? 'draft'), language)}
           </button>
         )}
-        {nestedScenes.map((scene) => (
-          <button
-            key={scene.data.id}
-            className={`tree-node scene ${
-              selectedTarget?.type === 'scene' && selectedTarget.id === scene.data.id ? 'active' : ''
-            }`}
-            style={{ paddingLeft: `${24 + depth * 14}px` }}
-            onClick={() => onSelect({ type: 'scene', id: scene.data.id, view: 'ai' })}
-          >
-            <FileText size={14} /> {language === 'zh' ? '节' : 'Scene'} · {scene.data.title}
-          </button>
-        ))}
+        {nestedScenes.map((scene) =>
+          renderStoryButton(scene, {
+            depth: depth + 1,
+            className: 'scene',
+            active: selectedTarget?.type === 'scene' && selectedTarget.id === scene.data.id,
+            label: (
+              <>
+                <FileText size={14} /> {language === 'zh' ? '节' : 'Scene'} · {scene.data.title}
+              </>
+            ),
+            onClick: () => onSelect({ type: 'scene', id: scene.data.id, view: 'ai' })
+          })
+        )}
         {outline.data.level === 'chapter' && (
           <button
             className={`tree-node level-ai ${
@@ -120,19 +214,91 @@ export function StructureTree({
       </div>
       {bookRoots.map((outline) => renderOutline(outline, 0))}
       {otherRoots.map((outline) => renderOutline(outline, 0))}
-      {looseScenes.map((scene) => (
-        <button
-          key={scene.data.id}
-          className={`tree-node scene ${
-            selectedTarget?.type === 'scene' && selectedTarget.id === scene.data.id ? 'active' : ''
-          }`}
-          onClick={() => onSelect({ type: 'scene', id: scene.data.id })}
-        >
-          <FileText size={14} /> {scene.data.title}
-        </button>
-      ))}
+      {looseScenes.map((scene) =>
+        renderStoryButton(scene, {
+          depth: 0,
+          className: 'scene',
+          active: selectedTarget?.type === 'scene' && selectedTarget.id === scene.data.id,
+          label: (
+            <>
+              <FileText size={14} /> {scene.data.title}
+            </>
+          ),
+          onClick: () => onSelect({ type: 'scene', id: scene.data.id })
+        })
+      )}
     </div>
   )
+}
+
+const REORDERABLE_LEVELS = new Set(['volume', 'part', 'arc', 'act', 'chapter'])
+
+export function storyNodeRef(entry: DocEntry): StoryNodeRef | null {
+  if (entry.data.type === 'scene') return { kind: 'scene', id: entry.data.id }
+  if (entry.data.type === 'outline' && REORDERABLE_LEVELS.has(String(entry.data.level))) {
+    return { kind: 'outline', id: entry.data.id }
+  }
+  return null
+}
+
+export function buildStoryDirectionRequest(
+  docs: DocEntry[],
+  node: StoryNodeRef,
+  direction: 'up' | 'down'
+): ReorderStorySiblingsRequest | null {
+  const siblings = storySiblings(docs, node)
+  return siblings ? { node, direction, expected_siblings: siblingExpectations(siblings) } : null
+}
+
+export function buildStoryDropRequest(
+  docs: DocEntry[],
+  node: StoryNodeRef,
+  target: StoryNodeRef,
+  placement: 'before' | 'after'
+): ReorderStorySiblingsRequest | null {
+  if (!canReorderTogether(docs, node, target)) return null
+  const siblings = storySiblings(docs, node)
+  return siblings ? { node, target, placement, expected_siblings: siblingExpectations(siblings) } : null
+}
+
+function canReorderTogether(docs: DocEntry[], left: StoryNodeRef, right: StoryNodeRef): boolean {
+  const leftEntry = findStoryEntry(docs, left)
+  const rightEntry = findStoryEntry(docs, right)
+  return Boolean(leftEntry && rightEntry && storyParent(leftEntry) === storyParent(rightEntry))
+}
+
+function storySiblings(docs: DocEntry[], node: StoryNodeRef): DocEntry[] | null {
+  const entry = findStoryEntry(docs, node)
+  if (!entry) return null
+  const parent = storyParent(entry)
+  return docs
+    .filter((candidate) => storyNodeRef(candidate) && storyParent(candidate) === parent)
+    .sort(compareStoryEntries)
+}
+
+function findStoryEntry(docs: DocEntry[], ref: StoryNodeRef): DocEntry | undefined {
+  return docs.find(
+    (entry) =>
+      entry.data.id === ref.id &&
+      ((ref.kind === 'scene' && entry.data.type === 'scene') ||
+        (ref.kind === 'outline' && entry.data.type === 'outline'))
+  )
+}
+
+function storyParent(entry: DocEntry): string | null {
+  if (entry.data.type === 'scene') {
+    return String(entry.data.chapter_id ?? entry.data.section ?? '') || null
+  }
+  return typeof entry.data.parent === 'string' && entry.data.parent ? entry.data.parent : null
+}
+
+function siblingExpectations(entries: DocEntry[]) {
+  return entries.flatMap((entry) => {
+    const ref = storyNodeRef(entry)
+    if (!ref) return []
+    const value = Number(entry.data.order)
+    return [{ ...ref, order: Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0 }]
+  })
 }
 
 function proseStatusLabel(status: string, language: LanguageName): string {
@@ -160,6 +326,7 @@ export function ModuleNav({
   }
   const items = [
     ['write', PenLine, t(language, 'writing')],
+    ['assistants', Sparkles, t(language, 'creatorAssistants')],
     ['canon', Library, documentTypeLabel('canon', language)],
     ['world', BookOpen, t(language, 'worldBook')],
     ['characters', UserRound, t(language, 'characters')],

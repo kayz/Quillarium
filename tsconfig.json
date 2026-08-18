@@ -4,6 +4,7 @@
     { "path": "packages/core" },
     { "path": "packages/checks" },
     { "path": "packages/ai" },
+    { "path": "packages/agent-runtime" },
     { "path": "packages/sillytavern" },
     { "path": "packages/cli" },
     { "path": "apps/desktop" }

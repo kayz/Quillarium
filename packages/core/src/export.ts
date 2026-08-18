@@ -4,6 +4,7 @@ import { ensureDir, pathExists, readText, writeText } from './fs.js'
 import { slugify } from './ids.js'
 import { loadProject } from './project.js'
 import { listRuns } from './runs.js'
+import { compareStoryOrder } from './story-order.js'
 import type { ChapterProseDoc, OutlineDoc, RunMetadata, SceneDoc } from './types.js'
 
 export interface ManuscriptExportOptions {
@@ -315,42 +316,20 @@ function findAncestor(
 }
 
 function compareOutlines(a: StoredOutline, b: StoredOutline): number {
-  return a.data.order - b.data.order || a.data.id.localeCompare(b.data.id) || a.path.localeCompare(b.path)
+  return compareStoryOrder(
+    { order: a.data.order, id: a.data.id, path: a.path },
+    { order: b.data.order, id: b.data.id, path: b.path }
+  )
 }
 
 function sortScenes(scenes: StoredScene[]): StoredScene[] {
-  const sorted = [...scenes].sort(compareScenes)
-  const byId = new Map(sorted.map((scene) => [scene.data.id, scene]))
-  const children = new Map<string, StoredScene[]>()
-  const roots: StoredScene[] = []
-  for (const scene of sorted) {
-    const previous = scene.data.previous_scene
-    if (previous && byId.has(previous) && previous !== scene.data.id) {
-      children.set(previous, [...(children.get(previous) ?? []), scene])
-    } else {
-      roots.push(scene)
-    }
-  }
-  for (const items of children.values()) items.sort(compareScenes)
-  const result: StoredScene[] = []
-  const visited = new Set<string>()
-  const visit = (scene: StoredScene) => {
-    if (visited.has(scene.data.id)) return
-    visited.add(scene.data.id)
-    result.push(scene)
-    for (const child of children.get(scene.data.id) ?? []) visit(child)
-  }
-  for (const root of roots) visit(root)
-  for (const scene of sorted) visit(scene)
-  return result
+  return [...scenes].sort(compareScenes)
 }
 
 function compareScenes(a: StoredScene, b: StoredScene): number {
-  return (
-    a.data.order - b.data.order ||
-    a.data.chapter_number.localeCompare(b.data.chapter_number, undefined, { numeric: true }) ||
-    a.data.id.localeCompare(b.data.id) ||
-    a.path.localeCompare(b.path)
+  return compareStoryOrder(
+    { order: a.data.order, id: a.data.id, path: a.path },
+    { order: b.data.order, id: b.data.id, path: b.path }
   )
 }
 

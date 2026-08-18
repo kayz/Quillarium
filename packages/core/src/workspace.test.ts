@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -8,6 +8,7 @@ import { createProjectAt } from './project.js'
 import { createRun, snapshotSharedGuidance } from './runs.js'
 import { objectToYaml } from './yaml.js'
 import {
+  ensureWorkspaceAt,
   listWorkspaceProjects,
   loadSharedGuidance,
   loadWorkspace,
@@ -69,6 +70,51 @@ async function createWorkspaceFixture(): Promise<{
   await writeManifest(root, manifest())
   return { root, projectRoot, guidancePath }
 }
+
+describe('local workspace initialization', () => {
+  it('registers an ordinary folder without GitHub and preserves existing files', async () => {
+    const root = await temporaryRoot('quillarium-local-workspace-')
+    const existingFile = path.join(root, 'notes.txt')
+    await writeFile(existingFile, 'keep me', 'utf8')
+
+    const workspace = await ensureWorkspaceAt(root)
+    const firstManifest = await readFile(workspace.manifest_path, 'utf8')
+
+    expect(workspace.root).toBe(path.resolve(root))
+    expect(workspace.manifest).toMatchObject({
+      schema_version: 1,
+      projects_dir: 'projects',
+      projects: [],
+      shared_guidance: []
+    })
+    expect(workspace.manifest.id).toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
+    await expect(readFile(existingFile, 'utf8')).resolves.toBe('keep me')
+    expect((await stat(path.join(root, 'projects'))).isDirectory()).toBe(true)
+
+    const loadedAgain = await ensureWorkspaceAt(root, { id: 'must-not-overwrite' })
+    expect(loadedAgain.manifest.id).toBe(workspace.manifest.id)
+    await expect(readFile(workspace.manifest_path, 'utf8')).resolves.toBe(firstManifest)
+  })
+
+  it('creates a path-safe workspace id for a non-Latin folder name', async () => {
+    const parent = await temporaryRoot('quillarium-local-parent-')
+    const root = path.join(parent, '本地写作库')
+    await mkdir(root)
+
+    const workspace = await ensureWorkspaceAt(root)
+
+    expect(workspace.manifest.id).toMatch(/^project-[a-f0-9]{12}$/)
+  })
+
+  it('rejects an external projects symlink before creating a manifest', async () => {
+    const root = await temporaryRoot('quillarium-local-link-')
+    const outside = await temporaryRoot('quillarium-local-outside-')
+    await symlink(outside, path.join(root, 'projects'), 'junction')
+
+    await expect(ensureWorkspaceAt(root)).rejects.toThrow('resolves outside the workspace')
+    await expect(readFile(path.join(root, 'quillarium-workspace.yaml'), 'utf8')).rejects.toThrow()
+  })
+})
 
 describe('workspace manifest validation', () => {
   it('loads contained projects and creates a direct Obsidian project root', async () => {

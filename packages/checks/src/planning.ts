@@ -3,6 +3,8 @@ import {
   isEnabledPlanningCard,
   isPlanningCard,
   listDocs,
+  listTimelineCatalog,
+  checkTimelineDeterministically,
   validatePlanningCardGraph,
   validateTimelineChain,
   type CharacterDoc,
@@ -12,10 +14,62 @@ import {
   type LocationDoc,
   type NarrativeDoc,
   type TimelineEventDoc,
-  type TimelineNodeDoc,
-  type WorldEntryDoc
+  type TimelineNodeDoc
 } from '@quillarium/core'
 import type { CheckIssue } from './index.js'
+
+export const PLANNING_CHECK_SCOPES = [
+  'project',
+  'outline',
+  'canon',
+  'characters',
+  'timeline',
+  'locations',
+  'foreshadowing',
+  'narrative',
+  'world',
+  'issues',
+  'references'
+] as const
+
+export type PlanningCheckScope = (typeof PLANNING_CHECK_SCOPES)[number]
+
+const CHECK_TYPES_BY_SCOPE: Record<PlanningCheckScope, ReadonlySet<string>> = {
+  project: new Set([
+    'outline',
+    'canon',
+    'character',
+    'character_relation',
+    'character_state',
+    'timeline_node',
+    'timeline_event',
+    'location',
+    'route',
+    'foreshadowing',
+    'strategy',
+    'pattern',
+    'narrative'
+  ]),
+  outline: new Set(['outline']),
+  canon: new Set(['canon']),
+  characters: new Set(['character', 'character_relation', 'character_state']),
+  timeline: new Set(['timeline_node', 'timeline_event']),
+  locations: new Set(['location', 'route']),
+  foreshadowing: new Set(['foreshadowing']),
+  narrative: new Set(['narrative']),
+  world: new Set(),
+  issues: new Set(),
+  references: new Set()
+}
+
+/**
+ * Trusted scope boundary shared by deterministic and semantic planning checks.
+ * World-book entries are deliberately absent from every scope: they are reference
+ * knowledge, not deterministic story truth.
+ */
+export function isPlanningCheckDocumentType(type: string, scope: PlanningCheckScope): boolean {
+  return CHECK_TYPES_BY_SCOPE[scope].has(type)
+}
 
 export interface PlanningRuleReport {
   generated_at: string
@@ -33,23 +87,31 @@ const LOCATION_SCALE_ORDER: Record<string, number> = {
   interior: 5
 }
 
-export async function checkPlanningCards(projectRoot: string): Promise<PlanningRuleReport> {
+export async function checkPlanningCards(
+  projectRoot: string,
+  scope: PlanningCheckScope = 'project'
+): Promise<PlanningRuleReport> {
   const documents = await listDocs<DocumentIdentity>(projectRoot)
   const included = documents.filter(
     (document) =>
-      isPlanningCard(document.data) && document.data.type !== 'issue' && isEnabledPlanningCard(document.data)
+      isPlanningCard(document.data) &&
+      isPlanningCheckDocumentType(document.data.type, scope) &&
+      isEnabledPlanningCard(document.data)
   )
   const includedIds = new Set(included.map((document) => document.data.id))
   const skippedDisabled = documents.filter(
     (document) =>
-      isPlanningCard(document.data) && document.data.type !== 'issue' && !isEnabledPlanningCard(document.data)
+      isPlanningCard(document.data) &&
+      isPlanningCheckDocumentType(document.data.type, scope) &&
+      !isEnabledPlanningCard(document.data)
   )
   const issues: CheckIssue[] = []
   const byId = new Map(documents.map((document) => [document.data.id, document]))
 
   for (const issue of validatePlanningCardGraph(documents, {
+    projectRoot,
     includeCard: (document) => document.type !== 'issue' && includedIds.has(document.id),
-    countInboundFrom: (document) => document.type !== 'issue'
+    countInboundFrom: (document) => isPlanningCheckDocumentType(document.type, scope)
   })) {
     issues.push({
       severity: issue.severity,
@@ -63,14 +125,40 @@ export async function checkPlanningCards(projectRoot: string): Promise<PlanningR
   const timelineNodes = documents
     .filter((document) => document.data.type === 'timeline_node')
     .map((document) => document.data as TimelineNodeDoc)
-  for (const issue of validateTimelineChain(timelineNodes)) {
-    if (!includedIds.has(issue.node_id)) continue
-    issues.push({
-      severity: issue.code === 'duplicate-time-node' || issue.code === 'timeline-cycle' ? 'error' : 'warning',
-      code: `planning-${issue.code}`,
-      message: issue.message,
-      related_ids: [issue.node_id, issue.related_id].filter((id): id is string => Boolean(id))
-    })
+  const timelineEvents = documents
+    .filter((document) => document.data.type === 'timeline_event')
+    .map((document) => document.data as TimelineEventDoc)
+  if (scope === 'project' || scope === 'timeline') {
+    const timelineCatalog = await listTimelineCatalog(projectRoot)
+    for (const issue of checkTimelineDeterministically({
+      tracks: timelineCatalog.tracks.map((track) => track.value),
+      nodes: timelineNodes,
+      events: timelineEvents,
+      characters:
+        scope === 'project'
+          ? documents
+              .filter((document) => document.data.type === 'character')
+              .map((document) => document.data as CharacterDoc)
+          : []
+    })) {
+      issues.push({
+        severity: issue.severity,
+        code: `planning-${issue.code}`,
+        message: issue.summary,
+        evidence: issue.evidence.join('; '),
+        related_ids: [...issue.track_ids, ...issue.node_ids, ...issue.event_ids, ...issue.character_ids]
+      })
+    }
+    for (const issue of validateTimelineChain(timelineNodes)) {
+      if (!includedIds.has(issue.node_id)) continue
+      issues.push({
+        severity:
+          issue.code === 'duplicate-time-node' || issue.code === 'timeline-cycle' ? 'error' : 'warning',
+        code: `planning-${issue.code}`,
+        message: issue.message,
+        related_ids: [issue.node_id, issue.related_id].filter((id): id is string => Boolean(id))
+      })
+    }
   }
 
   const nodeOrder = new Map(
@@ -89,9 +177,6 @@ export async function checkPlanningCards(projectRoot: string): Promise<PlanningR
         break
       case 'location':
         checkLocation(document.data as LocationDoc, byId, issues)
-        break
-      case 'world_entry':
-        checkWorldEntry(document.data as WorldEntryDoc, issues)
         break
       case 'foreshadowing':
         checkForeshadowingCard(document.data as ForeshadowingDoc, issues)
@@ -225,16 +310,6 @@ function checkLocation(
       }
     }
   }
-}
-
-function checkWorldEntry(entry: WorldEntryDoc, issues: CheckIssue[]): void {
-  if (entry.triggers.length) return
-  issues.push({
-    severity: 'warning',
-    code: 'planning-world-entry-without-trigger',
-    message: `Enabled world entry ${entry.id} has no trigger keywords.`,
-    related_ids: [entry.id]
-  })
 }
 
 function checkForeshadowingCard(card: ForeshadowingDoc, issues: CheckIssue[]): void {

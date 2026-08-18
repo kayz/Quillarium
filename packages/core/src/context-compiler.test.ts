@@ -213,6 +213,33 @@ describe('context compiler', () => {
     })
   })
 
+  it('treats the policy budget as an input cap when the provider context window is known', async () => {
+    const result = await compileContextBlocks(
+      { type: 'scene', id: 'scene-large-output' },
+      [candidate('content', 'abcdefghij', { priority: 999 })],
+      {
+        token_counter: counter,
+        context_window_tokens: 100,
+        reserved_output_tokens: 60,
+        framing_text: 'ff',
+        policy: {
+          token_budget: 10,
+          max_block_tokens: 10,
+          min_truncated_block_tokens: 2
+        }
+      }
+    )
+
+    expect(result.trace.budget).toMatchObject({
+      total_token_budget: 100,
+      reserved_output_tokens: 60,
+      framing_tokens: 2,
+      available_input_tokens: 10,
+      selected_tokens: 10
+    })
+    expect(result.blocks[0]).toMatchObject({ token_count: 10, truncated: false })
+  })
+
   it('uses a complete preset block order and records the preset snapshot identity', async () => {
     const kinds = [
       'packet_header',

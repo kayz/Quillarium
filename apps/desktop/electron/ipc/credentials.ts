@@ -9,7 +9,13 @@ import {
   type GitHubConfig,
   type QuillariumConfig
 } from '@quillarium/core'
-import { defaultBaseUrl, defaultModel, loadAIProfile, type AIConfig } from '@quillarium/ai'
+import {
+  defaultBaseUrl,
+  defaultModel,
+  getOfficialModelCapabilities,
+  loadAIProfile,
+  type AIConfig
+} from '@quillarium/ai'
 import type {
   AIKeyStorageStatus,
   AIProfileName,
@@ -68,12 +74,21 @@ export async function loadDesktopConfig(): Promise<DesktopConfig> {
       [AIProfileName, AIProfileConfig | undefined]
     >) {
       if (!profile) continue
+      const provider = profile.provider
+      const model = profile.model ?? defaultModel(provider)
+      const official = getOfficialModelCapabilities(provider, model)
+      const usesLegacyDeepSeekDefaults = Boolean(
+        official && profile.contextWindowTokens === undefined && profile.maxTokens === 2_000
+      )
       const exposed: DesktopAIProfileConfig = {
-        provider: profile.provider,
+        provider,
         baseUrl: profile.baseUrl,
-        model: profile.model,
+        model,
         temperature: profile.temperature,
-        maxTokens: profile.maxTokens,
+        maxTokens: usesLegacyDeepSeekDefaults
+          ? official!.maxOutputTokens
+          : (profile.maxTokens ?? official?.maxOutputTokens),
+        contextWindowTokens: profile.contextWindowTokens ?? official?.contextWindowTokens,
         apiKey: '',
         hasKey: false,
         keyStatus: 'none'
@@ -109,12 +124,25 @@ export async function saveDesktopAIProfile(
 ): Promise<DesktopConfig> {
   const { config } = await loadAndMigrateConfig()
   const provider = input.provider ?? 'openai-compatible'
+  const model = input.model || defaultModel(provider)
+  const official = getOfficialModelCapabilities(provider, model)
+  const contextWindowTokens = positiveTokenLimit(
+    input.contextWindowTokens ?? official?.contextWindowTokens ?? 128_000,
+    'context window'
+  )
+  const maxTokens = positiveTokenLimit(input.maxTokens ?? official?.maxOutputTokens ?? 2_000, 'output')
+  if (maxTokens > contextWindowTokens) {
+    throw new Error(
+      `The output token limit (${maxTokens}) cannot exceed the context window (${contextWindowTokens}).`
+    )
+  }
   const normalized: AIProfileConfig = {
     provider,
     baseUrl: input.baseUrl || defaultBaseUrl(provider),
-    model: input.model || defaultModel(provider),
+    model,
     temperature: Number(input.temperature ?? 0.7),
-    maxTokens: Number(input.maxTokens ?? 2000)
+    maxTokens,
+    contextWindowTokens
   }
 
   const previous = config.aiProfiles?.[profile]
@@ -142,6 +170,14 @@ export async function saveDesktopAIProfile(
     }
   })
   return loadDesktopConfig()
+}
+
+function positiveTokenLimit(value: number, label: string): number {
+  const normalized = Math.floor(Number(value))
+  if (!Number.isFinite(normalized) || normalized <= 0) {
+    throw new Error(`The ${label} token limit must be a positive integer.`)
+  }
+  return normalized
 }
 
 export async function saveDesktopGitHub(input: DesktopGitHubInput): Promise<DesktopConfig> {

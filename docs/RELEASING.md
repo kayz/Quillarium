@@ -45,6 +45,11 @@ A semantic pre-release version such as `0.2.0-alpha.2` is automatically publishe
 Pre-release flag. The workflow never creates, moves, or force-updates a Git tag and never overwrites
 an existing Release or asset.
 
+Published, non-draft Releases are also the desktop application's update catalog. Prerelease builds
+consider later prerelease and stable versions; stable builds ignore prereleases. The current update
+control only reports availability and opens the official Releases page. It does not download or
+install an asset automatically, and it does not use project GitHub credentials.
+
 ## Failure policy
 
 If any tag workflow fails, preserve that tag and its evidence. Do not move the tag, delete and

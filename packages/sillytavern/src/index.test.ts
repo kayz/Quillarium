@@ -5,15 +5,24 @@ import { deflateSync } from 'node:zlib'
 import {
   createCanon,
   createCharacter,
+  createCharacterRelation,
+  createLocation,
   createProjectAt,
   createWorldEntry,
+  ensureDir,
+  listDocs,
+  loadProject,
   requireDoc,
+  updateProjectConfig,
+  writeText,
   type CharacterDoc
 } from '@quillarium/core'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   exportCharacterCardV2,
   exportCharacterCardV2Json,
+  importBookCharacterCardIntoProject,
+  inspectBookCharacterCard,
   exportWorldInfo,
   exportWorldInfoJson,
   extractCharacterCardJsonFromPng,
@@ -23,6 +32,7 @@ import {
   parseCharacterCardJson,
   parseCharacterCardPng,
   writeCharacterCardV2File,
+  writeBookCharacterCardV3Png,
   writeWorldInfoFile
 } from './index.js'
 
@@ -352,6 +362,133 @@ describe('World Info export', () => {
       'sillytavern/quillarium-world-info.json'
     )
     expect(JSON.parse(await readFile(written.outputPath, 'utf8'))).toEqual(worldInfo)
+  })
+})
+
+describe('CCv3 novel setting card boundary', () => {
+  it('exports one readable cover PNG with complete allowlisted world book data and imports it as reviewable candidates', async () => {
+    const { vault, root } = await project()
+    await updateProjectConfig(root, {
+      synopsis: 'A city protects its memories from the tide.'
+    })
+    await createCanon(
+      root,
+      'Memory law',
+      'Never delete a memory. C:\\Users\\author\\secret.txt\nsk-testcredential12345\napi_key=fixture-secret',
+      {
+        id: 'canon-memory-law',
+        status: 'confirmed'
+      }
+    )
+    await createWorldEntry(
+      root,
+      'Glass tide',
+      { id: 'world-glass-tide', entry_status: 'active', status: 'active', triggers: ['glass tide'] },
+      'The tide carries visible memories.'
+    )
+    await createCharacter(root, 'Mira', { id: 'char-mira', status: 'active', aliases: ['Map keeper'] })
+    await createCharacter(root, 'Vesper', { id: 'char-vesper', status: 'active' })
+    await createCharacterRelation(
+      root,
+      'Mira trusts Vesper',
+      {
+        id: 'rel-mira-vesper',
+        from_character: 'char-mira',
+        to_character: 'char-vesper',
+        relation_type: 'trust',
+        status: 'active'
+      },
+      'They exchange verified maps.'
+    )
+    await createLocation(
+      root,
+      'Glass Harbor',
+      { id: 'loc-glass-harbor', status: 'confirmed', scale: 'city' },
+      'The harbor is built around a memory well.'
+    )
+    const cover = makeCardPng([])
+    await ensureDir(path.join(root, 'assets', 'cover'))
+    await writeFile(path.join(root, 'assets', 'cover', 'original.png'), cover)
+    await writeFile(path.join(root, 'assets', 'cover', 'thumbnail.png'), cover)
+    await writeFile(path.join(root, 'assets', 'cover', 'export.png'), cover)
+    await updateProjectConfig(root, {
+      cover: {
+        original_path: 'assets/cover/original.png',
+        thumbnail_path: 'assets/cover/thumbnail.png',
+        export_png_path: 'assets/cover/export.png',
+        focus_x: 0.5,
+        focus_y: 0.5,
+        source_width: 1,
+        source_height: 1
+      }
+    })
+    await ensureDir(path.join(root, 'scenes'))
+    await ensureDir(path.join(root, 'runs', 'run-leak'))
+    await writeText(path.join(root, 'scenes', 'scene-leak.md'), 'LEAKED_PROSE_BODY')
+    await writeText(path.join(root, 'prompts', 'book-generation-header.md'), 'LEAKED_PROMPT_HEADER')
+    await writeText(path.join(root, 'runs', 'run-leak', 'prompt.md'), 'LEAKED_RUN_PROMPT')
+
+    const written = await writeBookCharacterCardV3Png(root)
+    const png = await readFile(written.outputPath)
+    const parsed = parseCharacterCardPng(png)
+    const inspection = await inspectBookCharacterCard(written.outputPath)
+    expect(parsed).toMatchObject({ format: 'v3', pngKeyword: 'ccv3' })
+    expect(inspection).toMatchObject({
+      name: 'Card Project',
+      hasPngCover: true,
+      worldBookEntryCount: 6
+    })
+    const worldBook = parsed.card.data.character_book as { entries: Array<Record<string, unknown>> }
+    expect(worldBook.entries).toHaveLength(6)
+    expect(
+      worldBook.entries.map(
+        (entry) => (entry.extensions as { quillarium: { stable_id: string } }).quillarium.stable_id
+      )
+    ).toEqual(
+      expect.arrayContaining([
+        'canon-memory-law',
+        'world-glass-tide',
+        'char-mira',
+        'char-vesper',
+        'rel-mira-vesper',
+        'loc-glass-harbor'
+      ])
+    )
+    expect(parsed.card.data.system_prompt).toBe('')
+    expect(parsed.card.data.post_history_instructions).toBe('')
+    const serialized = JSON.stringify(parsed.card)
+    expect(serialized).not.toMatch(/LEAKED_PROSE_BODY|LEAKED_PROMPT_HEADER|LEAKED_RUN_PROMPT/u)
+    expect(serialized).not.toContain('C:\\Users\\author')
+    expect(serialized).not.toContain('sk-testcredential12345')
+    expect(serialized).not.toContain('fixture-secret')
+    expect(serialized).toContain('[LOCAL_PATH_REDACTED]')
+    expect(serialized).toContain('[REDACTED_CREDENTIAL]')
+
+    const importedRoot = (
+      await createProjectAt(path.join(vault, 'projects', 'ccv3-imported'), {
+        id: 'ccv3-imported',
+        title: 'Temporary import title'
+      })
+    ).root
+    const imported = await importBookCharacterCardIntoProject(importedRoot, written.outputPath)
+    expect(await readFile(imported.archivePath)).toEqual(png)
+    expect(imported.candidateDocumentIds).toHaveLength(6)
+    const importedProject = await loadProject(importedRoot)
+    expect(importedProject).toMatchObject({
+      title: 'Card Project',
+      synopsis: 'A city protects its memories from the tide.',
+      cover: { original_path: 'assets/cover/imported-card.png' }
+    })
+    const importedDocs = await listDocs(importedRoot)
+    expect(importedDocs).toHaveLength(6)
+    expect(
+      importedDocs.every((doc) =>
+        ['draft', 'candidate'].includes(String((doc.data as typeof doc.data & { status?: string }).status))
+      )
+    ).toBe(true)
+    expect(await listDocs(importedRoot, 'outline')).toHaveLength(0)
+    expect(await listDocs(importedRoot, 'scene')).toHaveLength(0)
+    expect(await listDocs(importedRoot, 'chapter_prose')).toHaveLength(0)
   })
 })
 

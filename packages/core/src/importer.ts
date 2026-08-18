@@ -48,8 +48,13 @@ import {
   normalizeStoryCycles,
   numberOrUndefined
 } from './importer-values.js'
-import type { DocType, OutlineDoc } from './types.js'
+import type { DocType, DocumentIdentity, OutlineDoc } from './types.js'
 import { parseMarkdown } from './yaml.js'
+import {
+  createLocalDocumentReferenceResolver,
+  formatObsidianDocumentLink,
+  type ReferenceDocument
+} from './document-references.js'
 
 export type MarkdownImportStrategy = 'auto' | 'single' | 'sections'
 
@@ -82,13 +87,24 @@ export async function importMarkdownPath(
   for (const file of files) {
     results.push(...(await importMarkdownFile(projectRoot, file, options)))
   }
-  return results
+  return finalizeImportedReferences(projectRoot, results)
 }
 
 export async function importMarkdownFile(
   projectRoot: string,
   sourceFile: string,
   options: MarkdownImportOptions = {}
+): Promise<MarkdownImportResult[]> {
+  return finalizeImportedReferences(
+    projectRoot,
+    await importMarkdownFileRaw(projectRoot, sourceFile, options)
+  )
+}
+
+async function importMarkdownFileRaw(
+  projectRoot: string,
+  sourceFile: string,
+  options: MarkdownImportOptions
 ): Promise<MarkdownImportResult[]> {
   const parsed = await readMarkdownForImport(sourceFile)
   const hasFrontmatter = Object.keys(parsed.data).length > 0
@@ -132,6 +148,70 @@ export async function importMarkdownFile(
   const result = await createTypedImport(projectRoot, sourceFile, kind, title, parsed.data, parsed.content)
   if (parsed.parseError) result.notes.push(parsed.parseError)
   return attachImportOrigins([result], options)
+}
+
+async function finalizeImportedReferences(
+  projectRoot: string,
+  results: MarkdownImportResult[]
+): Promise<MarkdownImportResult[]> {
+  if (!results.length) return results
+  const documents = await listDocsForReferences(projectRoot)
+  const resolver = createLocalDocumentReferenceResolver(documents, projectRoot)
+  const byId = new Map(documents.map((document) => [document.data.id, document] as const))
+  for (const result of results) {
+    result.notes = result.notes.filter((note) => !note.startsWith('reference:'))
+    const parsed = await readMarkdown<Record<string, unknown>>(result.path)
+    if (!Array.isArray(parsed.data['links'])) continue
+    let changed = false
+    const links = parsed.data['links'].map((value) => {
+      if (typeof value !== 'string' || !value.trim()) return value
+      const resolution = resolver.resolve(value, {
+        sourcePath: result.path,
+        origin: 'structured_link'
+      })
+      if (resolution.status === 'ambiguous') {
+        result.notes.push(
+          `reference: ambiguous ${value} (${resolution.candidates.map((item) => item.title).join(', ')})`
+        )
+        return value
+      }
+      if (resolution.status === 'missing' || !resolution.target_id) {
+        result.notes.push(`reference: missing ${value}`)
+        return value
+      }
+      const target = byId.get(resolution.target_id)
+      if (!target) return value
+      const canonical = formatObsidianDocumentLink(target, projectRoot, target.data.title)
+      if (canonical !== value) changed = true
+      return canonical
+    })
+    if (changed) await writeMarkdown(result.path, { ...parsed.data, links }, parsed.content)
+  }
+  return results
+}
+
+async function listDocsForReferences(projectRoot: string): Promise<ReferenceDocument[]> {
+  const files = await listMarkdownFiles(projectRoot)
+  const documents: ReferenceDocument[] = []
+  for (const file of files) {
+    try {
+      const parsed = await readMarkdown<Record<string, unknown>>(file)
+      if (
+        typeof parsed.data['id'] !== 'string' ||
+        typeof parsed.data['type'] !== 'string' ||
+        typeof parsed.data['title'] !== 'string'
+      )
+        continue
+      documents.push({
+        path: file,
+        data: parsed.data as unknown as DocumentIdentity,
+        content: parsed.content
+      })
+    } catch {
+      // Imported source material may contain unrelated or malformed Markdown files.
+    }
+  }
+  return documents
 }
 
 export async function reimportMarkdownCard(

@@ -1,5 +1,5 @@
 import React, { Component, useEffect, useState } from 'react'
-import { BookOpen, FolderOpen } from 'lucide-react'
+import { BookOpen, FileInput, FolderOpen } from 'lucide-react'
 import type { AIStatus, DensityName, LanguageName, ProjectListItem, ThemeName } from './types.js'
 import { t } from './i18n.js'
 import { bridge } from './bridge.js'
@@ -176,6 +176,24 @@ function Welcome({
     onOpen(project.root)
   }
 
+  const importBookCard = async () => {
+    if (!writingWorkspace) return
+    try {
+      const inspection = await bridge.chooseBookCharacterCard()
+      if (!inspection) return
+      const title = window.prompt(
+        zh ? '确认或修改新小说书名' : 'Confirm or edit the new novel title',
+        inspection.name
+      )
+      if (title === null || !title.trim()) return
+      const result = await bridge.importBookCharacterCardProject(inspection.sourcePath, title.trim())
+      await onRefresh()
+      onOpen(result.project.root)
+    } catch (cause) {
+      window.alert(formatDesktopError(cause, language))
+    }
+  }
+
   return (
     <div className="welcome">
       <TopChrome
@@ -197,24 +215,14 @@ function Welcome({
           <p>{t(language, 'welcomeSubtitle')}</p>
           <div className="vault-card">
             <div>
-              <strong>{language === 'zh' ? 'GitHub 写作库' : 'GitHub writing library'}</strong>
-              <code>{writingWorkspace ?? (zh ? '未设置' : 'Not registered')}</code>
-              <small>
-                {language === 'zh'
-                  ? '一个工作区仓库管理共享方法、模板与多部作品；每部作品仍是独立 Obsidian Vault。'
-                  : 'One workspace repository holds shared guidance and multiple project vaults.'}
-              </small>
+              <strong>{t(language, 'localWritingLibrary')}</strong>
+              <code>{writingWorkspace ?? t(language, 'workspaceNotSet')}</code>
+              <small>{t(language, 'localWritingLibraryHint')}</small>
             </div>
             <div className="vault-actions">
               <button className="primary" onClick={chooseWritingWorkspace}>
                 <FolderOpen size={16} />{' '}
-                {language === 'zh'
-                  ? writingWorkspace
-                    ? '更换写作库'
-                    : '注册写作库'
-                  : writingWorkspace
-                    ? 'Change library'
-                    : 'Register library'}
+                {writingWorkspace ? t(language, 'changeLocalWorkspace') : t(language, 'chooseLocalWorkspace')}
               </button>
             </div>
           </div>
@@ -282,9 +290,15 @@ function Welcome({
                 />
               </label>
             </div>
-            <button className="primary" onClick={create} disabled={!writingWorkspace || !form.title.trim()}>
-              {zh ? '创建小说' : 'Create novel'}
-            </button>
+            <div className="create-project-actions">
+              <button className="primary" onClick={create} disabled={!writingWorkspace || !form.title.trim()}>
+                {zh ? '新建小说' : 'New novel'}
+              </button>
+              <button className="secondary" onClick={importBookCard} disabled={!writingWorkspace}>
+                <FileInput size={16} /> {zh ? '从角色卡导入' : 'Import character card'}
+              </button>
+            </div>
+            {!writingWorkspace && <small>{t(language, 'selectLocalBeforeCreate')}</small>}
             <button className="secondary" onClick={chooseProject}>
               <FolderOpen size={16} /> {t(language, 'openExistingProject')}
             </button>

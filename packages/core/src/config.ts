@@ -34,6 +34,8 @@ export interface AIProfileConfig {
   model?: string
   temperature?: number
   maxTokens?: number
+  /** Total model context window (input plus output), configurable per connection profile. */
+  contextWindowTokens?: number
 }
 
 export interface StoredCredential {
