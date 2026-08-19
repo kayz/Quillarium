@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { ensureDir, pathExists, readText, writeText } from './fs.js'
+import type { UISkinPreferencesV1 } from './ui-skins.js'
 
 const execFileAsync = promisify(execFile)
 
@@ -15,6 +16,8 @@ export interface QuillariumConfig {
   theme?: 'paper' | 'ink' | 'mist' | 'bamboo'
   density?: 'compact' | 'comfortable'
   language?: 'zh' | 'en'
+  /** Optional user customizations for the four compatible UI skin slots. */
+  uiSkins?: UISkinPreferencesV1
   aiProfiles?: Partial<Record<'prose' | 'background' | 'check', AIProfileConfig>>
   github?: GitHubConfig
 }

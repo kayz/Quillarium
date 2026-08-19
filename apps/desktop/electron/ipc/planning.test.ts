@@ -5,10 +5,13 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   createProjectAt,
   applyIssueBatchAction,
+  createCanon,
+  createChapterProse,
   createCharacter,
   createForeshadowing,
   createLocation,
   createReference,
+  createScene,
   createTimelineEventAtNode,
   createTimelineNode,
   createWorldEntry,
@@ -30,6 +33,7 @@ import {
   normalizePlanningDraft,
   normalizeIssueStateFromAI,
   parsePlanningAIResponse,
+  planningConversionKinds,
   runPlanningCheck,
   savePlanningSession,
   startPlanningSession
@@ -53,6 +57,7 @@ afterEach(async () => {
 
 describe('planning proposal validation', () => {
   const representative: Array<[PlanningDocumentKind, Record<string, unknown>]> = [
+    ['canon', { strength: 'hard', source: 'user' }],
     ['character', { role: 'supporting', relationships: { ally: 'char-2' } }],
     ['world_entry', { role: 'both', entry_status: 'candidate', used_in: [] }],
     ['timeline_event', { date: '第三日', characters: ['char-1'] }],
@@ -420,6 +425,444 @@ describe('planning discussion side effects', () => {
     ).rejects.toThrow(/参考文档.*已在会话外变化/u)
   })
 
+  it('extracts multiple create-only cards from hash-protected handwritten prose without editing it', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'quillarium-prose-extraction-'))
+    roots.push(root)
+    await createProjectAt(root, { id: 'prose-extraction', title: '正文抽取' })
+    const prosePath = await createChapterProse(
+      root,
+      'chapter-harbor',
+      '港城夜巡 正文',
+      { id: 'prose-harbor-night' },
+      '林澜是北门守卫。入夜后，所有出城者都必须出示铜制夜行牌。'
+    )
+    const proseBefore = await readFile(prosePath, 'utf8')
+    const session = await startPlanningSession(root, 'prose-extraction', 'prose-harbor-night')
+    let prompt = ''
+
+    expect(session).toMatchObject({
+      module: 'prose-extraction',
+      proposals: [],
+      source_document: {
+        id: 'prose-harbor-night',
+        type: 'chapter_prose',
+        title: '港城夜巡 正文'
+      }
+    })
+
+    const response = await discussPlanningRecord(
+      root,
+      {
+        module: 'prose-extraction',
+        sessionId: session.id,
+        messages: [{ role: 'author', content: '抽取明确出现的人物和夜行规则。' }]
+      },
+      {
+        loadAIProfile: async () => configuredAI,
+        generate: async (value) => {
+          prompt = value
+          return JSON.stringify({
+            message: '生成两张待审阅设定卡。',
+            proposals: [
+              {
+                id: 'proposal-character-lin-lan',
+                kind: 'character',
+                title: '林澜',
+                fields: { role: 'supporting' },
+                content: '北门守卫。'
+              },
+              {
+                id: 'proposal-canon-night-pass',
+                kind: 'canon',
+                title: '夜间出城必须持牌',
+                fields: { strength: 'hard', source: 'user' },
+                content: '入夜后，所有出城者必须出示铜制夜行牌。'
+              }
+            ]
+          })
+        }
+      }
+    )
+
+    expect(prompt).toContain('手写章节正文的只读来源')
+    expect(prompt).toContain('所有出城者都必须出示铜制夜行牌')
+    expect(response.proposals.map((proposal) => proposal.draft.kind)).toEqual(['character', 'canon'])
+    for (const proposal of response.proposals) {
+      expect(proposal.operation).toBe('create')
+      expect(proposal.draft.fields['relations']).toContainEqual({
+        kind: 'derived_from',
+        target_id: 'prose-harbor-night',
+        note: 'Extracted from author prose after explicit review.'
+      })
+    }
+
+    await confirmPlanningRecord(root, {
+      sessionId: session.id,
+      messages: [{ role: 'author', content: '确认抽取结果。' }],
+      proposals: response.proposals.map((proposal) => ({ ...proposal, status: 'confirmed' as const })),
+      selectedProposalId: response.proposals[0]!.id
+    })
+
+    expect(await readFile(prosePath, 'utf8')).toBe(proseBefore)
+    const derived = (await listDocs(root)).filter((document) =>
+      ['character', 'canon'].includes(document.data.type)
+    )
+    expect(derived).toHaveLength(2)
+    expect(
+      derived.every((document) =>
+        (
+          (document.data as unknown as Record<string, unknown>)['relations'] as Array<Record<string, unknown>>
+        ).some(
+          (relation) => relation['kind'] === 'derived_from' && relation['target_id'] === 'prose-harbor-night'
+        )
+      )
+    ).toBe(true)
+  })
+
+  it('keeps prose and project cards unchanged when handwritten prose changes before apply', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'quillarium-prose-conflict-'))
+    roots.push(root)
+    await createProjectAt(root, { id: 'prose-conflict', title: '正文冲突' })
+    const prosePath = await createChapterProse(
+      root,
+      'chapter-watchtower',
+      '城楼 正文',
+      { id: 'prose-watchtower' },
+      '城楼每日黄昏关闭。'
+    )
+    const session = await startPlanningSession(root, 'prose-extraction', 'prose-watchtower')
+    const response = await discussPlanningRecord(
+      root,
+      {
+        module: 'prose-extraction',
+        sessionId: session.id,
+        messages: [{ role: 'author', content: '抽取规则。' }]
+      },
+      {
+        loadAIProfile: async () => configuredAI,
+        generate: async () =>
+          JSON.stringify({
+            message: '生成世界书候选。',
+            proposals: [
+              {
+                id: 'proposal-watchtower-rule',
+                kind: 'world_entry',
+                title: '城楼关闭时间',
+                fields: { role: 'constraint', entry_status: 'candidate' },
+                content: '城楼每日黄昏关闭。'
+              }
+            ]
+          })
+      }
+    )
+    await writeFile(prosePath, `${await readFile(prosePath, 'utf8')}\n作者补写了一句。\n`, 'utf8')
+
+    await expect(
+      confirmPlanningRecord(root, {
+        sessionId: session.id,
+        messages: [{ role: 'author', content: '确认。' }],
+        proposals: response.proposals.map((proposal) => ({ ...proposal, status: 'confirmed' as const })),
+        selectedProposalId: response.proposals[0]!.id
+      })
+    ).rejects.toThrow(/章节正文[\s\S]*已在会话外变化[\s\S]*未写入/u)
+
+    expect(await listDocs<WorldEntryDoc>(root, 'world_entry')).toHaveLength(0)
+    expect(await readFile(prosePath, 'utf8')).toContain('作者补写了一句')
+  })
+
+  it('blocks sensitive handwritten prose before the provider is called', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'quillarium-prose-sensitive-'))
+    roots.push(root)
+    await createProjectAt(root, { id: 'prose-sensitive', title: '敏感正文阻断' })
+    await createChapterProse(
+      root,
+      'chapter-private',
+      '私密草稿 正文',
+      { id: 'prose-private' },
+      '作者误贴了 github_pat_neverecho123456。'
+    )
+    const session = await startPlanningSession(root, 'prose-extraction', 'prose-private')
+    let providerCalled = false
+
+    await expect(
+      discussPlanningRecord(
+        root,
+        {
+          module: 'prose-extraction',
+          sessionId: session.id,
+          messages: [{ role: 'author', content: '抽取设定。' }]
+        },
+        {
+          loadAIProfile: async () => configuredAI,
+          generate: async () => {
+            providerCalled = true
+            return '{}'
+          }
+        }
+      )
+    ).rejects.toThrow(/SENSITIVE_PROMPT_CONTENT[\s\S]*planning-prompt:prose-extraction/u)
+    expect(providerCalled).toBe(false)
+
+    try {
+      await discussPlanningRecord(
+        root,
+        {
+          module: 'prose-extraction',
+          sessionId: session.id,
+          messages: [{ role: 'author', content: '抽取设定。' }]
+        },
+        {
+          loadAIProfile: async () => configuredAI,
+          generate: async () => '{}'
+        }
+      )
+    } catch (error) {
+      expect(String(error)).not.toContain('neverecho')
+    }
+  })
+
+  it('atomically converts Canon and World cards in both directions while preserving the stable id', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'quillarium-card-conversion-'))
+    roots.push(root)
+    await createProjectAt(root, { id: 'card-conversion', title: '卡片转换' })
+    await createCanon(root, '黄昏闭门', '城门在黄昏关闭。', {
+      id: 'canon-dusk-gate',
+      tags: ['城门']
+    })
+
+    expect(planningConversionKinds('canon')).toEqual(['canon', 'world_entry'])
+    expect(planningConversionKinds('character')).toEqual(['character', 'world_entry'])
+    expect(planningConversionKinds('world_entry')).toEqual([
+      'world_entry',
+      'canon',
+      'character',
+      'character_relation',
+      'location',
+      'timeline_event',
+      'faction',
+      'faction_relation',
+      'faction_membership',
+      'foreshadowing',
+      'narrative'
+    ])
+    expect(planningConversionKinds('issue')).toEqual([])
+
+    const toWorld = await startPlanningSession(root, 'card-conversion', 'canon-dusk-gate')
+    const worldResult = await confirmPlanningRecord(root, {
+      sessionId: toWorld.id,
+      messages: [{ role: 'author', content: '转换为世界书。' }],
+      proposals: toWorld.proposals.map((proposal) => ({
+        ...proposal,
+        status: 'confirmed' as const,
+        draft: normalizePlanningDraft({
+          kind: 'world_entry',
+          title: '黄昏闭门规则',
+          fields: { role: 'constraint', entry_status: 'active', triggers: ['黄昏', '城门'] },
+          content: '城门在黄昏关闭。'
+        })
+      })),
+      selectedProposalId: toWorld.anchor_proposal_id!
+    })
+
+    expect(await pathExists(toWorld.document!.path)).toBe(false)
+    expect(worldResult.document.data).toMatchObject({
+      id: 'canon-dusk-gate',
+      type: 'world_entry',
+      title: '黄昏闭门规则',
+      tags: ['城门']
+    })
+
+    const backToCanon = await startPlanningSession(root, 'card-conversion', 'canon-dusk-gate')
+    const canonResult = await confirmPlanningRecord(root, {
+      sessionId: backToCanon.id,
+      messages: [{ role: 'author', content: '再转换回正设。' }],
+      proposals: backToCanon.proposals.map((proposal) => ({
+        ...proposal,
+        status: 'confirmed' as const,
+        draft: normalizePlanningDraft({
+          kind: 'canon',
+          title: '黄昏闭门',
+          fields: { strength: 'hard', source: 'user' },
+          content: '城门在黄昏关闭。'
+        })
+      })),
+      selectedProposalId: backToCanon.anchor_proposal_id!
+    })
+
+    expect(await pathExists(backToCanon.document!.path)).toBe(false)
+    expect(canonResult.document.data).toMatchObject({
+      id: 'canon-dusk-gate',
+      type: 'canon',
+      title: '黄昏闭门',
+      tags: ['城门']
+    })
+    expect(await listDocs(root, 'world_entry')).toHaveLength(0)
+    expect(await listDocs(root, 'canon')).toHaveLength(1)
+  })
+
+  it('preserves shared image metadata on World conversion and writes nothing on a stale source hash', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'quillarium-world-conversion-'))
+    roots.push(root)
+    await createProjectAt(root, { id: 'world-conversion', title: '世界书转换' })
+    const image = {
+      schema_version: 1 as const,
+      original_path: 'assets/settings/world_entry/world-river-inn/original.webp',
+      thumbnail_path: 'assets/settings/world_entry/world-river-inn/thumbnail.png',
+      mime_type: 'image/webp' as const,
+      sha256: 'a'.repeat(64),
+      width: 1200,
+      height: 800,
+      palette: ['#806040'],
+      focus_x: 0.5,
+      focus_y: 0.4,
+      alt_text: '临河客栈'
+    }
+    await createWorldEntry(root, '临河客栈', {
+      id: 'world-river-inn',
+      tags: ['客栈'],
+      image
+    })
+
+    const session = await startPlanningSession(root, 'card-conversion', 'world-river-inn')
+    const result = await confirmPlanningRecord(root, {
+      sessionId: session.id,
+      messages: [{ role: 'author', content: '转换为地点。' }],
+      proposals: session.proposals.map((proposal) => ({
+        ...proposal,
+        status: 'confirmed' as const,
+        draft: normalizePlanningDraft({
+          kind: 'location',
+          title: '临河客栈',
+          fields: { kind: 'position', scale: 'estate', description: '河岸边的客栈。' },
+          content: '旅人从这里换乘渡船。'
+        })
+      })),
+      selectedProposalId: session.anchor_proposal_id!
+    })
+
+    expect(result.document.data).toMatchObject({
+      id: 'world-river-inn',
+      type: 'location',
+      tags: ['客栈'],
+      image
+    })
+
+    const staleSession = await startPlanningSession(root, 'card-conversion', 'world-river-inn')
+    await writeFile(
+      staleSession.document!.path,
+      `${await readFile(staleSession.document!.path, 'utf8')}\n外部编辑。\n`,
+      'utf8'
+    )
+    await expect(
+      confirmPlanningRecord(root, {
+        sessionId: staleSession.id,
+        messages: [{ role: 'author', content: '转换回世界书。' }],
+        proposals: staleSession.proposals.map((proposal) => ({
+          ...proposal,
+          status: 'confirmed' as const,
+          draft: normalizePlanningDraft({
+            kind: 'world_entry',
+            title: '临河客栈',
+            fields: { role: 'texture', entry_status: 'active' },
+            content: '旅人从这里换乘渡船。'
+          })
+        })),
+        selectedProposalId: staleSession.anchor_proposal_id!
+      })
+    ).rejects.toThrow(/Planning card changed outside this conversation: world-river-inn/u)
+
+    expect(await listDocs<WorldEntryDoc>(root, 'world_entry')).toHaveLength(0)
+    const locations = await listDocs<LocationDoc>(root, 'location')
+    expect(locations).toHaveLength(1)
+    expect(await readFile(locations[0]!.path, 'utf8')).toContain('外部编辑')
+  })
+
+  it('requires stable relationship endpoints before converting a World card', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'quillarium-relation-conversion-'))
+    roots.push(root)
+    await createProjectAt(root, { id: 'relation-conversion', title: '关系卡转换' })
+    await createCharacter(root, '林澜', { id: 'character-lin' })
+    await createCharacter(root, '周岚', { id: 'character-zhou' })
+    await createWorldEntry(root, '林澜与周岚', { id: 'world-lin-zhou' })
+    const session = await startPlanningSession(root, 'card-conversion', 'world-lin-zhou')
+
+    await expect(
+      confirmPlanningRecord(root, {
+        sessionId: session.id,
+        messages: [{ role: 'author', content: '转换为人物关系。' }],
+        proposals: session.proposals.map((proposal) => ({
+          ...proposal,
+          status: 'confirmed' as const,
+          draft: normalizePlanningDraft({
+            kind: 'character_relation',
+            title: '林澜与周岚',
+            fields: {
+              from_character: '__quillarium_unset_reference__',
+              to_character: '__quillarium_unset_reference__',
+              relation_type: 'allies'
+            },
+            content: '二人共同守卫北门。'
+          })
+        })),
+        selectedProposalId: session.anchor_proposal_id!
+      })
+    ).rejects.toThrow(/仍有必须选择的稳定引用[\s\S]*未写入任何卡片/u)
+    expect(await listDocs(root, 'world_entry')).toHaveLength(1)
+    expect(await listDocs(root, 'character_relation')).toHaveLength(0)
+
+    const result = await confirmPlanningRecord(root, {
+      sessionId: session.id,
+      messages: [{ role: 'author', content: '已选择两端人物。' }],
+      proposals: session.proposals.map((proposal) => ({
+        ...proposal,
+        status: 'confirmed' as const,
+        draft: normalizePlanningDraft({
+          kind: 'character_relation',
+          title: '林澜与周岚',
+          fields: {
+            from_character: 'character-lin',
+            to_character: 'character-zhou',
+            relation_type: 'allies',
+            direction: 'mutual'
+          },
+          content: '二人共同守卫北门。'
+        })
+      })),
+      selectedProposalId: session.anchor_proposal_id!
+    })
+
+    expect(result.document.data).toMatchObject({
+      id: 'world-lin-zhou',
+      type: 'character_relation',
+      from_character: 'character-lin',
+      to_character: 'character-zhou'
+    })
+    expect(await listDocs(root, 'world_entry')).toHaveLength(0)
+    expect(await listDocs(root, 'character_relation')).toHaveLength(1)
+
+    const referencedCharacter = await startPlanningSession(root, 'card-conversion', 'character-lin')
+    await expect(
+      confirmPlanningRecord(root, {
+        sessionId: referencedCharacter.id,
+        messages: [{ role: 'author', content: '把被关系引用的人物转换为世界书。' }],
+        proposals: referencedCharacter.proposals.map((proposal) => ({
+          ...proposal,
+          status: 'confirmed' as const,
+          draft: normalizePlanningDraft({
+            kind: 'world_entry',
+            title: '林澜',
+            fields: { role: 'both', entry_status: 'candidate' },
+            content: '北门守卫。'
+          })
+        })),
+        selectedProposalId: referencedCharacter.anchor_proposal_id!
+      })
+    ).rejects.toThrow(/会使现有类型化引用失效[\s\S]*world-lin-zhou/u)
+
+    expect(await listDocs(root, 'character')).toHaveLength(2)
+    expect(await listDocs(root, 'world_entry')).toHaveLength(0)
+  })
+
   it('requires explicit dependency confirmation and then atomically applies linked faction cards', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'quillarium-planning-factions-'))
     roots.push(root)
@@ -602,6 +1045,7 @@ describe('planning discussion side effects', () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'quillarium-planning-'))
     roots.push(root)
     await createProjectAt(root, { id: 'neutral-sample', title: '中性样例' })
+    await createScene(root, '河港出城', { id: 'scene-sample', chapter_id: 'chapter-sample' })
     const before = await snapshotPaths(root)
 
     const session = await startPlanningSession(root, 'world')

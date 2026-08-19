@@ -29,8 +29,8 @@ export interface ReferenceUploadDependencies {
 
 export function registerReferenceHandlers(): void {
   typedHandle('references:index', async (_event, root) => loadLocalDocumentLinkIndex(root))
-  typedHandle('references:upload', async (_event, root) => {
-    const sourcePaths = await chooseReferenceUploadFiles()
+  typedHandle('references:upload', async (_event, root, providedSourcePaths) => {
+    const sourcePaths = await resolveReferenceUploadSources(providedSourcePaths)
     return uploadReferenceFiles(root, sourcePaths)
   })
   typedHandle('references:format', async (_event, root, documentId, displayText) => {
@@ -57,6 +57,15 @@ export async function chooseReferenceUploadFiles(
     filters: [{ name: '文本与 Markdown', extensions: ['md', 'markdown', 'txt'] }]
   })
   return result.canceled ? [] : result.filePaths
+}
+
+export async function resolveReferenceUploadSources(
+  providedSourcePaths: string[] | undefined,
+  uploadDialog: ReferenceUploadDialog = dialog
+): Promise<string[]> {
+  return providedSourcePaths === undefined
+    ? chooseReferenceUploadFiles(uploadDialog)
+    : [...providedSourcePaths]
 }
 
 export async function uploadReferenceFiles(

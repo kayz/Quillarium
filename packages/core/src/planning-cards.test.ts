@@ -6,12 +6,14 @@ import {
   createProjectAt,
   createReference,
   createWorldEntry,
+  assertCardReferencesExist,
   derivedCardsForReference,
   enabledPlanningCards,
   listDocs,
   readMarkdown,
   validatePlanningCardGraph,
   type DocumentIdentity,
+  type CharacterRelationDoc,
   type ReferenceDoc,
   type WorldEntryDoc
 } from './index.js'
@@ -196,6 +198,63 @@ describe('planning card contract', () => {
       expect.arrayContaining([
         expect.objectContaining({ code: 'ambiguous-relation-target', target_id: '同名' }),
         expect.objectContaining({ code: 'missing-relation-target', target_id: '不存在' })
+      ])
+    )
+  })
+
+  it('rejects intrinsic stable references that resolve to the wrong card type', () => {
+    const relation = {
+      id: 'relation-one',
+      type: 'character_relation',
+      schema_version: 1,
+      title: '错误关系',
+      status: 'draft',
+      tags: [],
+      enabled: true,
+      source_refs: [],
+      relations: [],
+      from_character: 'location-one',
+      to_character: 'character-one',
+      relation_type: 'allies',
+      direction: 'mutual',
+      starts_at: null,
+      ends_at: null,
+      visibility: 'private'
+    } as CharacterRelationDoc
+    const documents = [
+      {
+        data: {
+          id: 'location-one',
+          type: 'location',
+          schema_version: 1,
+          title: '地点',
+          tags: []
+        } as DocumentIdentity,
+        content: ''
+      },
+      {
+        data: {
+          id: 'character-one',
+          type: 'character',
+          schema_version: 1,
+          title: '人物',
+          tags: []
+        } as DocumentIdentity,
+        content: ''
+      }
+    ]
+
+    expect(() => assertCardReferencesExist(relation, documents)).toThrow(
+      /wrong type: from_character=location-one; expected character, received location/u
+    )
+    expect(validatePlanningCardGraph([{ data: relation, content: '' }, ...documents])).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'wrong-relation-target-type',
+          card_id: 'relation-one',
+          resolved_target_id: 'location-one',
+          relation_field: 'from_character'
+        })
       ])
     )
   })

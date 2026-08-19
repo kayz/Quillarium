@@ -8,6 +8,7 @@ import {
   Save,
   Send,
   ShieldCheck,
+  Sparkles,
   XCircle
 } from 'lucide-react'
 import type { LanguageName } from '../../app/types.js'
@@ -26,6 +27,7 @@ export function ChapterProseWorkspace({
   busy,
   onDocChange,
   onSave,
+  onExtractSettings,
   onFinalize,
   onPublish,
   onContinuityApplied,
@@ -40,6 +42,7 @@ export function ChapterProseWorkspace({
   busy: boolean
   onDocChange: (doc: EditableDoc) => void
   onSave: () => Promise<void>
+  onExtractSettings: () => Promise<void>
   onFinalize: () => Promise<void>
   onPublish: (confirmation: string) => Promise<void>
   onContinuityApplied: () => Promise<void>
@@ -185,6 +188,19 @@ export function ChapterProseWorkspace({
           </div>
         </div>
         <div className="chapter-prose-actions">
+          <button
+            onClick={onExtractSettings}
+            disabled={busy || dirty || !doc.content.trim()}
+            title={
+              dirty
+                ? zh
+                  ? '请先保存正文，再从稳定快照抽取设定。'
+                  : 'Save the prose before extracting settings from its stable snapshot.'
+                : undefined
+            }
+          >
+            <Sparkles size={15} /> {zh ? '从正文抽取设定' : 'Extract settings'}
+          </button>
           {!published && (
             <button onClick={onSave} disabled={busy || !dirty}>
               <Save size={15} /> {dirty ? `${t(language, 'save')} *` : t(language, 'saved')}

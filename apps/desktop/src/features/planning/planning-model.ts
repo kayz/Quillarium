@@ -8,6 +8,7 @@ import type {
 } from '../../app/types.js'
 
 export const PLANNING_KIND_LABELS: Record<PlanningDocumentKind, { zh: string; en: string }> = {
+  canon: { zh: '正设', en: 'Canon' },
   character: { zh: '人物', en: 'Character' },
   character_relation: { zh: '人物关系', en: 'Character relationship' },
   faction: { zh: '势力', en: 'Faction' },
@@ -15,7 +16,7 @@ export const PLANNING_KIND_LABELS: Record<PlanningDocumentKind, { zh: string; en
   faction_membership: { zh: '人物所属势力', en: 'Faction membership' },
   world_entry: { zh: '世界书', en: 'World entry' },
   timeline_node: { zh: '时间节点', en: 'Timeline node' },
-  timeline_event: { zh: '时间线', en: 'Timeline event' },
+  timeline_event: { zh: '时间线事件', en: 'Timeline event' },
   location: { zh: '地点', en: 'Location' },
   foreshadowing: { zh: '伏笔', en: 'Foreshadowing' },
   strategy: { zh: '旧策略（兼容）', en: 'Legacy strategy' },
@@ -27,7 +28,87 @@ export const PLANNING_KIND_LABELS: Record<PlanningDocumentKind, { zh: string; en
 
 export const CREATABLE_PLANNING_KINDS: PlanningDocumentKind[] = (
   Object.keys(PLANNING_KIND_LABELS) as PlanningDocumentKind[]
-).filter((kind) => kind !== 'strategy' && kind !== 'pattern')
+).filter((kind) => !(['canon', 'reference', 'strategy', 'pattern'] as PlanningDocumentKind[]).includes(kind))
+
+export const BLANK_SETTING_CARD_KINDS: PlanningDocumentKind[] = [
+  'canon',
+  'world_entry',
+  'character',
+  'faction',
+  'timeline_event',
+  'location',
+  'foreshadowing',
+  'narrative'
+]
+
+export function blankSettingCardInput(kind: PlanningDocumentKind, title: string): Record<string, unknown> {
+  if (!BLANK_SETTING_CARD_KINDS.includes(kind)) {
+    throw new Error(`Blank setting-card creation is not available for ${kind}.`)
+  }
+  const shared = { title, content: '', status: 'draft', enabled: false }
+  switch (kind) {
+    case 'canon':
+      return { ...shared, strength: 'hard', source: 'user' }
+    case 'world_entry':
+      return { ...shared, entry_status: 'candidate' }
+    case 'foreshadowing':
+      return { ...shared, state: 'planned' }
+    case 'narrative':
+      return { ...shared, category: 'style', scope: 'project', source: 'user' }
+    default:
+      return shared
+  }
+}
+
+export const WORLD_ENTRY_CONVERSION_KINDS: PlanningDocumentKind[] = [
+  'world_entry',
+  'canon',
+  'character',
+  'character_relation',
+  'location',
+  'timeline_event',
+  'faction',
+  'faction_relation',
+  'faction_membership',
+  'foreshadowing',
+  'narrative'
+]
+
+export function planningConversionKinds(anchorKind?: PlanningDocumentKind): PlanningDocumentKind[] {
+  if (!anchorKind || !WORLD_ENTRY_CONVERSION_KINDS.includes(anchorKind)) return []
+  if (anchorKind === 'world_entry') return [...WORLD_ENTRY_CONVERSION_KINDS]
+  return [anchorKind, 'world_entry']
+}
+
+export const PLANNING_UNSET_REFERENCE = '__quillarium_unset_reference__'
+
+export function planningDraftFieldsForKind(
+  kind: PlanningDocumentKind,
+  current: Record<string, unknown>
+): Record<string, unknown> {
+  const sharedKeys = ['status', 'tags', 'enabled', 'source_refs', 'relations', 'image'] as const
+  const shared = Object.fromEntries(
+    sharedKeys.filter((key) => Object.hasOwn(current, key)).map((key) => [key, current[key]])
+  )
+  const required: Partial<Record<PlanningDocumentKind, Record<string, unknown>>> = {
+    character_relation: {
+      from_character: PLANNING_UNSET_REFERENCE,
+      to_character: PLANNING_UNSET_REFERENCE,
+      relation_type: 'related'
+    },
+    faction_relation: {
+      from_faction: PLANNING_UNSET_REFERENCE,
+      to_faction: PLANNING_UNSET_REFERENCE,
+      relation_type: 'related'
+    },
+    faction_membership: {
+      faction_id: PLANNING_UNSET_REFERENCE,
+      character_id: PLANNING_UNSET_REFERENCE
+    },
+    timeline_node: { year: 1, month: 1 }
+  }
+  return { ...(required[kind] ?? {}), ...shared }
+}
 
 export function planningKindForContext(
   context: ModuleName | OutlineHomeSection | VolumeSection
@@ -71,6 +152,7 @@ export function planningKindsForContext(
   context: ModuleName | OutlineHomeSection | VolumeSection | string,
   anchorKind?: PlanningDocumentKind
 ): PlanningDocumentKind[] {
+  if (context === 'card-conversion') return planningConversionKinds(anchorKind)
   const map: Partial<Record<string, PlanningDocumentKind[]>> = {
     world: ['world_entry'],
     characters: ['character', 'character_relation'],
@@ -80,6 +162,20 @@ export function planningKindsForContext(
     foreshadowing: ['foreshadowing'],
     narrative: ['narrative'],
     'reference-extraction': [
+      'character',
+      'character_relation',
+      'faction',
+      'faction_relation',
+      'faction_membership',
+      'world_entry',
+      'timeline_node',
+      'timeline_event',
+      'location',
+      'foreshadowing',
+      'narrative'
+    ],
+    'prose-extraction': [
+      'canon',
       'character',
       'character_relation',
       'faction',

@@ -1521,7 +1521,8 @@ const CARD_RELATION_KINDS = [
   'involves',
   'triggers',
   'resolves',
-  'explains'
+  'explains',
+  'derived_from'
 ] as const
 
 function CardRelationEditor({

@@ -10,6 +10,7 @@ describe('card origin workflows', () => {
     const html = renderToStaticMarkup(
       <PlanningCreationDialog
         root="C:\\project"
+        docs={[]}
         module="world"
         sessionId="planning-session"
         language="zh"

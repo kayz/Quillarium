@@ -1,6 +1,7 @@
-const { contextBridge, ipcRenderer } = require('electron')
+const { contextBridge, ipcRenderer, webUtils } = require('electron')
 
 const api = {
+  getDroppedFilePath: (file) => webUtils.getPathForFile(file),
   cancelAIStream: (executionId, requestId) => ipcRenderer.invoke('ai:cancelStream', executionId, requestId),
   onAIStreamEvent: (listener) => {
     const handler = (_event, value) => listener(value)
@@ -22,6 +23,7 @@ const api = {
   setTheme: (theme) => ipcRenderer.invoke('config:setTheme', theme),
   setDensity: (density) => ipcRenderer.invoke('config:setDensity', density),
   setLanguage: (language) => ipcRenderer.invoke('config:setLanguage', language),
+  saveAppearance: (input) => ipcRenderer.invoke('config:saveAppearance', input),
   saveAIProfile: (profile, input) => ipcRenderer.invoke('config:saveAIProfile', profile, input),
   saveGithub: (input) => ipcRenderer.invoke('config:saveGithub', input),
   aiStatus: () => ipcRenderer.invoke('config:aiStatus'),
@@ -110,7 +112,7 @@ const api = {
   createDoc: (root, kind, input) => ipcRenderer.invoke('doc:create', root, kind, input),
   reorderStorySiblings: (root, input) => ipcRenderer.invoke('story:reorder', root, input),
   rebuildDocumentLinkIndex: (root) => ipcRenderer.invoke('references:index', root),
-  uploadReferenceDocuments: (root) => ipcRenderer.invoke('references:upload', root),
+  uploadReferenceDocuments: (root, sourcePaths) => ipcRenderer.invoke('references:upload', root, sourcePaths),
   formatDocumentLink: (root, documentId, displayText) =>
     ipcRenderer.invoke('references:format', root, documentId, displayText),
   planDocumentReferenceMigration: (root) => ipcRenderer.invoke('references:migrationPlan', root),

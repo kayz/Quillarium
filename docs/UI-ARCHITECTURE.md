@@ -6,6 +6,9 @@
 
 Quillarium Desktop is an Electron + Vite + React application in `apps/desktop`.
 
+This document covers the released `v0.3.0` desktop surface plus the local `0.3.1` skin candidate. See the
+[documentation map](README.md) or [简体中文文档导航](README.zh-CN.md) for reader-specific entry points.
+
 ## Brand surfaces
 
 The visible product name uses the transparent horizontal wordmark directly in the top chrome and
@@ -30,6 +33,28 @@ localizable result through `app:checkForUpdates`. The renderer cannot supply a r
 account requirement, token use, telemetry, background download, or silent install.
 
 The renderer stays focused on interaction and presentation. File system access, Git operations, and AI calls run through Electron IPC in the main process. This keeps API keys and local paths out of the browser-like renderer and matches the privacy-first model.
+
+## 0.3.1 Interface skins
+
+The four compatible theme IDs are now full UI skins rather than color swatches. A structured,
+browser-safe definition supplies palette, interface and prose font roles, type scale, spacing,
+navigation/detail position, toolbar alignment, and button shape/treatment/size. React applies only
+validated values as CSS custom properties and enumerated `data-skin-*` attributes; neither global
+configuration nor the renderer accepts arbitrary CSS, URLs, font downloads, or executable style
+content.
+
+Settings uses reusable `ActionButton`, `ActionBar`, `SurfacePanel`, and `FormGrid` primitives for the
+editor and live miniature. The same token contract also styles legacy action groups while they are
+incrementally migrated. Navigation and detail panes can exchange sides without changing document
+order, stable IDs, or persisted pane content. Language remains a global accessibility preference, so
+switching skins never unexpectedly changes the UI language; skin, density, and language are still
+persisted through one typed IPC operation.
+
+`paper`, `ink`, `mist`, and `bamboo` remain valid in old global configuration and project
+`default_theme` fields. Optional custom definitions live only in global `uiSkins`; loading an old
+configuration does not write or migrate it. Reset deletes the selected customization and exposes the
+product default again. The normative schema, CSS mapping, and compatibility rules are documented in
+[UI-SKINS.md](UI-SKINS.md) and [简体中文版](UI-SKINS.zh-CN.md).
 
 ## First Launch
 
@@ -144,6 +169,35 @@ that reference as a hash-checked read-only source rather than an editable anchor
 multiple new setting cards from the source; the trusted process adds the reference stable ID to every
 proposal's `source_refs`, rejects reference-update or out-of-scope proposals, and rechecks the source
 hash before an explicitly confirmed atomic apply.
+
+Dragging local files over an open project shows a full-workspace drop target. After drop, a modal lists
+filenames and requires one of two explicit intents: “Use as references” calls the same deterministic
+uploader, while “Import settings” opens the existing AI import desk in file mode. Closing the modal
+does nothing. The UI never guesses an intent, never displays the external absolute paths in the intent
+modal, and never invokes AI merely because a file was dropped.
+
+Setting collection toolbars place “New blank card” beside “Create with AI”. The blank path asks only
+for a title, creates a disabled draft with typed defaults, and opens the normal schema-aware metadata
+and Markdown editors. Character/faction relationships, faction memberships, and timeline coordinates
+keep their dedicated manual dialogs because their stable endpoints or coordinates are required at
+creation time. Reference cards keep upload as their only creation action.
+
+Convertible setting-card detail panes expose “Convert card type”. Canon offers World as its only
+target; every other supported setting type returns to World, while World exposes the complete target
+list. Unsaved detail edits must be saved first. The proposal dialog keeps the real card as its sole
+anchor, lets the author choose the target type and inspect the mapped fields/body, and labels the
+stable-ID, source-hash, and rollback boundary. After apply, the workspace navigates to the target
+type's section instead of leaving the converted card hidden behind the old filter. If another card
+uses the source through a type-specific field, apply names that card and field and stops before any
+write rather than leaving a dangling or wrong-type edge.
+
+The full-width chapter-prose editor exposes “Extract settings” whenever saved prose is non-empty.
+Unsaved prose must be saved first; the action then opens the same multi-card review surface in
+read-only-source mode.
+The source prose is identified by title, stable ID, and hash; it never appears in the proposal strip.
+The author can switch among, edit, confirm, or retract multiple extracted cards. Apply creates only
+the confirmed cards, then returns to the planning section for the selected result; neither discussion
+nor apply edits the prose.
 
 Page-specific AI-check entries carry an explicit scope through IPC. The timeline semantic check
 compiles only timeline nodes and events; the global AI check uses the broader project scope but still
@@ -284,11 +338,12 @@ The implemented desktop baseline supports:
 2. keep legacy vault compatibility and migration outside the primary welcome path
 3. configure display, check for official releases, configure optional GitHub access, each AI profile,
    the project WritingPreset, book-generation header, cover, and CCv3 setting export with explicit actions
-4. browse planning modules and create new planning records through a review-before-write AI dialog
+4. browse planning modules and create disabled blank setting drafts by hand or use the separate
+   review-before-write AI dialog
 5. edit schema-aware metadata without serialization syntax, inspect cross-type tag matches, and
    switch Markdown bodies between safe Source and Preview modes
-6. paste or choose source files, review AI-proposed cards, land approved cards, and inspect or
-   re-import one card through retained provenance
+6. paste, choose, or drop source files; explicitly route drops to reference archive or setting import;
+   review AI-proposed cards, land approved cards, and inspect or re-import one card through provenance
 7. create timeline coordinates, attach concurrent events, browse time-filtered people, and create
    labeled time-scoped relationship phases
 8. select, edit, and save a plain-text scene working draft

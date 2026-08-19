@@ -6,6 +6,7 @@ import { formatDesktopError } from '../../shared/errors.js'
 export function OutlineCreateDialog({
   label,
   parentTitle,
+  mode = 'outline',
   language,
   busy,
   onClose,
@@ -13,6 +14,7 @@ export function OutlineCreateDialog({
 }: {
   label: string
   parentTitle?: string | null
+  mode?: 'outline' | 'setting'
   language: LanguageName
   busy: boolean
   onClose: () => void
@@ -66,7 +68,15 @@ export function OutlineCreateDialog({
             <FilePlus2 size={20} />
           </div>
           <div>
-            <span className="planning-kicker">{zh ? '建立下一层结构' : 'Add to the outline tree'}</span>
+            <span className="planning-kicker">
+              {mode === 'setting'
+                ? zh
+                  ? '手工新建设定卡 · 不调用 AI'
+                  : 'Create a setting card manually · no AI'
+                : zh
+                  ? '建立下一层结构'
+                  : 'Add to the outline tree'}
+            </span>
             <h2 id={titleId}>{zh ? `新建${label}` : `New ${label}`}</h2>
           </div>
           <button

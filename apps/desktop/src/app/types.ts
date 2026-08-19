@@ -2,6 +2,7 @@ export type { CheckReport } from '@quillarium/checks'
 export type { PlanningCheckScope } from '@quillarium/agent-runtime'
 
 export type ThemeName = 'paper' | 'ink' | 'mist' | 'bamboo'
+export type { UISkinDefinitionV1, UISkinPreferencesV1, UISkinPaletteV1 } from '@quillarium/core/ui-skins'
 export type ModuleName =
   | 'write'
   | 'canon'
@@ -42,6 +43,7 @@ export type LanguageName = 'zh' | 'en'
 export type AIProfileName = 'prose' | 'background' | 'check'
 export type AIProviderName = 'openai-compatible' | 'openai' | 'claude' | 'gemini' | 'deepseek' | 'ollama'
 export type PlanningDocumentKind =
+  | 'canon'
   | 'character'
   | 'character_relation'
   | 'faction'
@@ -113,7 +115,7 @@ export interface PlanningSession {
   source_document?: {
     path: string
     id: string
-    type: PlanningDocumentKind
+    type: 'reference' | 'chapter_prose'
     title: string
     expected_sha256: string
   }

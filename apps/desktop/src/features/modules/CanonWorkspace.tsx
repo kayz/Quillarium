@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { MessageSquareText, Search } from 'lucide-react'
+import { ArrowRightLeft, MessageSquareText, Search } from 'lucide-react'
 import type { DocEntry, LanguageName } from '../../app/types.js'
 import { t } from '../../app/i18n.js'
 import { bridge } from '../../app/bridge.js'
@@ -14,12 +14,14 @@ export function CanonWorkspace({
   root,
   docs,
   onCreate,
+  onConvert,
   onReload,
   language
 }: {
   root: string
   docs: DocEntry[]
   onCreate: (kind: string, input: Record<string, unknown>) => Promise<unknown>
+  onConvert: (doc: DocEntry) => void
   onReload: () => Promise<void>
   language: LanguageName
 }) {
@@ -48,6 +50,14 @@ export function CanonWorkspace({
   }, [docs, query])
 
   const selected = docs.find((doc) => doc.data.id === selectedId) ?? docs[0] ?? null
+  const hasUnsavedChanges = Boolean(
+    selected &&
+    (title !== selected.data.title ||
+      content !== selected.content ||
+      status !== String(selected.data.status ?? 'draft') ||
+      strength !== String(selected.data.strength ?? 'hard') ||
+      source !== String(selected.data.source ?? 'user'))
+  )
 
   useEffect(() => {
     if (!selected) {
@@ -247,6 +257,20 @@ export function CanonWorkspace({
                 <textarea value={content} onChange={(e) => setContent(e.target.value)} />
               </label>
               <div className="canon-actions">
+                <button
+                  type="button"
+                  onClick={() => onConvert(selected)}
+                  disabled={saving || aiBusy || hasUnsavedChanges}
+                  title={
+                    hasUnsavedChanges
+                      ? language === 'zh'
+                        ? '请先保存当前修改，再转换卡片类型。'
+                        : 'Save the current changes before converting the card type.'
+                      : undefined
+                  }
+                >
+                  <ArrowRightLeft size={15} /> {language === 'zh' ? '转换为世界书' : 'Convert to World'}
+                </button>
                 <button onClick={saveCanon} disabled={saving || !title.trim()}>
                   {saving ? t(language, 'saving') : t(language, 'saveCanon')}
                 </button>

@@ -64,6 +64,7 @@ import type {
   CreateTimelineNodeV2Input,
   TimeSystemV1,
   TimelineTrackV1,
+  UIAppearanceInputV1,
   LoadedVersionedYaml,
   TimelineMigrationPlanV1,
   TimelineMigrationReportV1,
@@ -312,6 +313,7 @@ export interface CanonDiscussionRequest {
 }
 
 export const PLANNING_DOCUMENT_KINDS = [
+  'canon',
   'character',
   'character_relation',
   'faction',
@@ -392,7 +394,10 @@ export interface PlanningDocumentRef {
   type: PlanningDocumentKind
 }
 
-export interface PlanningSourceDocumentRef extends PlanningDocumentRef {
+export interface PlanningSourceDocumentRef {
+  path: string
+  id: string
+  type: 'reference' | 'chapter_prose'
   title: string
   expected_sha256: string
 }
@@ -409,7 +414,7 @@ export interface PlanningSession {
   selected_proposal_id: string | null
   anchor_proposal_id?: string
   document?: PlanningDocumentRef
-  /** Read-only source material for a card-extraction conversation; never an editable proposal. */
+  /** Read-only reference or author prose for card extraction; never an editable proposal. */
   source_document?: PlanningSourceDocumentRef
 }
 
@@ -559,6 +564,10 @@ export interface IpcContract {
   }
   'config:setLanguage': {
     request: [language: NonNullable<QuillariumConfig['language']>]
+    response: DesktopConfig
+  }
+  'config:saveAppearance': {
+    request: [input: UIAppearanceInputV1]
     response: DesktopConfig
   }
   'config:saveAIProfile': {
@@ -754,7 +763,7 @@ export interface IpcContract {
     response: LocalDocumentLinkIndexV1
   }
   'references:upload': {
-    request: [root: string]
+    request: [root: string, sourcePaths?: string[]]
     response: ReferenceUploadResult
   }
   'references:format': {
@@ -1084,6 +1093,7 @@ export const QUILLARIUM_API_CHANNELS = {
   setTheme: 'config:setTheme',
   setDensity: 'config:setDensity',
   setLanguage: 'config:setLanguage',
+  saveAppearance: 'config:saveAppearance',
   saveAIProfile: 'config:saveAIProfile',
   saveGithub: 'config:saveGithub',
   aiStatus: 'config:aiStatus',
@@ -1245,6 +1255,7 @@ type QuillariumInvokeAPI = {
 
 export type QuillariumAPI = QuillariumInvokeAPI & {
   onAIStreamEvent(listener: (event: DesktopAIStreamEvent) => void): () => void
+  getDroppedFilePath(file: unknown): string
 }
 
 export type TypedIpcHandler<Channel extends IpcChannel> = (

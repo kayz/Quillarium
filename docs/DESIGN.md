@@ -11,14 +11,17 @@ its design, but they are neither runtime dependencies nor parallel sources of pr
 
 ## Implementation Status
 
-As of 2026-08-16, the work-neutral workspace foundation and the first planning-card workbench are
-implemented. The workbench includes typed relations and material provenance, a linked timeline,
-spatial and time-aware character views, keyword-triggered world knowledge, foreshadowing reminders,
-manual AI checks that persist issue cards, card-by-card prompt composition, an explainable
+The released `v0.3.0` baseline as of 2026-08-19 includes the work-neutral workspace foundation and
+planning-card workbench. The workbench includes typed relations and material provenance, a linked
+timeline, spatial and time-aware character views, keyword-triggered world knowledge, foreshadowing
+reminders, manual AI checks that persist issue cards, card-by-card prompt composition, an explainable
 model-budgeted Context compiler, versioned writing presets with immutable run snapshots, and
 multi-candidate comparison, selection, and branching. Atomic finalization apply is also implemented
 with explicit author decisions, complete before images, target-hash conflict detection, rollback,
-verification, and a durable audit. The root [ROADMAP](../ROADMAP.md) tracks later lifecycle work.
+verification, and a durable audit. Version 0.3.0 additionally delivers project-local setting images,
+locally rendered and Agent-designed HTML setting cards, reversible story-tree visibility, typed
+faction networks, deterministic reference upload with optional read-only AI discussion, and the
+reliability boundary recorded in the root [ROADMAP](../ROADMAP.md).
 
 The typed Agent contract and creator-assistant foundation is also implemented. Product-owned
 `AgentTaskDefinitionV1` contracts cap operations and result types; project-owned `ContextBundleV1`
@@ -677,6 +680,74 @@ CCv3 book export includes confirmed faction, faction-relation, and membership se
 same allowlisted world-book extension fields, while excluding project image paths. Import recreates
 them as disabled candidate/draft documents for review. Projects and CCv3 archives made before 0.3.0
 remain readable, and none of the new defaults trigger silent rewrites.
+
+## Unreleased Card Retyping and Prose Extraction
+
+Setting-card retyping reuses the planning proposal transaction rather than copying documents. The
+conversion graph is intentionally hub-shaped:
+
+```text
+Canon <-> World entry <-> Character / Character relationship / Location
+                      <-> Timeline event
+                      <-> Faction / Faction relationship / Faction membership
+                      <-> Foreshadowing / Narrative
+```
+
+There is no direct non-World cross-conversion, and Issue, Reference, legacy Strategy/Pattern, outline,
+scene, Run, and chapter-prose documents are outside the graph. A conversion session has exactly one
+anchored update proposal. The author chooses the target schema and may use background AI to map core
+fields, but the stable project ID is code-owned. The transaction preserves shared status, tags,
+enabled state, source references, typed relations, and image metadata where the target schema permits
+them. It checks the original SHA-256, validates all stable references against the complete project,
+writes and rereads the target path under the project write lock, durably saves the updated session,
+and only then removes the old typed path. Failure restores the exact source and removes the target.
+Before writing, Quillarium evaluates inbound typed references against the target type; conversion is
+blocked with the exact referencing cards/fields when it would leave a character relationship,
+membership, timeline link, location link, or other typed edge invalid. Old cards require no migration
+and are not rewritten until the author explicitly converts one.
+
+Author-prose extraction is a separate source workflow. A non-empty saved `chapter_prose` document is
+captured as a stable ID, project-contained path, and exact SHA-256. The source body is supplied to the
+bounded planning prompt as read-only evidence; it cannot be returned as an update proposal. AI may
+produce up to the existing proposal-set limit of create-only Canon and setting cards. Trusted code
+adds one `derived_from` relation to the source prose ID to every draft, including drafts edited after
+restore. The source identity and hash are rechecked before the atomic multi-card apply. A changed or
+missing source stops the operation with zero card writes, and successful extraction never changes the
+chapter prose. Existing projects and planning sessions remain readable; the optional relation kind is
+additive and requires no eager migration.
+
+File-drop routing is an explicit user decision rather than an import side effect. The renderer asks
+Electron's trusted preload for each dropped local path, displays filenames only, and presents two
+choices before any operation runs. “Reference document” passes the paths to the existing bounded,
+transactional UTF-8 reference uploader without AI. “Import settings” preloads the same paths into the
+existing AI import session, whose candidates still require individual review before landing. The two
+routes share no implicit fallback: an invalid reference file produces an error instead of silently
+sending it to a model.
+
+Manual blank-card creation is separate from AI planning creation. Canon, World, Character, Faction,
+Timeline Event, Location, Foreshadowing, and Narrative sections create a typed document with normal
+stable-ID allocation, safe schema defaults, `status: draft`, and `enabled: false`, then open it for
+manual editing. Structured cards that cannot be valid while literally empty use their existing manual
+forms: character/faction relationships require distinct stable endpoints, memberships require a real
+character and faction, and timeline coordinates require a valid time value. Legacy Strategy/Pattern,
+Issue, Reference, Run, Prompt, and story/prose records are not relabeled as blank setting cards.
+
+## 0.3.1 Interface Skin Boundary
+
+The four legacy theme IDs remain the complete compatibility surface for project defaults, while an
+optional machine-local V1 definition turns each slot into a bounded UI skin. The definition contains
+only normalized palette, font-role, scale, spacing, pane-position, toolbar, and button enums. It
+cannot contain CSS, URLs, code, credentials, project paths, or model instructions. Main-process
+normalization precedes persistence, and loading an old config never creates `uiSkins` as a side
+effect.
+
+The renderer compiles a resolved skin into CSS custom properties and enumerated root attributes.
+Layout changes reverse presentation direction only; they do not reorder domain data or rewrite pane
+state. Language remains global even though appearance, density, and language save in one typed IPC
+operation. Reusable action, toolbar, surface, and form-grid primitives establish the configurable
+component layer while legacy feature CSS stays compatible during incremental adoption. The complete
+schema, default matrix, reset semantics, and responsive rules are in [UI-SKINS.md](UI-SKINS.md) and
+[UI-SKINS.zh-CN.md](UI-SKINS.zh-CN.md).
 
 ## Events, Notes, and Summaries
 

@@ -55,6 +55,7 @@ export function AIImportDialog({
   root,
   docs,
   language,
+  initialSourcePaths = [],
   onClose,
   onImported,
   onOpenAssistant
@@ -62,14 +63,17 @@ export function AIImportDialog({
   root: string
   docs: DocEntry[]
   language: LanguageName
+  initialSourcePaths?: string[]
   onClose: () => void
   onImported: () => Promise<void>
   onOpenAssistant?: (sourceText: string) => void
 }) {
   const zh = language === 'zh'
-  const [inputMode, setInputMode] = useState<'text' | 'files'>('text')
+  const [inputMode, setInputMode] = useState<'text' | 'files'>(() =>
+    initialSourcePaths.length ? 'files' : 'text'
+  )
   const [sourceText, setSourceText] = useState('')
-  const [sourcePaths, setSourcePaths] = useState<string[]>([])
+  const [sourcePaths, setSourcePaths] = useState<string[]>(() => [...initialSourcePaths])
   const [session, setSession] = useState<ImportSession | null>(null)
   const [resumableSession, setResumableSession] = useState<ImportSession | null>(null)
   const [candidates, setCandidates] = useState<ImportCandidate[]>([])

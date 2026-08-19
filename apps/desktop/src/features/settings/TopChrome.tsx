@@ -2,10 +2,13 @@ import { useEffect, useRef, useState } from 'react'
 import {
   BookOpen,
   Circle,
+  Copy,
   Download,
   GitBranch,
+  Palette,
   PenLine,
   RefreshCw,
+  RotateCcw,
   Save,
   ShieldAlert,
   ShieldCheck,
@@ -22,6 +25,9 @@ import type {
   GitState,
   LanguageName,
   ThemeName,
+  UISkinDefinitionV1,
+  UISkinPaletteV1,
+  UISkinPreferencesV1,
   WorkspaceMode
 } from '../../app/types.js'
 import { t } from '../../app/i18n.js'
@@ -30,6 +36,9 @@ import { BrandWordmark } from '../../app/BrandWordmark.js'
 import { formatDesktopError } from '../../shared/errors.js'
 import { ExportModal } from './ExportModal.js'
 import { gitActionFor } from './git-presentation.js'
+import { BUILTIN_UI_SKINS, UI_SKIN_IDS, cloneUISkin, resolveUISkin } from '@quillarium/core/ui-skins'
+import { applyUISkin } from '../../app/ui-skin.js'
+import { ActionBar, ActionButton, FormGrid, SurfacePanel } from '../../shared/UIPrimitives.js'
 import type {
   BookGenerationHeaderState,
   StoryStructureConfigV1,
@@ -48,10 +57,12 @@ export function TopChrome({
   theme,
   density,
   language,
+  skinPreferences,
   aiStatus,
   onTheme,
   onDensity,
   onLanguage,
+  onSkinPreferences,
   onAIStatus,
   projectName,
   path,
@@ -69,10 +80,12 @@ export function TopChrome({
   theme: ThemeName
   density: DensityName
   language: LanguageName
+  skinPreferences?: UISkinPreferencesV1
   aiStatus: AIStatus
   onTheme: (theme: ThemeName) => void
   onDensity: (density: DensityName) => void
   onLanguage: (language: LanguageName) => void
+  onSkinPreferences: (preferences: UISkinPreferencesV1 | undefined) => void
   onAIStatus: (status: AIStatus) => void
   projectName?: string
   path?: string
@@ -174,13 +187,19 @@ export function TopChrome({
           theme={theme}
           density={density}
           language={language}
+          skinPreferences={skinPreferences}
           onTheme={onTheme}
           onDensity={onDensity}
           onLanguage={onLanguage}
+          onSkinPreferences={onSkinPreferences}
           onAIStatus={onAIStatus}
           onGitCreateRemote={onGitCreateRemote}
           onProjectChanged={onProjectChanged}
-          onClose={() => setShowSettings(false)}
+          onClose={() => {
+            applyUISkin(document.documentElement, resolveUISkin(theme, skinPreferences))
+            document.documentElement.dataset.density = density
+            setShowSettings(false)
+          }}
         />
       )}
       {showExport && root && (
@@ -206,6 +225,27 @@ type UpdateCheck = Awaited<ReturnType<typeof bridge.checkForUpdates>>
 type StorageStatus = DesktopConfig['aiKeyStorage']
 type CredentialState = 'available' | 'unavailable' | 'none'
 type SettingsNotice = { tone: 'success' | 'danger'; message: string }
+
+const SKIN_COLOR_FIELDS: Array<{
+  key: keyof UISkinPaletteV1
+  zh: string
+  en: string
+}> = [
+  { key: 'app', zh: '应用底色', en: 'App background' },
+  { key: 'panel', zh: '面板', en: 'Panel' },
+  { key: 'editor', zh: '编辑器', en: 'Editor' },
+  { key: 'muted', zh: '弱强调底色', en: 'Muted surface' },
+  { key: 'text', zh: '正文', en: 'Text' },
+  { key: 'textMuted', zh: '辅助文字', en: 'Muted text' },
+  { key: 'border', zh: '分隔线', en: 'Border' },
+  { key: 'accent', zh: '主强调', en: 'Accent' },
+  { key: 'accentStrong', zh: '强强调', en: 'Strong accent' },
+  { key: 'success', zh: '成功', en: 'Success' },
+  { key: 'warning', zh: '警告', en: 'Warning' },
+  { key: 'danger', zh: '危险', en: 'Danger' },
+  { key: 'chrome', zh: '顶栏', en: 'Top chrome' },
+  { key: 'chromeText', zh: '顶栏文字', en: 'Chrome text' }
+]
 
 const AI_PROFILE_NAMES = ['prose', 'background', 'check'] as const satisfies readonly AIProfileName[]
 
@@ -255,9 +295,11 @@ function SettingsModal({
   theme,
   density,
   language,
+  skinPreferences,
   onTheme,
   onDensity,
   onLanguage,
+  onSkinPreferences,
   onAIStatus,
   onGitCreateRemote,
   onProjectChanged,
@@ -268,9 +310,11 @@ function SettingsModal({
   theme: ThemeName
   density: DensityName
   language: LanguageName
+  skinPreferences?: UISkinPreferencesV1
   onTheme: (theme: ThemeName) => void
   onDensity: (density: DensityName) => void
   onLanguage: (language: LanguageName) => void
+  onSkinPreferences: (preferences: UISkinPreferencesV1 | undefined) => void
   onAIStatus: (status: AIStatus) => void
   onGitCreateRemote?: () => void
   onProjectChanged?: () => void | Promise<void>
@@ -308,6 +352,7 @@ function SettingsModal({
   const [selectedCcv3Ids, setSelectedCcv3Ids] = useState<string[]>([])
   const [ccv3ExportPath, setCcv3ExportPath] = useState('')
   const [display, setDisplay] = useState({ theme, density, language })
+  const [skinDraft, setSkinDraft] = useState<UISkinDefinitionV1>(() => resolveUISkin(theme, skinPreferences))
   const [storyStructure, setStoryStructure] = useState<StoryStructureConfigV1>({
     part_enabled: true,
     act_enabled: true,
@@ -319,7 +364,13 @@ function SettingsModal({
 
   useEffect(() => {
     setDisplay({ theme, density, language })
-  }, [theme, density, language])
+    setSkinDraft(resolveUISkin(theme, skinPreferences))
+  }, [theme, density, language, skinPreferences])
+
+  useEffect(() => {
+    applyUISkin(document.documentElement, skinDraft)
+    document.documentElement.dataset.density = display.density
+  }, [skinDraft, display.density])
 
   const updateCredentialMetadata = (config: DesktopConfig) => {
     const profileState = (profile: AIProfileName): CredentialState => {
@@ -462,24 +513,53 @@ function SettingsModal({
     }
   }
 
-  const saveDisplay = async () => {
+  const saveDisplay = async (resetSkin = false) => {
     setBusyAction('save-display')
     setNotice(null)
     try {
-      await bridge.setTheme(display.theme)
-      await bridge.setDensity(display.density)
-      await bridge.setLanguage(display.language)
+      const config = await bridge.saveAppearance({
+        ...display,
+        skin: resetSkin ? cloneUISkin(BUILTIN_UI_SKINS[display.theme]) : skinDraft,
+        resetSkin
+      })
+      const savedSkin = resolveUISkin(display.theme, config.uiSkins)
+      setSkinDraft(savedSkin)
       onTheme(display.theme)
       onDensity(display.density)
       onLanguage(display.language)
+      onSkinPreferences(config.uiSkins)
       setNotice({
         tone: 'success',
-        message: display.language === 'zh' ? '显示设置已保存。' : 'Display settings saved.'
+        message:
+          display.language === 'zh'
+            ? resetSkin
+              ? '当前皮肤已恢复为内置版本。'
+              : '皮肤与显示设置已保存。'
+            : resetSkin
+              ? 'The current skin was reset to its built-in definition.'
+              : 'Skin and display settings saved.'
       })
     } catch (error) {
       setNotice({ tone: 'danger', message: formatDesktopError(error, language) })
     } finally {
       setBusyAction(null)
+    }
+  }
+
+  const selectSkin = (nextTheme: ThemeName) => {
+    setDisplay((current) => ({ ...current, theme: nextTheme }))
+    setSkinDraft(resolveUISkin(nextTheme, skinPreferences))
+  }
+
+  const copySkinDefinition = async () => {
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(skinDraft, null, 2))
+      setNotice({
+        tone: 'success',
+        message: display.language === 'zh' ? '皮肤定义已复制。' : 'Skin definition copied.'
+      })
+    } catch (error) {
+      setNotice({ tone: 'danger', message: formatDesktopError(error, language) })
     }
   }
 
@@ -873,53 +953,324 @@ function SettingsModal({
             {notice.message}
           </p>
         )}
-        <div className="settings-group">
+        <SurfacePanel className="settings-group skin-settings">
           <div className="settings-section-head">
-            <h3>{language === 'zh' ? '显示' : 'Display'}</h3>
-            <button className="secondary" type="button" onClick={saveDisplay} disabled={busyAction !== null}>
-              {busyAction === 'save-display'
-                ? t(language, 'saving')
-                : language === 'zh'
-                  ? '保存显示'
-                  : 'Save display'}
-            </button>
-          </div>
-          <div className="settings-grid three display-settings-grid">
-            <label>
-              {language === 'zh' ? '主题' : 'Theme'}
-              <select
-                value={display.theme}
-                onChange={(event) => setDisplay({ ...display, theme: event.target.value as ThemeName })}
+            <div>
+              <span className="settings-kicker">
+                <Palette size={14} /> {language === 'zh' ? '界面皮肤' : 'Interface skin'}
+              </span>
+              <h3>{language === 'zh' ? '写作者的可换装书桌' : 'A dressable writer’s desk'}</h3>
+              <p className="muted">
+                {language === 'zh'
+                  ? '四个兼容皮肤同时定义配色、字体、面板排列与按钮语言；修改会即时预览，保存后才写入配置。'
+                  : 'Four compatible skins define color, type, panel placement, and button language. Edits preview live and persist only when saved.'}
+              </p>
+            </div>
+            <ActionBar align="end">
+              <ActionButton
+                type="button"
+                icon={<Copy size={14} />}
+                onClick={() => void copySkinDefinition()}
+                disabled={busyAction !== null}
               >
-                {(['paper', 'ink', 'mist', 'bamboo'] as ThemeName[]).map((item) => (
+                {language === 'zh' ? '复制定义' : 'Copy definition'}
+              </ActionButton>
+              <ActionButton
+                type="button"
+                icon={<RotateCcw size={14} />}
+                onClick={() => void saveDisplay(true)}
+                disabled={busyAction !== null}
+              >
+                {language === 'zh' ? '恢复内置' : 'Reset built-in'}
+              </ActionButton>
+              <ActionButton
+                tone="primary"
+                type="button"
+                icon={<Save size={14} />}
+                onClick={() => void saveDisplay()}
+                disabled={busyAction !== null}
+              >
+                {busyAction === 'save-display'
+                  ? t(language, 'saving')
+                  : language === 'zh'
+                    ? '保存皮肤'
+                    : 'Save skin'}
+              </ActionButton>
+            </ActionBar>
+          </div>
+
+          <FormGrid columns={3} className="display-settings-grid skin-basics-grid">
+            <label>
+              {language === 'zh' ? '皮肤' : 'Skin'}
+              <select value={display.theme} onChange={(event) => selectSkin(event.target.value as ThemeName)}>
+                {UI_SKIN_IDS.map((item) => (
                   <option key={item} value={item}>
-                    {t(language, item)}
+                    {resolveUISkin(item, skinPreferences).name}
                   </option>
                 ))}
               </select>
             </label>
             <label>
-              {language === 'zh' ? '密度' : 'Density'}
+              {language === 'zh' ? '界面密度' : 'Interface density'}
               <select
                 value={display.density}
-                onChange={(event) => setDisplay({ ...display, density: event.target.value as DensityName })}
+                onChange={(event) =>
+                  setDisplay((current) => ({
+                    ...current,
+                    density: event.target.value as DensityName
+                  }))
+                }
               >
                 <option value="comfortable">{t(language, 'comfortable')}</option>
                 <option value="compact">{t(language, 'compact')}</option>
               </select>
             </label>
             <label>
-              {language === 'zh' ? '语言' : 'Language'}
+              {language === 'zh' ? '界面语言（全局）' : 'Interface language (global)'}
               <select
                 value={display.language}
-                onChange={(event) => setDisplay({ ...display, language: event.target.value as LanguageName })}
+                onChange={(event) =>
+                  setDisplay((current) => ({
+                    ...current,
+                    language: event.target.value as LanguageName
+                  }))
+                }
               >
                 <option value="zh">中文</option>
                 <option value="en">English</option>
               </select>
             </label>
+          </FormGrid>
+
+          <div className="skin-editor-layout">
+            <div className="skin-editor-controls">
+              <label>
+                {language === 'zh' ? '皮肤名称' : 'Skin name'}
+                <input
+                  value={skinDraft.name}
+                  maxLength={48}
+                  onChange={(event) => setSkinDraft((current) => ({ ...current, name: event.target.value }))}
+                />
+              </label>
+
+              <fieldset className="skin-fieldset">
+                <legend>{language === 'zh' ? '配色' : 'Palette'}</legend>
+                <div className="skin-color-grid">
+                  {SKIN_COLOR_FIELDS.map((field) => (
+                    <label key={field.key}>
+                      <span>{language === 'zh' ? field.zh : field.en}</span>
+                      <span className="skin-color-control">
+                        <input
+                          type="color"
+                          value={skinDraft.palette[field.key]}
+                          onChange={(event) =>
+                            setSkinDraft((current) => ({
+                              ...current,
+                              palette: { ...current.palette, [field.key]: event.target.value }
+                            }))
+                          }
+                        />
+                        <code>{skinDraft.palette[field.key]}</code>
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </fieldset>
+
+              <FormGrid columns={3} className="skin-behavior-grid">
+                <label>
+                  {language === 'zh' ? '界面字体' : 'Interface font'}
+                  <select
+                    value={skinDraft.typography.interfaceFont}
+                    onChange={(event) =>
+                      setSkinDraft((current) => ({
+                        ...current,
+                        typography: {
+                          ...current.typography,
+                          interfaceFont: event.target
+                            .value as UISkinDefinitionV1['typography']['interfaceFont']
+                        }
+                      }))
+                    }
+                  >
+                    <option value="modern">{language === 'zh' ? '现代无衬线' : 'Modern sans'}</option>
+                    <option value="editorial">{language === 'zh' ? '编辑体衬线' : 'Editorial serif'}</option>
+                    <option value="system">{language === 'zh' ? '系统字体' : 'System font'}</option>
+                  </select>
+                </label>
+                <label>
+                  {language === 'zh' ? '正文编辑字体' : 'Prose font'}
+                  <select
+                    value={skinDraft.typography.proseFont}
+                    onChange={(event) =>
+                      setSkinDraft((current) => ({
+                        ...current,
+                        typography: {
+                          ...current.typography,
+                          proseFont: event.target.value as UISkinDefinitionV1['typography']['proseFont']
+                        }
+                      }))
+                    }
+                  >
+                    <option value="editorial">{language === 'zh' ? '编辑体衬线' : 'Editorial serif'}</option>
+                    <option value="modern">{language === 'zh' ? '现代无衬线' : 'Modern sans'}</option>
+                    <option value="system">{language === 'zh' ? '系统字体' : 'System font'}</option>
+                  </select>
+                </label>
+                <label>
+                  {language === 'zh'
+                    ? `字号比例 ${Math.round(skinDraft.typography.scale * 100)}%`
+                    : `Type scale ${Math.round(skinDraft.typography.scale * 100)}%`}
+                  <input
+                    type="range"
+                    min="90"
+                    max="115"
+                    step="1"
+                    value={Math.round(skinDraft.typography.scale * 100)}
+                    onChange={(event) =>
+                      setSkinDraft((current) => ({
+                        ...current,
+                        typography: { ...current.typography, scale: Number(event.target.value) / 100 }
+                      }))
+                    }
+                  />
+                </label>
+                <label>
+                  {language === 'zh' ? '主导航位置' : 'Navigation position'}
+                  <select
+                    value={skinDraft.layout.navigation}
+                    onChange={(event) =>
+                      setSkinDraft((current) => ({
+                        ...current,
+                        layout: {
+                          ...current.layout,
+                          navigation: event.target.value as UISkinDefinitionV1['layout']['navigation']
+                        }
+                      }))
+                    }
+                  >
+                    <option value="left">{language === 'zh' ? '左侧' : 'Left'}</option>
+                    <option value="right">{language === 'zh' ? '右侧' : 'Right'}</option>
+                  </select>
+                </label>
+                <label>
+                  {language === 'zh' ? '详情面板位置' : 'Detail position'}
+                  <select
+                    value={skinDraft.layout.detail}
+                    onChange={(event) =>
+                      setSkinDraft((current) => ({
+                        ...current,
+                        layout: {
+                          ...current.layout,
+                          detail: event.target.value as UISkinDefinitionV1['layout']['detail']
+                        }
+                      }))
+                    }
+                  >
+                    <option value="right">{language === 'zh' ? '右侧' : 'Right'}</option>
+                    <option value="left">{language === 'zh' ? '左侧' : 'Left'}</option>
+                  </select>
+                </label>
+                <label>
+                  {language === 'zh' ? '工具栏排列' : 'Toolbar alignment'}
+                  <select
+                    value={skinDraft.layout.toolbar}
+                    onChange={(event) =>
+                      setSkinDraft((current) => ({
+                        ...current,
+                        layout: {
+                          ...current.layout,
+                          toolbar: event.target.value as UISkinDefinitionV1['layout']['toolbar']
+                        }
+                      }))
+                    }
+                  >
+                    <option value="start">{language === 'zh' ? '靠前' : 'Start'}</option>
+                    <option value="end">{language === 'zh' ? '靠后' : 'End'}</option>
+                    <option value="split">{language === 'zh' ? '两端分布' : 'Split'}</option>
+                  </select>
+                </label>
+                <label>
+                  {language === 'zh' ? '面板间距' : 'Panel spacing'}
+                  <select
+                    value={skinDraft.layout.spacing}
+                    onChange={(event) =>
+                      setSkinDraft((current) => ({
+                        ...current,
+                        layout: {
+                          ...current.layout,
+                          spacing: event.target.value as UISkinDefinitionV1['layout']['spacing']
+                        }
+                      }))
+                    }
+                  >
+                    <option value="tight">{language === 'zh' ? '紧凑' : 'Tight'}</option>
+                    <option value="regular">{language === 'zh' ? '常规' : 'Regular'}</option>
+                    <option value="airy">{language === 'zh' ? '舒展' : 'Airy'}</option>
+                  </select>
+                </label>
+                <label>
+                  {language === 'zh' ? '按钮形状' : 'Button shape'}
+                  <select
+                    value={skinDraft.buttons.shape}
+                    onChange={(event) =>
+                      setSkinDraft((current) => ({
+                        ...current,
+                        buttons: {
+                          ...current.buttons,
+                          shape: event.target.value as UISkinDefinitionV1['buttons']['shape']
+                        }
+                      }))
+                    }
+                  >
+                    <option value="square">{language === 'zh' ? '方正' : 'Square'}</option>
+                    <option value="soft">{language === 'zh' ? '柔和圆角' : 'Soft'}</option>
+                    <option value="pill">{language === 'zh' ? '胶囊' : 'Pill'}</option>
+                  </select>
+                </label>
+                <label>
+                  {language === 'zh' ? '按钮风格' : 'Button treatment'}
+                  <select
+                    value={skinDraft.buttons.treatment}
+                    onChange={(event) =>
+                      setSkinDraft((current) => ({
+                        ...current,
+                        buttons: {
+                          ...current.buttons,
+                          treatment: event.target.value as UISkinDefinitionV1['buttons']['treatment']
+                        }
+                      }))
+                    }
+                  >
+                    <option value="solid">{language === 'zh' ? '实色' : 'Solid'}</option>
+                    <option value="tonal">{language === 'zh' ? '同色调' : 'Tonal'}</option>
+                    <option value="outline">{language === 'zh' ? '描边' : 'Outline'}</option>
+                  </select>
+                </label>
+                <label>
+                  {language === 'zh' ? '按钮尺寸' : 'Button size'}
+                  <select
+                    value={skinDraft.buttons.size}
+                    onChange={(event) =>
+                      setSkinDraft((current) => ({
+                        ...current,
+                        buttons: {
+                          ...current.buttons,
+                          size: event.target.value as UISkinDefinitionV1['buttons']['size']
+                        }
+                      }))
+                    }
+                  >
+                    <option value="regular">{language === 'zh' ? '常规' : 'Regular'}</option>
+                    <option value="compact">{language === 'zh' ? '紧凑' : 'Compact'}</option>
+                  </select>
+                </label>
+              </FormGrid>
+            </div>
+
+            <SkinPreview language={display.language} skin={skinDraft} />
           </div>
-        </div>
+        </SurfacePanel>
         {root && (
           <div className="settings-group story-structure-settings">
             <div className="settings-section-head">
@@ -1586,6 +1937,57 @@ function SettingsModal({
         </div>
       </section>
     </div>
+  )
+}
+
+function SkinPreview({ language, skin }: { language: LanguageName; skin: UISkinDefinitionV1 }) {
+  const zh = language === 'zh'
+  return (
+    <aside className="skin-live-preview" aria-label={zh ? '皮肤实时预览' : 'Live skin preview'}>
+      <div className="skin-preview-chrome">
+        <span className="skin-preview-mark">Q</span>
+        <strong>{skin.name}</strong>
+        <small>{zh ? '实时预览' : 'LIVE PREVIEW'}</small>
+      </div>
+      <div
+        className={`skin-preview-workbench navigation-${skin.layout.navigation} detail-${skin.layout.detail}`}
+      >
+        <nav className="skin-preview-nav">
+          <span className="active">{zh ? '人物' : 'Characters'}</span>
+          <span>{zh ? '世界书' : 'World'}</span>
+          <span>{zh ? '时间线' : 'Timeline'}</span>
+        </nav>
+        <main className="skin-preview-content">
+          <span className="settings-kicker">{zh ? '设定卡' : 'SETTING CARD'}</span>
+          <h4>{zh ? '风暴前的制图师' : 'Cartographer Before the Storm'}</h4>
+          <p>
+            {zh
+              ? '她把潮汐、旧誓与港口的暗线记在同一张纸上。正文与资料仍保持各自的权威边界。'
+              : 'She keeps tides, old vows, and the port’s hidden routes on the same sheet while prose and canon retain separate authority.'}
+          </p>
+          <div className="skin-preview-tags">
+            <span>{zh ? '人物' : 'Character'}</span>
+            <span>ID CHAR-021</span>
+          </div>
+          <ActionBar>
+            <ActionButton type="button">{zh ? '取消' : 'Cancel'}</ActionButton>
+            <ActionButton tone="primary" type="button">
+              {zh ? '保存设定' : 'Save setting'}
+            </ActionButton>
+          </ActionBar>
+        </main>
+        <aside className="skin-preview-detail">
+          <strong>{zh ? '属性' : 'Properties'}</strong>
+          <span>{zh ? '状态：候选' : 'Status: candidate'}</span>
+          <span>{zh ? '来源：作者' : 'Source: author'}</span>
+        </aside>
+      </div>
+      <p className="skin-preview-caption">
+        {zh
+          ? `导航${skin.layout.navigation === 'left' ? '左' : '右'} · 详情${skin.layout.detail === 'left' ? '左' : '右'} · ${skin.buttons.treatment}`
+          : `Navigation ${skin.layout.navigation} · detail ${skin.layout.detail} · ${skin.buttons.treatment}`}
+      </p>
+    </aside>
   )
 }
 

@@ -1,5 +1,6 @@
 import React, { useRef, type CSSProperties } from 'react'
 import {
+  ArrowRightLeft,
   Bot,
   ChevronDown,
   FileText,
@@ -16,6 +17,7 @@ import {
 import type {
   DocEntry,
   LanguageName,
+  PlanningDocumentKind,
   PlanningCheckScope,
   ProjectListItem,
   TargetSelection,
@@ -46,7 +48,7 @@ import {
   StructuredTile
 } from './OutlineShared.js'
 import { MarkdownBodyEditor } from '../markdown/MarkdownBodyEditor.js'
-import { isAIPlanningContext } from '../planning/planning-model.js'
+import { isAIPlanningContext, WORLD_ENTRY_CONVERSION_KINDS } from '../planning/planning-model.js'
 import { clampPaneSize, SplitHandle } from '../layout/SplitHandle.js'
 import { BoundedPager } from '../layout/BoundedPager.js'
 import { boundedPage } from '../layout/bounded-page.js'
@@ -71,6 +73,8 @@ export function VolumeHome({
   dirty,
   busy,
   project,
+  navigationPosition,
+  detailPosition,
   onBackOutline,
   onVolume,
   onSection,
@@ -83,6 +87,7 @@ export function VolumeHome({
   onCreate,
   onAIPlanningCreate,
   onAIEditCard,
+  onAIConvertCard,
   onUploadReferences,
   onAIExtractReference,
   onPlanningCheck,
@@ -110,6 +115,8 @@ export function VolumeHome({
   dirty: boolean
   busy: boolean
   project: ProjectListItem
+  navigationPosition: 'left' | 'right'
+  detailPosition: 'left' | 'right'
   onBackOutline: () => void
   onVolume: (volume: DocEntry) => void
   onSection: (section: VolumeSection) => void
@@ -122,6 +129,7 @@ export function VolumeHome({
   onCreate: (kind: string, input: Record<string, unknown>) => Promise<void>
   onAIPlanningCreate: (section: VolumeSection) => void
   onAIEditCard: (doc: DocEntry) => void
+  onAIConvertCard: (doc: DocEntry) => void
   onUploadReferences: () => Promise<void>
   onAIExtractReference: (doc: DocEntry) => void
   onPlanningCheck: (scope: PlanningCheckScope) => Promise<void>
@@ -216,10 +224,6 @@ export function VolumeHome({
   }, [project.root, settingImageKey])
 
   const createCurrent = (requestedSection: VolumeSection = activeSection) => {
-    if (isAIPlanningContext(requestedSection)) {
-      onAIPlanningCreate(requestedSection)
-      return
-    }
     setCreateSection(requestedSection)
   }
 
@@ -340,7 +344,10 @@ export function VolumeHome({
         <SplitHandle
           orientation="vertical"
           className="outline-navigation-handle"
-          label={zh ? '调整左侧栏目宽度' : 'Resize section navigation'}
+          reverse={navigationPosition === 'right'}
+          label={
+            zh ? `调整${navigationPosition === 'right' ? '右' : '左'}侧栏目宽度` : 'Resize section navigation'
+          }
           onResize={(delta) =>
             setNavigationWidth((current) => clampPaneSize(current + delta, 190, window.innerWidth - 720))
           }
@@ -358,13 +365,23 @@ export function VolumeHome({
               <h2>{sectionHeading}</h2>
             </div>
             <div className="outline-actions">
-              {activeSection === 'references' ? (
+              {activeSection === 'issues' ? null : activeSection === 'references' ? (
                 <button onClick={() => void onUploadReferences()} disabled={busy}>
                   <Upload size={15} /> {zh ? '上传参考文档' : 'Upload references'}
                 </button>
+              ) : isAIPlanningContext(activeSection) ? (
+                <>
+                  <button onClick={() => createCurrent()} disabled={busy}>
+                    <Plus size={15} /> {zh ? '新建空白卡' : 'New blank card'}
+                  </button>
+                  <button onClick={() => onAIPlanningCreate(activeSection)} disabled={busy}>
+                    <Bot size={15} /> {zh ? 'AI 讨论新增' : 'Create with AI'}
+                  </button>
+                </>
               ) : (
                 <button onClick={() => createCurrent()} disabled={busy}>
-                  <Plus size={15} /> {zh ? '新增' : 'New'}
+                  <Plus size={15} />{' '}
+                  {activeSection === 'canon' ? (zh ? '新建空白卡' : 'New blank card') : zh ? '新增' : 'New'}
                 </button>
               )}
               <button onClick={onDelete} disabled={!doc || busy}>
@@ -492,6 +509,7 @@ export function VolumeHome({
           orientation="vertical"
           className="outline-detail-handle"
           label={zh ? '调整内容列表与详情宽度' : 'Resize collection and details'}
+          reverse={detailPosition === 'left'}
           onResize={(delta) => {
             const width = shellRef.current?.clientWidth ?? 1
             onMiddlePct(clampPaneSize(middlePct + (delta / width) * 100, 32, rightOpen ? 78 : 92))
@@ -604,6 +622,27 @@ export function VolumeHome({
                       <Bot size={15} /> {zh ? 'AI 协助调整' : 'Edit with AI'}
                     </button>
                   ) : null}
+                  {WORLD_ENTRY_CONVERSION_KINDS.includes(doc.data.type as PlanningDocumentKind) && (
+                    <button
+                      disabled={dirty}
+                      title={
+                        dirty
+                          ? zh
+                            ? '请先保存当前修改，再转换卡片类型。'
+                            : 'Save the current changes before converting the card type.'
+                          : undefined
+                      }
+                      onClick={() =>
+                        onAIConvertCard({
+                          path: doc.path,
+                          data: doc.data as DocEntry['data'],
+                          content: doc.content
+                        })
+                      }
+                    >
+                      <ArrowRightLeft size={15} /> {zh ? '转换卡片类型' : 'Convert card type'}
+                    </button>
+                  )}
                   <button onClick={onOpenExternal}>
                     <FileText size={15} /> {zh ? '编辑' : 'Edit'}
                   </button>
@@ -648,6 +687,7 @@ export function VolumeHome({
                 : (VOLUME_SECTIONS.find((item) => item.id === createSection)?.enTitle ?? section.enTitle)
           }
           parentTitle={createSection === 'parts' ? volume.data.title : null}
+          mode={createSection === 'canon' || isAIPlanningContext(createSection) ? 'setting' : 'outline'}
           language={language}
           busy={creating}
           onClose={() => setCreateSection(null)}

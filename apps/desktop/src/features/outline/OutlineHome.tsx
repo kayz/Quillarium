@@ -1,5 +1,6 @@
 import React, { useRef, type CSSProperties } from 'react'
 import {
+  ArrowRightLeft,
   Bot,
   CalendarPlus2,
   ChevronDown,
@@ -19,6 +20,7 @@ import type {
   DocEntry,
   LanguageName,
   OutlineHomeSection,
+  PlanningDocumentKind,
   PlanningCheckScope,
   ProjectListItem,
   TargetSelection,
@@ -42,7 +44,7 @@ import {
   StructuredTile
 } from './OutlineShared.js'
 import { MarkdownBodyEditor } from '../markdown/MarkdownBodyEditor.js'
-import { isAIPlanningContext } from '../planning/planning-model.js'
+import { isAIPlanningContext, WORLD_ENTRY_CONVERSION_KINDS } from '../planning/planning-model.js'
 import { clampPaneSize, SplitHandle } from '../layout/SplitHandle.js'
 import { BoundedPager } from '../layout/BoundedPager.js'
 import { boundedPage } from '../layout/bounded-page.js'
@@ -77,6 +79,8 @@ export function OutlineHome({
   dirty,
   busy,
   project,
+  navigationPosition,
+  detailPosition,
   onSection,
   onToggleLeft,
   onToggleRight,
@@ -88,6 +92,7 @@ export function OutlineHome({
   onCreate,
   onAIPlanningCreate,
   onAIEditCard,
+  onAIConvertCard,
   onUploadReferences,
   onAIExtractReference,
   onPlanningCheck,
@@ -113,6 +118,8 @@ export function OutlineHome({
   dirty: boolean
   busy: boolean
   project: ProjectListItem
+  navigationPosition: 'left' | 'right'
+  detailPosition: 'left' | 'right'
   onSection: (section: OutlineHomeSection) => void
   onToggleLeft: () => void
   onToggleRight: () => void
@@ -124,6 +131,7 @@ export function OutlineHome({
   onCreate: (kind: string, input: Record<string, unknown>) => Promise<void>
   onAIPlanningCreate: (section: OutlineHomeSection) => void
   onAIEditCard: (doc: DocEntry) => void
+  onAIConvertCard: (doc: DocEntry) => void
   onUploadReferences: () => Promise<void>
   onAIExtractReference: (doc: DocEntry) => void
   onPlanningCheck: (scope: PlanningCheckScope) => Promise<void>
@@ -207,10 +215,6 @@ export function OutlineHome({
   }, [project.root, settingImageKey])
 
   const createCurrent = () => {
-    if (isAIPlanningContext(activeSection)) {
-      onAIPlanningCreate(activeSection)
-      return
-    }
     setCreateOpen(true)
   }
 
@@ -298,7 +302,10 @@ export function OutlineHome({
         <SplitHandle
           orientation="vertical"
           className="outline-navigation-handle"
-          label={zh ? '调整左侧栏目宽度' : 'Resize section navigation'}
+          reverse={navigationPosition === 'right'}
+          label={
+            zh ? `调整${navigationPosition === 'right' ? '右' : '左'}侧栏目宽度` : 'Resize section navigation'
+          }
           onResize={(delta) =>
             setNavigationWidth((current) => clampPaneSize(current + delta, 190, window.innerWidth - 720))
           }
@@ -326,22 +333,28 @@ export function OutlineHome({
                     <CalendarPlus2 size={15} /> {zh ? '时间坐标' : 'Time coordinate'}
                   </button>
                   <button onClick={createCurrent} disabled={busy}>
-                    <Plus size={15} /> {zh ? '新增事件' : 'New event'}
+                    <Plus size={15} /> {zh ? '新建空白事件' : 'New blank event'}
+                  </button>
+                  <button onClick={() => onAIPlanningCreate(activeSection)} disabled={busy}>
+                    <Bot size={15} /> {zh ? 'AI 讨论新增' : 'Create with AI'}
                   </button>
                 </>
               ) : activeSection === 'characters' ? (
                 <>
                   <button onClick={createCurrent} disabled={busy}>
-                    <Plus size={15} /> {zh ? '新增人物' : 'New character'}
+                    <Plus size={15} /> {zh ? '新建空白人物' : 'New blank character'}
                   </button>
                   <button onClick={() => setRelationCreate({})} disabled={busy}>
                     <Link2 size={15} /> {zh ? '新增关系' : 'New relationship'}
+                  </button>
+                  <button onClick={() => onAIPlanningCreate(activeSection)} disabled={busy}>
+                    <Bot size={15} /> {zh ? 'AI 讨论新增' : 'Create with AI'}
                   </button>
                 </>
               ) : activeSection === 'factions' ? (
                 <>
                   <button onClick={createCurrent} disabled={busy}>
-                    <Plus size={15} /> {zh ? '新增势力' : 'New faction'}
+                    <Plus size={15} /> {zh ? '新建空白势力' : 'New blank faction'}
                   </button>
                   <button onClick={() => setFactionLinkCreate('relation')} disabled={busy}>
                     <Link2 size={15} /> {zh ? '势力关系' : 'Faction relationship'}
@@ -349,23 +362,40 @@ export function OutlineHome({
                   <button onClick={() => setFactionLinkCreate('membership')} disabled={busy}>
                     <Link2 size={15} /> {zh ? '人物所属' : 'Membership'}
                   </button>
+                  <button onClick={() => onAIPlanningCreate(activeSection)} disabled={busy}>
+                    <Bot size={15} /> {zh ? 'AI 讨论新增' : 'Create with AI'}
+                  </button>
                 </>
               ) : (
-                <button
-                  onClick={createCurrent}
-                  disabled={
-                    busy || ((activeSection === 'overview' || activeSection === 'book') && items.length > 0)
-                  }
-                  title={
-                    (activeSection === 'overview' || activeSection === 'book') && items.length > 0
+                <>
+                  <button
+                    onClick={createCurrent}
+                    disabled={
+                      busy || ((activeSection === 'overview' || activeSection === 'book') && items.length > 0)
+                    }
+                    title={
+                      (activeSection === 'overview' || activeSection === 'book') && items.length > 0
+                        ? zh
+                          ? '每个项目只保留一份；请编辑现有文档。'
+                          : 'Only one is allowed; edit the existing document.'
+                        : undefined
+                    }
+                  >
+                    <Plus size={15} />{' '}
+                    {isAIPlanningContext(activeSection)
                       ? zh
-                        ? '每个项目只保留一份；请编辑现有文档。'
-                        : 'Only one is allowed; edit the existing document.'
-                      : undefined
-                  }
-                >
-                  <Plus size={15} /> {zh ? '新增' : 'New'}
-                </button>
+                        ? '新建空白卡'
+                        : 'New blank card'
+                      : zh
+                        ? '新增'
+                        : 'New'}
+                  </button>
+                  {isAIPlanningContext(activeSection) && (
+                    <button onClick={() => onAIPlanningCreate(activeSection)} disabled={busy}>
+                      <Bot size={15} /> {zh ? 'AI 讨论新增' : 'Create with AI'}
+                    </button>
+                  )}
+                </>
               )}
               {activeSection !== 'issues' && (
                 <button onClick={onDelete} disabled={!doc || busy}>
@@ -510,6 +540,7 @@ export function OutlineHome({
           orientation="vertical"
           className="outline-detail-handle"
           label={zh ? '调整内容列表与详情宽度' : 'Resize collection and details'}
+          reverse={detailPosition === 'left'}
           onResize={(delta) => {
             const width = shellRef.current?.clientWidth ?? 1
             onMiddlePct(clampPaneSize(middlePct + (delta / width) * 100, 32, rightOpen ? 78 : 92))
@@ -637,6 +668,27 @@ export function OutlineHome({
                       <Bot size={15} /> {zh ? 'AI 协助调整' : 'Edit with AI'}
                     </button>
                   ) : null}
+                  {WORLD_ENTRY_CONVERSION_KINDS.includes(doc.data.type as PlanningDocumentKind) && (
+                    <button
+                      disabled={dirty}
+                      title={
+                        dirty
+                          ? zh
+                            ? '请先保存当前修改，再转换卡片类型。'
+                            : 'Save the current changes before converting the card type.'
+                          : undefined
+                      }
+                      onClick={() =>
+                        onAIConvertCard({
+                          path: doc.path,
+                          data: doc.data as DocEntry['data'],
+                          content: doc.content
+                        })
+                      }
+                    >
+                      <ArrowRightLeft size={15} /> {zh ? '转换卡片类型' : 'Convert card type'}
+                    </button>
+                  )}
                   <button onClick={onOpenExternal}>
                     <FileText size={15} /> {zh ? '编辑' : 'Edit'}
                   </button>
@@ -746,6 +798,7 @@ export function OutlineHome({
       {createOpen && (
         <OutlineCreateDialog
           label={sectionTitle}
+          mode={activeSection === 'canon' || isAIPlanningContext(activeSection) ? 'setting' : 'outline'}
           language={language}
           busy={creating}
           onClose={() => setCreateOpen(false)}

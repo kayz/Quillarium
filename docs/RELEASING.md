@@ -1,5 +1,13 @@
 # Release Process
 
+<p>
+  <strong>English</strong> · <a href="RELEASING.zh-CN.md">简体中文</a>
+</p>
+
+The latest published stable release is
+[`v0.3.0`](https://github.com/kayz/Quillarium/releases/tag/v0.3.0). It is immutable; all later release
+work must use a new, forward-only semantic version.
+
 Quillarium version tags and GitHub Releases are immutable delivery records. Ordinary commits, pull
 requests, and merges do not publish a version.
 
@@ -14,7 +22,7 @@ Before creating a version tag:
    `pnpm desktop:build`, and `pnpm audit --prod --audit-level=high`; and
 5. confirm the requested tag does not already exist locally, remotely, or as a GitHub Release.
 
-The tag format is `v<package-version>`, for example `v0.2.0-alpha.2`.
+The tag format is `v<package-version>`, for example `v0.3.0` or `v0.4.0-alpha.1`.
 
 ## Tag creation
 
@@ -23,8 +31,9 @@ Create and push the tag only from the verified current `master` tip:
 ```bash
 git switch master
 git pull --ff-only origin master
-git tag v0.2.0-alpha.2
-git push origin v0.2.0-alpha.2
+QUILLARIUM_RELEASE_VERSION=0.3.1 # example only; replace with the approved new version
+git tag "v${QUILLARIUM_RELEASE_VERSION}"
+git push origin "v${QUILLARIUM_RELEASE_VERSION}"
 ```
 
 Pushing the tag authorizes the automated release workflow. Do not create the tag on a feature
@@ -41,7 +50,7 @@ The tag workflow:
 5. verifies that exactly those three installers were downloaded; and
 6. creates one GitHub Release only after every gate succeeds.
 
-A semantic pre-release version such as `0.2.0-alpha.2` is automatically published with GitHub's
+A semantic pre-release version such as `0.4.0-alpha.1` is automatically published with GitHub's
 Pre-release flag. The workflow never creates, moves, or force-updates a Git tag and never overwrites
 an existing Release or asset.
 

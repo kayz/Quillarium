@@ -1,4 +1,5 @@
 import { useRef, useState, type CSSProperties, type Dispatch, type SetStateAction } from 'react'
+import { Upload } from 'lucide-react'
 import type {
   DocumentOriginResolution,
   PromptSourceSelection,
@@ -17,6 +18,7 @@ import type {
   PlanningCheckScope,
   TargetSelection,
   ThemeName,
+  UISkinPreferencesV1,
   ViewMode,
   VolumeSection,
   WorkLevel,
@@ -39,12 +41,14 @@ import { WritingWorkspace } from '../writing/WritingWorkspace.js'
 import { PlanningCreationDialog } from '../planning/PlanningCreationDialog.js'
 import { CardOriginDialog } from '../import/CardOriginDialog.js'
 import { AIImportDialog } from '../import/AIImportDialog.js'
+import { FileDropIntentDialog, pathsFromDroppedFiles } from '../import/FileDropIntentDialog.js'
 import { TagIndexDrawer } from '../metadata/TagIndexDrawer.js'
 import { clampPaneSize, SplitHandle } from '../layout/SplitHandle.js'
 import { normalizeStoryStructure, outlineLevelLabel } from '../../shared/outline.js'
 import { ToastNotice } from '../feedback/ToastNotice.js'
 import { formatDesktopError } from '../../shared/errors.js'
 import { CreatorAssistantWorkspace } from '../assistants/CreatorAssistantWorkspace.js'
+import { resolveUISkin } from '@quillarium/core/ui-skins'
 import {
   PlanningCheckPanel,
   type PlanningCheckApplyPanelOutcome,
@@ -59,10 +63,12 @@ interface WorkspaceViewProps {
     theme: ThemeName
     density: DensityName
     language: LanguageName
+    skinPreferences?: UISkinPreferencesV1
     aiStatus: AIStatus
     onTheme: (theme: ThemeName) => void
     onDensity: (density: DensityName) => void
     onLanguage: (language: LanguageName) => void
+    onSkinPreferences: (preferences: UISkinPreferencesV1 | undefined) => void
     onAIStatus: (status: AIStatus) => void
     onBack: () => void
   }
@@ -170,7 +176,25 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
   const [assistantRoleHint, setAssistantRoleHint] = useState<string | undefined>()
   const [assistantInitialMessage, setAssistantInitialMessage] = useState<string | undefined>()
   const [referenceUploadError, setReferenceUploadError] = useState('')
-  const { root, theme, density, language, aiStatus, onTheme, onDensity, onLanguage, onAIStatus, onBack } = app
+  const [dropActive, setDropActive] = useState(false)
+  const [droppedSourcePaths, setDroppedSourcePaths] = useState<string[] | null>(null)
+  const [importSourcePaths, setImportSourcePaths] = useState<string[]>([])
+  const fileDragDepth = useRef(0)
+  const {
+    root,
+    theme,
+    density,
+    language,
+    skinPreferences,
+    aiStatus,
+    onTheme,
+    onDensity,
+    onLanguage,
+    onSkinPreferences,
+    onAIStatus,
+    onBack
+  } = app
+  const skinLayout = resolveUISkin(theme, skinPreferences).layout
   const {
     data,
     workspaceMode,
@@ -262,10 +286,10 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
     }
     setPlanningDialog({ module, documentId: card.data.id })
   }
-  const uploadReferences = async () => {
+  const uploadReferences = async (sourcePaths?: string[]) => {
     setReferenceUploadError('')
     try {
-      const result = await bridge.uploadReferenceDocuments(root)
+      const result = await bridge.uploadReferenceDocuments(root, sourcePaths)
       const latest = result.items.at(-1)
       if (!latest) return
       await load()
@@ -278,10 +302,18 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
       setDirty(false)
     } catch (cause) {
       setReferenceUploadError(formatDesktopError(cause, language))
+      if (sourcePaths !== undefined) throw cause
     }
+  }
+  const openAIImport = (sourcePaths: string[] = []) => {
+    setImportSourcePaths(sourcePaths)
+    setImportOpen(true)
   }
   const extractCardsFromReference = (card: DocEntry) => {
     setPlanningDialog({ module: 'reference-extraction', documentId: card.data.id })
+  }
+  const convertPlanningCard = (card: DocEntry) => {
+    setPlanningDialog({ module: 'card-conversion', documentId: card.data.id })
   }
   const storyStructure = normalizeStoryStructure(data.project.story_structure)
 
@@ -300,15 +332,58 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
             } as CSSProperties)
           : undefined
       }
+      onDragEnter={(event) => {
+        if (!Array.from(event.dataTransfer.types).includes('Files')) return
+        event.preventDefault()
+        fileDragDepth.current += 1
+        setDropActive(true)
+      }}
+      onDragOver={(event) => {
+        if (!Array.from(event.dataTransfer.types).includes('Files')) return
+        event.preventDefault()
+        event.dataTransfer.dropEffect = 'copy'
+      }}
+      onDragLeave={(event) => {
+        if (!Array.from(event.dataTransfer.types).includes('Files')) return
+        event.preventDefault()
+        fileDragDepth.current = Math.max(0, fileDragDepth.current - 1)
+        if (!fileDragDepth.current) setDropActive(false)
+      }}
+      onDrop={(event) => {
+        if (!event.dataTransfer.files.length) return
+        event.preventDefault()
+        event.stopPropagation()
+        fileDragDepth.current = 0
+        setDropActive(false)
+        setReferenceUploadError('')
+        try {
+          setDroppedSourcePaths(pathsFromDroppedFiles(event.dataTransfer.files, bridge.getDroppedFilePath))
+        } catch (cause) {
+          setReferenceUploadError(formatDesktopError(cause, language))
+        }
+      }}
     >
+      {dropActive && (
+        <div className="file-drop-overlay" role="status">
+          <Upload size={34} />
+          <strong>{language === 'zh' ? '松开以选择文件用途' : 'Drop to choose how to use the files'}</strong>
+          <small>
+            {language === 'zh'
+              ? '可作为参考文档，或交给 AI 拆分设定'
+              : 'Archive as references or import settings with AI'}
+          </small>
+        </div>
+      )}
       <TopChrome
         theme={theme}
         density={density}
         language={language}
+        skinPreferences={skinPreferences}
         aiStatus={aiStatus}
         onTheme={onTheme}
         onDensity={onDensity}
         onLanguage={onLanguage}
+        onSkinPreferences={onSkinPreferences}
         onAIStatus={onAIStatus}
         projectName={data.project.title}
         path={projectPath}
@@ -361,7 +436,12 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
               <SplitHandle
                 orientation="vertical"
                 className="writing-sidebar-handle"
-                label={language === 'zh' ? '调整左侧栏宽度' : 'Resize navigation sidebar'}
+                reverse={skinLayout.navigation === 'right'}
+                label={
+                  language === 'zh'
+                    ? `调整${skinLayout.navigation === 'right' ? '右' : '左'}侧栏宽度`
+                    : 'Resize navigation sidebar'
+                }
                 onResize={(delta) => {
                   const width = shellRef.current?.clientWidth ?? window.innerWidth
                   setWritingSidebarWidth((current) =>
@@ -403,6 +483,9 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
                       setDirty(true)
                     }}
                     onSave={save}
+                    onExtractSettings={async () => {
+                      setPlanningDialog({ module: 'prose-extraction', documentId: String(doc.data.id) })
+                    }}
                     onFinalize={() => finalizeChapterProse(writingOutline.data.id)}
                     onPublish={(confirmation) => publishChapterProse(writingOutline.data.id, confirmation)}
                     onContinuityApplied={load}
@@ -488,7 +571,7 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
                       await bridge.acceptManualScene(root, sceneId, content)
                       await load()
                     }}
-                    onImportPanel={() => setImportOpen(true)}
+                    onImportPanel={() => openAIImport()}
                     language={language}
                   />
                 )
@@ -499,7 +582,21 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
                   docs={docs}
                   runs={data.runs}
                   onCreate={createDoc}
+                  onCreateBlank={async (kind, input) => {
+                    const createdPath = await createDoc(kind, input)
+                    const created = await bridge.readDoc(String(createdPath))
+                    const createdDoc = { ...created, path: String(createdPath) } as DocEntry
+                    const nextSection = outlineSectionForDocument(createdDoc)
+                    setWorkspaceMode('planning')
+                    setWorkspacePage('outline')
+                    if (nextSection) setOutlineSection(nextSection)
+                    setDoc(createdDoc)
+                    setSelectedTarget({ type: String(created.data.type), id: String(created.data.id) })
+                    setRightOpen(true)
+                    setDirty(false)
+                  }}
                   onAIPlanningCreate={(module) => setPlanningDialog({ module })}
+                  onAIConvertCard={convertPlanningCard}
                   onUploadReferences={uploadReferences}
                   onAIExtractReference={extractCardsFromReference}
                   selectedTarget={selectedTarget}
@@ -556,6 +653,8 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
           dirty={dirty}
           busy={busy}
           project={data.project}
+          navigationPosition={skinLayout.navigation}
+          detailPosition={skinLayout.detail}
           onBackOutline={() => {
             setWorkspacePage('outline')
             setOutlineSection('volumes')
@@ -591,6 +690,7 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
           }}
           onAIPlanningCreate={(module) => setPlanningDialog({ module })}
           onAIEditCard={(card) => void openPlanningCardEditor(card, volumeSection)}
+          onAIConvertCard={convertPlanningCard}
           onUploadReferences={uploadReferences}
           onAIExtractReference={extractCardsFromReference}
           onPlanningCheck={runProjectPlanningCheck}
@@ -621,7 +721,7 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
           }}
           onInspectTag={(value, displayValue) => setActiveTag({ value, displayValue })}
           onSave={save}
-          onImport={() => setImportOpen(true)}
+          onImport={() => openAIImport()}
           language={language}
         />
       ) : (
@@ -638,6 +738,8 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
           dirty={dirty}
           busy={busy}
           project={data.project}
+          navigationPosition={skinLayout.navigation}
+          detailPosition={skinLayout.detail}
           onSection={(section) => {
             setOutlineSection(section)
             setSelectedTarget(null)
@@ -669,6 +771,7 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
           }}
           onAIPlanningCreate={(module) => setPlanningDialog({ module })}
           onAIEditCard={(card) => void openPlanningCardEditor(card, outlineSection)}
+          onAIConvertCard={convertPlanningCard}
           onUploadReferences={uploadReferences}
           onAIExtractReference={extractCardsFromReference}
           onPlanningCheck={runProjectPlanningCheck}
@@ -699,7 +802,7 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
           }}
           onInspectTag={(value, displayValue) => setActiveTag({ value, displayValue })}
           onSave={save}
-          onImport={() => setImportOpen(true)}
+          onImport={() => openAIImport()}
           language={language}
         />
       )}
@@ -708,10 +811,15 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
           root={root}
           docs={docs}
           language={language}
-          onClose={() => setImportOpen(false)}
+          initialSourcePaths={importSourcePaths}
+          onClose={() => {
+            setImportOpen(false)
+            setImportSourcePaths([])
+          }}
           onImported={load}
           onOpenAssistant={(sourceText) => {
             setImportOpen(false)
+            setImportSourcePaths([])
             setAssistantRoleHint('setting-organizer')
             setAssistantInitialMessage(sourceText)
             setWorkspaceMode('writing')
@@ -719,9 +827,25 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
           }}
         />
       )}
+      {droppedSourcePaths && (
+        <FileDropIntentDialog
+          sourcePaths={droppedSourcePaths}
+          language={language}
+          onClose={() => setDroppedSourcePaths(null)}
+          onReference={async (sourcePaths) => {
+            await uploadReferences(sourcePaths)
+            setDroppedSourcePaths(null)
+          }}
+          onSettingImport={(sourcePaths) => {
+            setDroppedSourcePaths(null)
+            openAIImport(sourcePaths)
+          }}
+        />
+      )}
       {planningDialog && (
         <PlanningCreationDialog
           root={root}
+          docs={docs}
           module={planningDialog.module}
           sessionId={planningDialog.sessionId}
           documentId={planningDialog.documentId}
@@ -729,7 +853,22 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
           onClose={() => setPlanningDialog(null)}
           onCreated={async ({ path: createdPath, document }) => {
             await load()
-            setDoc({ ...document, path: createdPath })
+            const createdDoc = { ...document, path: createdPath } as DocEntry
+            const nextSection = outlineSectionForDocument(createdDoc)
+            if (nextSection && planningDialog.module === 'prose-extraction') {
+              setWorkspaceMode('planning')
+              setWorkspacePage('outline')
+              setOutlineSection(nextSection)
+            } else if (nextSection && planningDialog.module === 'card-conversion') {
+              if (workspaceMode === 'planning') {
+                if (workspacePage === 'volume') setVolumeSection(nextSection)
+                else setOutlineSection(nextSection)
+              } else {
+                const nextModule = moduleForDocument(createdDoc)
+                if (nextModule) setActiveModule(nextModule)
+              }
+            }
+            setDoc(createdDoc)
             setSelectedTarget({ type: String(document.data.type), id: String(document.data.id) })
             setRightOpen(true)
             setDirty(false)
@@ -840,4 +979,22 @@ function outlineSectionForDocument(doc: DocEntry): OutlineHomeSection | null {
     reference: 'references'
   }
   return sections[doc.data.type] ?? null
+}
+
+function moduleForDocument(doc: DocEntry): ModuleName | null {
+  const modules: Partial<Record<string, ModuleName>> = {
+    canon: 'canon',
+    world_entry: 'world',
+    character: 'characters',
+    character_relation: 'characters',
+    faction: 'factions',
+    faction_relation: 'factions',
+    faction_membership: 'factions',
+    timeline_node: 'timeline',
+    timeline_event: 'timeline',
+    location: 'locations',
+    foreshadowing: 'foreshadowing',
+    narrative: 'narrative'
+  }
+  return modules[doc.data.type] ?? null
 }

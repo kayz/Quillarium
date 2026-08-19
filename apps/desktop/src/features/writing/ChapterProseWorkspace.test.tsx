@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { ChapterProseWorkspace, countProseCharacters } from './ChapterProseWorkspace.js'
 
-function render(status: 'draft' | 'final' | 'published') {
+function render(status: 'draft' | 'final' | 'published', dirty = false) {
   return renderToStaticMarkup(
     <ChapterProseWorkspace
       chapterTitle="第一章"
@@ -14,10 +14,11 @@ function render(status: 'draft' | 'final' | 'published') {
         content: '第一段正文。\n\n第二段正文。'
       }}
       targetWords={3000}
-      dirty={false}
+      dirty={dirty}
       busy={false}
       onDocChange={() => undefined}
       onSave={async () => undefined}
+      onExtractSettings={async () => undefined}
       onFinalize={async () => undefined}
       onPublish={async () => undefined}
       onContinuityApplied={async () => undefined}
@@ -30,6 +31,7 @@ describe('ChapterProseWorkspace', () => {
   it('provides a plain-text author editor and forward status actions', () => {
     const draft = render('draft')
     expect(draft).toContain('正文 · 纯文字')
+    expect(draft).toContain('从正文抽取设定')
     expect(draft).toContain('定稿')
     expect(draft).not.toContain('发布并清理节产物')
     expect(draft).toContain('aria-label="章正文纯文字编辑区"')
@@ -43,6 +45,9 @@ describe('ChapterProseWorkspace', () => {
     const published = render('published')
     expect(published).toContain('已发布，永久锁定')
     expect(published).toMatch(/readonly/i)
+
+    const dirtyDraft = render('draft', true)
+    expect(dirtyDraft).toContain('请先保存正文，再从稳定快照抽取设定。')
   })
 
   it('counts prose characters without whitespace', () => {

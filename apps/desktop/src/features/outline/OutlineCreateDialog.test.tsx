@@ -21,4 +21,20 @@ describe('OutlineCreateDialog', () => {
     expect(html).toContain('创建篇')
     expect(html).toContain('role="dialog"')
   })
+
+  it('labels manual setting creation as a no-AI action', () => {
+    const html = renderToStaticMarkup(
+      <OutlineCreateDialog
+        label="人物"
+        mode="setting"
+        language="zh"
+        busy={false}
+        onClose={() => undefined}
+        onConfirm={async () => undefined}
+      />
+    )
+
+    expect(html).toContain('手工新建设定卡 · 不调用 AI')
+    expect(html).toContain('新建人物')
+  })
 })

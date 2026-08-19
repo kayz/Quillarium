@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { IpcChannel, IpcRequest, IpcResponse, QuillariumAPI } from './ipc/contract.js'
 
 function invoke<Channel extends IpcChannel>(
@@ -9,6 +9,8 @@ function invoke<Channel extends IpcChannel>(
 }
 
 const api: QuillariumAPI = {
+  getDroppedFilePath: (file) =>
+    webUtils.getPathForFile(file as Parameters<typeof webUtils.getPathForFile>[0]),
   cancelAIStream: (executionId, requestId) => invoke('ai:cancelStream', executionId, requestId),
   onAIStreamEvent: (listener) => {
     const handler = (_event: Electron.IpcRendererEvent, value: Parameters<typeof listener>[0]) =>
@@ -31,6 +33,7 @@ const api: QuillariumAPI = {
   setTheme: (theme) => invoke('config:setTheme', theme),
   setDensity: (density) => invoke('config:setDensity', density),
   setLanguage: (language) => invoke('config:setLanguage', language),
+  saveAppearance: (input) => invoke('config:saveAppearance', input),
   saveAIProfile: (profile, input) => invoke('config:saveAIProfile', profile, input),
   saveGithub: (input) => invoke('config:saveGithub', input),
   aiStatus: () => invoke('config:aiStatus'),
@@ -95,7 +98,7 @@ const api: QuillariumAPI = {
   createDoc: (root, kind, input) => invoke('doc:create', root, kind, input),
   reorderStorySiblings: (root, input) => invoke('story:reorder', root, input),
   rebuildDocumentLinkIndex: (root) => invoke('references:index', root),
-  uploadReferenceDocuments: (root) => invoke('references:upload', root),
+  uploadReferenceDocuments: (root, sourcePaths) => invoke('references:upload', root, sourcePaths),
   formatDocumentLink: (root, documentId, displayText) =>
     invoke('references:format', root, documentId, displayText),
   planDocumentReferenceMigration: (root) => invoke('references:migrationPlan', root),

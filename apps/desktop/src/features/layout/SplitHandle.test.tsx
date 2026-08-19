@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { clampPaneSize, SplitHandle } from './SplitHandle.js'
+import { clampPaneSize, directedResizeDelta, SplitHandle } from './SplitHandle.js'
 
 describe('resizable split handles', () => {
   it('clamps pane sizes and tolerates a max smaller than the minimum', () => {
@@ -17,5 +17,11 @@ describe('resizable split handles', () => {
     expect(html).toContain('role="separator"')
     expect(html).toContain('aria-orientation="vertical"')
     expect(html).toContain('tabindex="0"')
+  })
+
+  it('reverses physical drag deltas for panes rendered on the right', () => {
+    expect(directedResizeDelta(18)).toBe(18)
+    expect(directedResizeDelta(18, true)).toBe(-18)
+    expect(directedResizeDelta(-18, true)).toBe(18)
   })
 })

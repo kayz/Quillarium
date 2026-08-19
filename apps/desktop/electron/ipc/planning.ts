@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { rm } from 'node:fs/promises'
 import path from 'node:path'
 import { generateText, isAIConfigured, type AIConfig } from '@quillarium/ai'
+import { assertSensitiveSourcesSafe } from '@quillarium/core/sensitive-data'
 import {
   DOCUMENT_ORIGIN_FIELD,
   applyIssueBatchAction,
@@ -9,8 +10,10 @@ import {
   assertProjectPath,
   buildLocalDocumentLinkIndex,
   canonicalJson,
+  canonSchema,
   characterSchema,
   characterRelationSchema,
+  compareTimelineNodes,
   ensureDir,
   fileForDoc,
   foreshadowingSchema,
@@ -26,6 +29,7 @@ import {
   pathExists,
   readMarkdown,
   readText,
+  validatePlanningCardGraph,
   referenceSchema,
   sha256Text,
   strategySchema,
@@ -37,7 +41,8 @@ import {
   writeText,
   type BaseDoc,
   type DocumentIdentity,
-  type ProjectConfig
+  type ProjectConfig,
+  type TimelineNodeDoc
 } from '@quillarium/core'
 import { z } from 'zod/v3'
 import { loadDesktopAIProfile } from './credentials.js'
@@ -73,7 +78,7 @@ export {
 
 const planningKindSchema = z.enum(PLANNING_DOCUMENT_KINDS)
 const CREATABLE_PLANNING_KINDS = PLANNING_DOCUMENT_KINDS.filter(
-  (kind) => kind !== 'strategy' && kind !== 'pattern'
+  (kind) => !['canon', 'reference', 'strategy', 'pattern'].includes(kind)
 )
 const REFERENCE_DERIVED_PLANNING_KINDS: readonly PlanningDocumentKind[] = [
   'character',
@@ -88,6 +93,24 @@ const REFERENCE_DERIVED_PLANNING_KINDS: readonly PlanningDocumentKind[] = [
   'foreshadowing',
   'narrative'
 ]
+const WORLD_ENTRY_CONVERSION_KINDS: readonly PlanningDocumentKind[] = [
+  'world_entry',
+  'canon',
+  'character',
+  'character_relation',
+  'location',
+  'timeline_event',
+  'faction',
+  'faction_relation',
+  'faction_membership',
+  'foreshadowing',
+  'narrative'
+]
+const PROSE_DERIVED_PLANNING_KINDS: readonly PlanningDocumentKind[] = [
+  'canon',
+  ...REFERENCE_DERIVED_PLANNING_KINDS
+]
+const PLANNING_UNSET_REFERENCE = '__quillarium_unset_reference__'
 const MODULE_PLANNING_KINDS: Partial<Record<string, readonly PlanningDocumentKind[]>> = {
   planning: CREATABLE_PLANNING_KINDS,
   world: ['world_entry'],
@@ -98,6 +121,7 @@ const MODULE_PLANNING_KINDS: Partial<Record<string, readonly PlanningDocumentKin
   foreshadowing: ['foreshadowing'],
   narrative: ['narrative'],
   'reference-extraction': REFERENCE_DERIVED_PLANNING_KINDS,
+  'prose-extraction': PROSE_DERIVED_PLANNING_KINDS,
   issues: CREATABLE_PLANNING_KINDS
 }
 const rawDraftSchema = z
@@ -214,22 +238,34 @@ export async function startPlanningSession(
   if (documentId) {
     const document = (await listDocs<BaseDoc>(root)).find((item) => item.data.id === documentId)
     if (!document) throw new Error(`Planning card not found: ${documentId}`)
-    if (document.data.type === 'reference') {
-      if (session.module !== 'reference-extraction') {
-        throw new Error('参考文档只能作为“AI 讨论生卡”的只读来源，不能作为 AI 可编辑提案。')
+    if (document.data.type === 'reference' || document.data.type === 'chapter_prose') {
+      const expectedModule = document.data.type === 'reference' ? 'reference-extraction' : 'prose-extraction'
+      if (session.module !== expectedModule) {
+        throw new Error(
+          document.data.type === 'reference'
+            ? '参考文档只能作为“AI 讨论生卡”的只读来源，不能作为 AI 可编辑提案。'
+            : '章节正文只能作为“从正文抽取设定”的只读来源，不能作为 AI 可编辑提案。'
+        )
+      }
+      if (document.data.type === 'chapter_prose' && !document.content.trim()) {
+        throw new Error('章节正文为空，暂时没有可以抽取的设定。')
       }
       session.source_document = {
         path: document.path,
         id: document.data.id,
-        type: 'reference',
+        type: document.data.type,
         title: document.data.title,
         expected_sha256: sha256Text(await readText(document.path))
       }
       await writePlanningSession(root, session)
       return session
     }
-    if (session.module === 'reference-extraction') {
-      throw new Error('“AI 讨论生卡”必须从一张已上传的参考文档开始。')
+    if (session.module === 'reference-extraction' || session.module === 'prose-extraction') {
+      throw new Error(
+        session.module === 'reference-extraction'
+          ? '“AI 讨论生卡”必须从一张已上传的参考文档开始。'
+          : '“从正文抽取设定”必须从一份已保存的章节正文开始。'
+      )
     }
     if (!PLANNING_DOCUMENT_KINDS.includes(document.data.type as PlanningDocumentKind)) {
       throw new Error(
@@ -237,6 +273,9 @@ export async function startPlanningSession(
       )
     }
     const kind = document.data.type as PlanningDocumentKind
+    if (session.module === 'card-conversion' && !planningConversionKinds(kind).length) {
+      throw new Error(`当前卡片类型不支持转换：${kind}`)
+    }
     const draft = normalizePlanningDraft({
       kind,
       title: document.data.title,
@@ -268,8 +307,18 @@ export async function startPlanningSession(
     session.selected_proposal_id = proposalId
     session.anchor_proposal_id = proposalId
     session.document = { path: document.path, id: document.data.id, type: kind }
-  } else if (session.module === 'reference-extraction') {
-    throw new Error('请先上传并选中一份参考文档，再开始 AI 讨论生卡。')
+  } else if (
+    session.module === 'reference-extraction' ||
+    session.module === 'prose-extraction' ||
+    session.module === 'card-conversion'
+  ) {
+    throw new Error(
+      session.module === 'reference-extraction'
+        ? '请先上传并选中一份参考文档，再开始 AI 讨论生卡。'
+        : session.module === 'prose-extraction'
+          ? '请先打开并保存一章手写正文，再抽取设定。'
+          : '请先选择一张支持转换的设定卡。'
+    )
   }
   await writePlanningSession(root, session)
   return session
@@ -297,6 +346,14 @@ export async function confirmPlanningRecord(
 ) {
   const loaded = await loadPlanningSession(root, input.sessionId)
   const session = mergePlanningSessionUpdate(loaded, input)
+  if (input.proposals) {
+    const explicitlyConfirmed = new Set(
+      input.proposals.filter((proposal) => proposal.status === 'confirmed').map((proposal) => proposal.id)
+    )
+    session.proposals = session.proposals.map((proposal) =>
+      explicitlyConfirmed.has(proposal.id) ? { ...proposal, status: 'confirmed' as const } : proposal
+    )
+  }
   if (input.proposal && !input.proposals) {
     const selected = session.proposals.find((proposal) => proposal.id === session.selected_proposal_id)
     if (selected) selected.status = 'confirmed'
@@ -305,7 +362,9 @@ export async function confirmPlanningRecord(
   if (!confirmed.length) {
     throw new Error('Confirm at least one proposal before applying it to the project.')
   }
+  assertNoUnsetPlanningReferences(confirmed)
   assertPlanningProposalsInModuleScope(confirmed, session.module, session.document?.type)
+  assertPlanningModuleProposalShape(confirmed, session.module, session)
   return withProjectWriteLock(root, async () => {
     await assertPlanningSourceDocumentUnchanged(root, session.source_document)
     return applyPlanningProposalTransaction(root, session, confirmed, persistence)
@@ -362,12 +421,14 @@ async function applyPlanningProposalTransaction(
     content: draft.content
   }))
   const validationDocuments = [...documents, ...virtualCreates]
+  for (const candidate of virtualCreates) {
+    await assertCardReferencesExist(candidate.data, validationDocuments, root)
+    assertPlanningCardDomain(candidate.data, validationDocuments)
+  }
   const updates: PreparedPlanningUpdate[] = []
   for (const proposal of confirmed) {
     const normalized = normalizePlanningDraft(proposal.draft)
     if (proposal.operation === 'create') {
-      const validationCandidate = virtualCreates.find((item) => item.data.id === proposal.id)!.data
-      await assertCardReferencesExist(validationCandidate, validationDocuments, root)
       continue
     }
     if (!proposal.target) throw new Error(`Update proposal ${proposal.id} has no target document.`)
@@ -392,11 +453,40 @@ async function applyPlanningProposalTransaction(
       title: normalized.title
     })
     await assertCardReferencesExist(parsed as unknown as DocumentIdentity, validationDocuments, root)
+    assertPlanningCardDomain(parsed as unknown as DocumentIdentity, validationDocuments)
     const target = changingType
       ? assertProjectPath(root, fileForDoc(root, normalized.kind, proposal.target.id, normalized.title))
       : source
     if (changingType && (await pathExists(target))) {
       throw new Error(`Planning card type migration target already exists: ${path.basename(target)}`)
+    }
+    if (changingType) {
+      const candidate = {
+        path: target,
+        data: parsed as unknown as DocumentIdentity,
+        content: normalized.content
+      }
+      const postConversionDocuments = [
+        ...validationDocuments.filter((item) => item.data.id !== current.data['id']),
+        candidate
+      ]
+      const inboundTypeConflicts = validatePlanningCardGraph(postConversionDocuments, {
+        projectRoot: root
+      }).filter(
+        (issue) =>
+          issue.code === 'wrong-relation-target-type' && issue.resolved_target_id === current.data['id']
+      )
+      if (inboundTypeConflicts.length) {
+        throw new Error(
+          [
+            `卡片 ${current.data['id']} 转换为 ${normalized.kind} 会使现有类型化引用失效。`,
+            ...inboundTypeConflicts.map(
+              (issue) => `${issue.card_id}.${issue.relation_field}: ${issue.message}`
+            ),
+            '请先调整这些引用；本次未写入任何卡片。'
+          ].join('\n')
+        )
+      }
     }
     updates.push({
       proposal,
@@ -464,6 +554,7 @@ async function applyPlanningProposalTransaction(
         title: resolvedDraft.title
       })
       await assertCardReferencesExist(parsed as unknown as DocumentIdentity, documentsAfterCreates, root)
+      assertPlanningCardDomain(parsed as unknown as DocumentIdentity, documentsAfterCreates)
       await writeMarkdown(
         update.target,
         { ...parsed, [DOCUMENT_ORIGIN_FIELD]: planningOrigin(session, update.proposal.id) },
@@ -552,6 +643,44 @@ async function applyPlanningProposalTransaction(
     }
     throw error
   }
+}
+
+function assertPlanningCardDomain(
+  document: DocumentIdentity,
+  documents: Array<{ data: DocumentIdentity }>
+): void {
+  const data = document as DocumentIdentity & Record<string, unknown>
+  if (document.type === 'character_relation' && data['from_character'] === data['to_character']) {
+    throw new Error('A character relationship must connect two different characters.')
+  }
+  if (document.type === 'faction_relation' && data['from_faction'] === data['to_faction']) {
+    throw new Error('A faction relationship must connect two different factions.')
+  }
+  const interval = planningTimelineInterval(data)
+  if (!interval) return
+  const nodes = documents
+    .filter((item) => item.data.type === 'timeline_node')
+    .map((item) => item.data as TimelineNodeDoc)
+  const start = nodes.find((node) => node.id === interval.start)
+  const end = nodes.find((node) => node.id === interval.end)
+  if (start && end && compareTimelineNodes(end, start) <= 0) {
+    throw new Error(`${document.type} end time must be after start time.`)
+  }
+}
+
+function planningTimelineInterval(
+  data: DocumentIdentity & Record<string, unknown>
+): { start: string; end: string } | null {
+  const fieldNames =
+    data.type === 'faction'
+      ? (['founded_at', 'dissolved_at'] as const)
+      : ['character_relation', 'faction_relation', 'faction_membership'].includes(data.type)
+        ? (['starts_at', 'ends_at'] as const)
+        : null
+  if (!fieldNames) return null
+  const start = data[fieldNames[0]]
+  const end = data[fieldNames[1]]
+  return typeof start === 'string' && start && typeof end === 'string' && end ? { start, end } : null
 }
 
 function assertConfirmedPlanningDependencies(
@@ -653,7 +782,8 @@ function sharedMigrationFields(
     tags: preferNonEmptyArray(proposalFields['tags'], current['tags']),
     enabled: current['enabled'] ?? defaultEnabled(targetKind),
     source_refs: preferNonEmptyArray(proposalFields['source_refs'], current['source_refs']),
-    relations: preferNonEmptyArray(proposalFields['relations'], current['relations'])
+    relations: preferNonEmptyArray(proposalFields['relations'], current['relations']),
+    image: proposalFields['image'] ?? current['image'] ?? null
   }
 }
 
@@ -708,29 +838,32 @@ export async function discussPlanningRecord(
     throw new Error(`Unsupported planning module scope: ${sessionModule}`)
   }
 
+  const compiledPrompt = buildPlanningPrompt(
+    project,
+    docs,
+    promptInput,
+    Boolean(session?.document),
+    root,
+    session?.source_document
+  )
+  assertSensitiveSourcesSafe([{ source: `planning-prompt:${sessionModule}`, text: compiledPrompt }])
   const raw = await dependencies.generate(
-    buildPlanningPrompt(
-      project,
-      docs,
-      promptInput,
-      Boolean(session?.document),
-      root,
-      session?.source_document
-    ),
+    compiledPrompt,
     config,
     planningSystemPrompt(
       Boolean(session?.document),
       sessionModule,
       allowedKinds,
-      Boolean(session?.source_document)
+      session?.source_document?.type
     ),
     { responseFormat: 'json_object' }
   )
   const parsedResponse = parsePlanningAIResponse(raw)
   assertPlanningProposalsInModuleScope(parsedResponse.proposals, sessionModule, session?.document?.type)
+  assertPlanningModuleProposalShape(parsedResponse.proposals, sessionModule, session)
   const generatedProposals = session?.source_document
     ? parsedResponse.proposals.map((proposal) =>
-        attachPlanningSourceReference(proposal, session.source_document!.id)
+        attachPlanningSourceProvenance(proposal, session.source_document!)
       )
     : parsedResponse.proposals
   const proposals = mergeAIPlanningProposals(currentProposals, generatedProposals, session ?? undefined)
@@ -919,7 +1052,7 @@ function normalizePlanningProposals(
       const previous = existing.get(proposal.id)
       const normalizedDraft = normalizePlanningDraft(proposal.draft)
       const draft = session.source_document
-        ? withPlanningSourceReference(normalizedDraft, session.source_document.id)
+        ? withPlanningSourceProvenance(normalizedDraft, session.source_document)
         : normalizedDraft
       const revision = planningRevision(draft, proposal.source === 'ai' ? 'ai' : 'author')
       const changed = previous ? planningDraftHash(previous.draft) !== revision.content_sha256 : false
@@ -942,11 +1075,11 @@ function normalizePlanningProposals(
   return normalized
 }
 
-function attachPlanningSourceReference(
+function attachPlanningSourceProvenance(
   proposal: PlanningProposal,
-  sourceDocumentId: string
+  sourceDocument: NonNullable<PlanningSession['source_document']>
 ): PlanningProposal {
-  const draft = withPlanningSourceReference(proposal.draft, sourceDocumentId)
+  const draft = withPlanningSourceProvenance(proposal.draft, sourceDocument)
   return {
     ...proposal,
     draft,
@@ -954,7 +1087,34 @@ function attachPlanningSourceReference(
   }
 }
 
-function withPlanningSourceReference(draft: PlanningDraft, sourceDocumentId: string): PlanningDraft {
+function withPlanningSourceProvenance(
+  draft: PlanningDraft,
+  sourceDocument: NonNullable<PlanningSession['source_document']>
+): PlanningDraft {
+  if (sourceDocument.type === 'chapter_prose') {
+    const existingRelations = Array.isArray(draft.fields['relations'])
+      ? draft.fields['relations'].filter((value): value is Record<string, unknown> =>
+          Boolean(value && typeof value === 'object')
+        )
+      : []
+    const withoutDuplicate = existingRelations.filter(
+      (relation) => relation['kind'] !== 'derived_from' || relation['target_id'] !== sourceDocument.id
+    )
+    return normalizePlanningDraft({
+      ...draft,
+      fields: {
+        ...draft.fields,
+        relations: [
+          ...withoutDuplicate,
+          {
+            kind: 'derived_from',
+            target_id: sourceDocument.id,
+            note: 'Extracted from author prose after explicit review.'
+          }
+        ]
+      }
+    })
+  }
   const existing = Array.isArray(draft.fields['source_refs'])
     ? draft.fields['source_refs'].filter(
         (value): value is string => typeof value === 'string' && Boolean(value)
@@ -964,7 +1124,7 @@ function withPlanningSourceReference(draft: PlanningDraft, sourceDocumentId: str
     ...draft,
     fields: {
       ...draft.fields,
-      source_refs: [...new Set([...existing, sourceDocumentId])]
+      source_refs: [...new Set([...existing, sourceDocument.id])]
     }
   })
 }
@@ -1070,7 +1230,7 @@ export function buildPlanningPrompt(
       status: doc.data.status
     }))
   const issueContext = buildIssuePlanningContext(docs, input, projectRoot)
-  const referenceSource = sourceDocument
+  const extractionSource = sourceDocument
     ? docs.find(
         (document) => document.data.id === sourceDocument.id && document.data.type === sourceDocument.type
       )
@@ -1093,13 +1253,15 @@ export function buildPlanningPrompt(
           JSON.stringify(issueContext, null, 2)
         ]
       : []),
-    ...(referenceSource
+    ...(extractionSource
       ? [
           '',
-          '参考生卡的只读来源 (read-only source for card extraction; never edit or return it as a proposal):',
+          sourceDocument?.type === 'chapter_prose'
+            ? '手写章节正文的只读来源 (read-only author prose for setting extraction; never edit or return it as a proposal):'
+            : '参考生卡的只读来源 (read-only source for card extraction; never edit or return it as a proposal):',
           JSON.stringify(
             {
-              ...planningContextDocument(referenceSource, 24_000),
+              ...planningContextDocument(extractionSource, 24_000),
               source_sha256: sourceDocument?.expected_sha256
             },
             null,
@@ -1133,11 +1295,15 @@ export function buildPlanningPrompt(
     'For source_refs, relations, timeline_node, character endpoints, locations, and other links, use only exact IDs from the project catalog. Never invent a related card ID.',
     "Exception for cards created together in this response: use the referenced card's stable proposal id in the structured reference field. Quillarium resolves that temporary id to the new project card's stable id inside one atomic apply transaction. Never use a title or array position as a reference.",
     'Reference documents are source material, not fact cards: do not copy their full body into another card and never assign them a lifecycle status.',
-    ...(referenceSource
+    ...(sourceDocument?.type === 'reference'
       ? [
-          `Every proposal is derived from reference ${sourceDocument!.id}. Quillarium attaches this stable id to source_refs in code. Never propose an update to the reference itself.`
+          `Every proposal is derived from reference ${sourceDocument.id}. Quillarium attaches this stable id to source_refs in code. Never propose an update to the reference itself.`
         ]
-      : []),
+      : sourceDocument?.type === 'chapter_prose'
+        ? [
+            `Every proposal is derived from chapter prose ${sourceDocument.id}. Quillarium attaches a code-owned derived_from relation to that stable id. Extract only facts evidenced by the supplied prose; distinguish explicit facts from reasonable inference, and never propose an update to the prose itself.`
+          ]
+        : []),
     'Style, pacing, structure, and former strategy/pattern concepts must be proposed as one narrative card. Never create a new strategy or pattern card.'
   ].join('\n')
 }
@@ -1226,7 +1392,7 @@ function planningSystemPrompt(
   editingExisting = false,
   module = 'planning',
   allowedKinds: readonly PlanningDocumentKind[] = CREATABLE_PLANNING_KINDS,
-  extractingReference = false
+  sourceType?: NonNullable<PlanningSession['source_document']>['type']
 ): string {
   return [
     'You are Quillarium Planning Curator for structured serialized fiction.',
@@ -1235,10 +1401,15 @@ function planningSystemPrompt(
     'Ask focused questions across multiple turns when facts are incomplete. Never pretend a file was written.',
     editingExisting
       ? 'The first proposal is the immutable session anchor: reuse its proposal id when suggesting an edit, never duplicate it, and never reorder it. New cards follow it. Keep stable project identities and never write files directly.'
-      : 'Choose suitable record kinds and return every distinct card in proposals. Reuse a proposal id to revise that card; never let a later card overwrite an earlier one. Never propose canon, outline, scene, or accepted prose.',
-    extractingReference
-      ? 'The uploaded reference is immutable evidence, not a proposal. Extract one or more reviewable setting cards from it, keep uncertain claims tentative, and never suggest editing, replacing, or deleting the reference.'
+      : `Choose suitable record kinds and return every distinct card in proposals. Reuse a proposal id to revise that card; never let a later card overwrite an earlier one. ${allowedKinds.includes('canon') ? '' : 'Never propose Canon. '}Never propose outlines, scenes, or accepted prose.`,
+    module === 'card-conversion'
+      ? 'This is a one-card type conversion. Return only the anchored proposal id, preserve its stable project identity, map content into the author-selected allowed target kind, and never create a second proposal. The trusted transaction performs the file move only after author confirmation and hash validation.'
       : '',
+    sourceType === 'reference'
+      ? 'The uploaded reference is immutable evidence, not a proposal. Extract one or more reviewable setting cards from it, keep uncertain claims tentative, and never suggest editing, replacing, or deleting the reference.'
+      : sourceType === 'chapter_prose'
+        ? 'The supplied chapter prose is immutable evidence for this task, not a proposal. Extract one or more reviewable setting cards, separate explicit facts from inference, and never suggest editing, replacing, or deleting the prose.'
+        : '',
     'Keep claims tentative when the author has not confirmed them. Return valid JSON only and follow the requested response shape.'
   ].join('\n')
 }
@@ -1247,9 +1418,16 @@ export function planningKindsForModule(
   module: string,
   anchorKind?: PlanningDocumentKind
 ): PlanningDocumentKind[] {
+  if (module === 'card-conversion') return planningConversionKinds(anchorKind)
   const scoped = MODULE_PLANNING_KINDS[module] ?? CREATABLE_PLANNING_KINDS
   if (!MODULE_PLANNING_KINDS[module]) return anchorKind ? [anchorKind] : []
   return anchorKind && !scoped.includes(anchorKind) ? [anchorKind, ...scoped] : [...scoped]
+}
+
+export function planningConversionKinds(anchorKind?: PlanningDocumentKind): PlanningDocumentKind[] {
+  if (!anchorKind || !WORLD_ENTRY_CONVERSION_KINDS.includes(anchorKind)) return []
+  if (anchorKind === 'world_entry') return [...WORLD_ENTRY_CONVERSION_KINDS]
+  return [anchorKind, 'world_entry']
 }
 
 function assertPlanningProposalsInModuleScope(
@@ -1266,6 +1444,49 @@ function assertPlanningProposalsInModuleScope(
   throw new Error(
     `AI 提案超出当前“${module}”页面范围：${rejected.join('、')}。此会话只允许 ${allowed.join('、')}；越界提案未写入项目。`
   )
+}
+
+function assertPlanningModuleProposalShape(
+  proposals: PlanningProposal[],
+  module: string,
+  session?: PlanningSession | null
+): void {
+  if (module === 'card-conversion') {
+    const anchorId = session?.anchor_proposal_id
+    if (!anchorId || proposals.some((proposal) => proposal.id !== anchorId)) {
+      throw new Error(
+        '卡片转换只能修改当前锚定卡片，不能在同一转换中新增或更新其他卡片；越界提案未写入项目。'
+      )
+    }
+  } else if (session?.document && session.anchor_proposal_id) {
+    const anchor = proposals.find((proposal) => proposal.id === session.anchor_proposal_id)
+    if (anchor && anchor.draft.kind !== session.document.type) {
+      throw new Error(
+        `现有卡片只能在“转换卡片类型”流程中改为其他类型。当前编辑会话必须保持 ${session.document.type}；本次未写入项目。`
+      )
+    }
+  }
+  if (
+    (module === 'reference-extraction' || module === 'prose-extraction') &&
+    proposals.some((proposal) => proposal.operation === 'update')
+  ) {
+    throw new Error('从只读来源抽取设定只能创建待审阅新卡，不能更新现有项目卡片。')
+  }
+}
+
+function assertNoUnsetPlanningReferences(proposals: PlanningProposal[]): void {
+  const incomplete = proposals.find((proposal) => containsPlanningUnsetReference(proposal.draft.fields))
+  if (!incomplete) return
+  throw new Error(
+    `卡片“${incomplete.draft.title}”仍有必须选择的稳定引用。请完成目标字段后再确认；本次未写入任何卡片。`
+  )
+}
+
+function containsPlanningUnsetReference(value: unknown): boolean {
+  if (value === PLANNING_UNSET_REFERENCE) return true
+  if (Array.isArray(value)) return value.some(containsPlanningUnsetReference)
+  if (!value || typeof value !== 'object') return false
+  return Object.values(value as Record<string, unknown>).some(containsPlanningUnsetReference)
 }
 
 async function migratePlanningSession(root: string, value: unknown): Promise<PlanningSession> {
@@ -1368,10 +1589,12 @@ function isPlanningDocumentRef(value: unknown): value is NonNullable<PlanningSes
 function isPlanningSourceDocumentRef(
   value: unknown
 ): value is NonNullable<PlanningSession['source_document']> {
-  if (!isPlanningDocumentRef(value)) return false
-  const item = value as unknown as Record<string, unknown>
+  if (!value || typeof value !== 'object') return false
+  const item = value as Record<string, unknown>
   return (
-    item['type'] === 'reference' &&
+    typeof item['path'] === 'string' &&
+    typeof item['id'] === 'string' &&
+    (item['type'] === 'reference' || item['type'] === 'chapter_prose') &&
     typeof item['title'] === 'string' &&
     typeof item['expected_sha256'] === 'string' &&
     /^[a-f0-9]{64}$/u.test(item['expected_sha256'])
@@ -1384,9 +1607,14 @@ async function assertPlanningSourceDocumentUnchanged(
 ): Promise<void> {
   if (!sourceDocument) return
   const source = assertProjectPath(root, sourceDocument.path)
+  const sourceLabel = sourceDocument.type === 'chapter_prose' ? '章节正文' : '参考文档'
+  const restartAction =
+    sourceDocument.type === 'chapter_prose'
+      ? '请重新保存正文后开始新的“从正文抽取设定”会话。'
+      : '请核对文档后重新开始“AI 讨论生卡”。'
   if (!(await pathExists(source))) {
     throw new Error(
-      `参考文档“${sourceDocument.title}”已不存在。未调用 AI，也未写入任何卡片；请重新上传后开始新会话。`
+      `${sourceLabel}“${sourceDocument.title}”已不存在。未调用 AI，也未写入任何卡片；${restartAction}`
     )
   }
   const raw = await readText(source)
@@ -1394,16 +1622,16 @@ async function assertPlanningSourceDocumentUnchanged(
   if (currentSha256 !== sourceDocument.expected_sha256) {
     throw new Error(
       [
-        `参考文档“${sourceDocument.title}”已在会话外变化。`,
+        `${sourceLabel}“${sourceDocument.title}”已在会话外变化。`,
         `Expected SHA-256: ${sourceDocument.expected_sha256}`,
         `Current SHA-256: ${currentSha256}`,
-        '未调用 AI，也未写入任何卡片。请核对文档后重新开始“AI 讨论生卡”。'
+        `未调用 AI，也未写入任何卡片。${restartAction}`
       ].join('\n')
     )
   }
   const parsed = await readMarkdown<Record<string, unknown>>(source)
-  if (parsed.data['id'] !== sourceDocument.id || parsed.data['type'] !== 'reference') {
-    throw new Error(`参考文档“${sourceDocument.title}”的稳定身份已改变。未写入任何卡片。`)
+  if (parsed.data['id'] !== sourceDocument.id || parsed.data['type'] !== sourceDocument.type) {
+    throw new Error(`${sourceLabel}“${sourceDocument.title}”的稳定身份已改变。未写入任何卡片。`)
   }
 }
 
@@ -1470,6 +1698,8 @@ function uniquePlanningSessionId(): string {
 
 function parseDocumentFields(kind: PlanningDocumentKind, value: Record<string, unknown>) {
   switch (kind) {
+    case 'canon':
+      return canonSchema.parse(value)
     case 'character':
       return characterSchema.parse(value)
     case 'character_relation':
@@ -1504,6 +1734,7 @@ function parseDocumentFields(kind: PlanningDocumentKind, value: Record<string, u
 }
 
 function defaultStatus(kind: PlanningDocumentKind): string {
+  if (kind === 'canon') return 'draft'
   if (kind === 'world_entry') return 'candidate'
   if (kind === 'foreshadowing') return 'planned'
   if (kind === 'issue') return 'open'

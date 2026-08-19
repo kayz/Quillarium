@@ -64,6 +64,7 @@ export type CardRelationKind =
   | 'triggers'
   | 'resolves'
   | 'explains'
+  | 'derived_from'
 
 export interface CardRelation {
   kind: CardRelationKind

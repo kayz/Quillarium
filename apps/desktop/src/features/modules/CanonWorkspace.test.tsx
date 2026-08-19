@@ -27,6 +27,7 @@ describe('CanonWorkspace field copy', () => {
         root="C:/projects/sample"
         docs={docs}
         onCreate={async () => undefined}
+        onConvert={() => undefined}
         onReload={async () => undefined}
         language="zh"
       />
@@ -48,6 +49,7 @@ describe('CanonWorkspace field copy', () => {
         root="C:/projects/sample"
         docs={docs}
         onCreate={async () => undefined}
+        onConvert={() => undefined}
         onReload={async () => undefined}
         language="en"
       />

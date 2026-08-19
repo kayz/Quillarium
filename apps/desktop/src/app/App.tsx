@@ -1,17 +1,27 @@
-import React, { Component, useEffect, useState } from 'react'
+import React, { Component, useEffect, useMemo, useState } from 'react'
 import { BookOpen, FileInput, FolderOpen } from 'lucide-react'
-import type { AIStatus, DensityName, LanguageName, ProjectListItem, ThemeName } from './types.js'
+import { resolveUISkin } from '@quillarium/core/ui-skins'
+import type {
+  AIStatus,
+  DensityName,
+  LanguageName,
+  ProjectListItem,
+  ThemeName,
+  UISkinPreferencesV1
+} from './types.js'
 import { t } from './i18n.js'
 import { bridge } from './bridge.js'
 import { BrandWordmark } from './BrandWordmark.js'
 import { TopChrome } from '../features/settings/TopChrome.js'
 import { Workspace } from '../features/workspace/Workspace.js'
 import { formatDesktopError } from '../shared/errors.js'
+import { applyUISkin } from './ui-skin.js'
 
 export function App() {
   const [theme, setTheme] = useState<ThemeName>('paper')
   const [density, setDensity] = useState<DensityName>('comfortable')
   const [language, setLanguage] = useState<LanguageName>('zh')
+  const [skinPreferences, setSkinPreferences] = useState<UISkinPreferencesV1 | undefined>()
   const [aiStatus, setAiStatus] = useState<AIStatus>({
     prose: false,
     background: false,
@@ -23,9 +33,11 @@ export function App() {
   const [workspaceRoot, setWorkspaceRoot] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  const activeSkin = useMemo(() => resolveUISkin(theme, skinPreferences), [theme, skinPreferences])
+
   useEffect(() => {
-    document.documentElement.dataset.theme = theme
-  }, [theme])
+    applyUISkin(document.documentElement, activeSkin)
+  }, [activeSkin])
 
   useEffect(() => {
     document.documentElement.dataset.density = density
@@ -45,6 +57,7 @@ export function App() {
       const config = await bridge.getConfig()
       if (config.theme) setTheme(config.theme as ThemeName)
       if (config.density) setDensity(config.density as DensityName)
+      setSkinPreferences(config.uiSkins)
       if (config.language) {
         selectedLanguage = config.language as LanguageName
         setLanguage(selectedLanguage)
@@ -70,11 +83,13 @@ export function App() {
         theme={theme}
         density={density}
         language={language}
+        skinPreferences={skinPreferences}
         aiStatus={aiStatus}
         error={error}
         onTheme={setTheme}
         onDensity={setDensity}
         onLanguage={setLanguage}
+        onSkinPreferences={setSkinPreferences}
         onAIStatus={setAiStatus}
         onRefresh={refresh}
         onOpen={setWorkspaceRoot}
@@ -89,10 +104,12 @@ export function App() {
         theme={theme}
         density={density}
         language={language}
+        skinPreferences={skinPreferences}
         aiStatus={aiStatus}
         onTheme={setTheme}
         onDensity={setDensity}
         onLanguage={setLanguage}
+        onSkinPreferences={setSkinPreferences}
         onAIStatus={setAiStatus}
         onBack={() => setWorkspaceRoot(null)}
       />
@@ -126,11 +143,13 @@ function Welcome({
   theme,
   density,
   language,
+  skinPreferences,
   aiStatus,
   error,
   onTheme,
   onDensity,
   onLanguage,
+  onSkinPreferences,
   onAIStatus,
   onRefresh,
   onOpen
@@ -140,11 +159,13 @@ function Welcome({
   theme: ThemeName
   density: DensityName
   language: LanguageName
+  skinPreferences?: UISkinPreferencesV1
   aiStatus: AIStatus
   error: string | null
   onTheme: (theme: ThemeName) => void
   onDensity: (density: DensityName) => void
   onLanguage: (language: LanguageName) => void
+  onSkinPreferences: (preferences: UISkinPreferencesV1 | undefined) => void
   onAIStatus: (status: AIStatus) => void
   onRefresh: () => Promise<void>
   onOpen: (root: string) => void
@@ -200,10 +221,12 @@ function Welcome({
         theme={theme}
         density={density}
         language={language}
+        skinPreferences={skinPreferences}
         aiStatus={aiStatus}
         onTheme={onTheme}
         onDensity={onDensity}
         onLanguage={onLanguage}
+        onSkinPreferences={onSkinPreferences}
         onAIStatus={onAIStatus}
       />
       <main className="welcome-main">

@@ -5,9 +5,12 @@ import {
   getObsidianDir,
   getWorkspaceDir,
   loadConfig,
+  normalizeUIAppearanceInput,
   saveConfig,
   setObsidianDir,
-  setWorkspaceDir
+  setWorkspaceDir,
+  withUISkinCustomization,
+  withoutUISkinCustomization
 } from '@quillarium/core'
 import { isAIConfigured, listOfficialModelCapabilities } from '@quillarium/ai'
 import {
@@ -53,6 +56,21 @@ export function registerConfigHandlers(): void {
   typedHandle('config:setLanguage', async (_event, language) => {
     const config = { ...(await loadConfig()), language }
     await saveConfig(config)
+    return loadDesktopConfig()
+  })
+  typedHandle('config:saveAppearance', async (_event, rawInput) => {
+    const input = normalizeUIAppearanceInput(rawInput)
+    const current = await loadConfig()
+    const uiSkins = input.resetSkin
+      ? withoutUISkinCustomization(current.uiSkins, input.theme)
+      : withUISkinCustomization(current.uiSkins, input.skin)
+    await saveConfig({
+      ...current,
+      theme: input.theme,
+      density: input.density,
+      language: input.language,
+      uiSkins
+    })
     return loadDesktopConfig()
   })
   typedHandle('config:saveAIProfile', async (_event, profile, input) => saveDesktopAIProfile(profile, input))

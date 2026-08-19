@@ -4,6 +4,9 @@ Quillarium is the product and runtime for planning, drafting, checking, acceptin
 long-form serialized fiction. It is work-neutral: no particular novel, character, setting, or
 validation project belongs in product defaults, public terminology, or core test semantics.
 
+This document reflects the released `v0.3.0` Agent boundary. See the
+[documentation map](README.md) or [简体中文文档导航](README.zh-CN.md) for reader-specific entry points.
+
 The durable data is Markdown plus YAML frontmatter. Each novel project is both an Obsidian vault and
 a Quillarium project root, so Quillarium and Obsidian operate on the same files instead of maintaining
 parallel editable copies.
@@ -249,6 +252,12 @@ proposal outside the allowlist, and repeats the check before any confirmed propo
 Timeline collaboration is therefore limited to timeline nodes and events; it cannot create location,
 world-book, or foreshadowing proposals.
 
+`card-conversion` is the only exception that changes a proposal's document kind, and its allowlist is
+still code-owned. It accepts one real anchor and no create proposal. Canon can target only World;
+World can target the supported setting types; every non-World supported type can target only itself
+or World. The model may suggest a field mapping, but it cannot change the stable ID, add a second card,
+or bypass the expected-hash transaction. Conversion remains a proposal until explicit confirmation.
+
 Reference ingestion is outside this Agent boundary: uploading UTF-8 Markdown or text directly creates
 a project-local reference record and never calls a model. Only a subsequent author action starts a
 `reference-extraction` conversation. That session stores the selected reference's stable ID, real file,
@@ -256,6 +265,17 @@ title, and expected SHA-256 as a read-only source, not as the first update propo
 allowlist contains only derived setting-card kinds, every returned card is forced to cite the source
 through `source_refs`, and the source hash is checked before discussion and again under the project
 write lock before apply. A changed source stops the operation with zero setting-card writes.
+
+File drag-and-drop does not widen that boundary. Trusted preload code resolves local dropped-file
+paths, but the author must still choose reference ingestion or AI setting import. The reference choice
+never starts an Agent; the setting-import choice only preloads sources into the existing reviewed
+import task. Likewise, “New blank card” is a deterministic document operation, not an Agent shortcut.
+
+Saved handwritten chapter prose uses the parallel `prose-extraction` source mode. The prose is never
+an Agent proposal and cannot be updated by this task. Its code-owned allowlist permits create-only
+Canon and setting-card proposals, and trusted code adds a `derived_from` relation to the exact prose
+stable ID after every model or author edit. The source hash is checked before discussion and apply;
+successful extraction writes confirmed cards without changing the prose.
 
 Planning integrity review has a separate code-owned scope carried in the task input and Run result.
 Project review and every page-scoped review exclude `world_entry` content because world books hold

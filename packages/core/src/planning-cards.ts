@@ -28,6 +28,7 @@ export interface PlanningCardGraphIssue {
     | 'ambiguous-source-reference'
     | 'missing-relation-target'
     | 'ambiguous-relation-target'
+    | 'wrong-relation-target-type'
     | 'self-relation'
     | 'isolated-card'
   card_id: string
@@ -184,8 +185,26 @@ export function validatePlanningCardGraph(
             message: `Card ${document.data.id} links to missing card ${relation.target_id} through ${relation.field}.`
           })
         }
-      } else if (countInboundFrom(document.data)) {
-        inbound.set(targetId, (inbound.get(targetId) ?? 0) + 1)
+      } else {
+        const target = byId.get(targetId)!
+        const expectedTypes = intrinsicTargetTypes(document.data, relation.field)
+        if (expectedTypes && !expectedTypes.includes(target.type)) {
+          if (included) {
+            issues.push({
+              severity: 'error',
+              code: 'wrong-relation-target-type',
+              card_id: document.data.id,
+              target_id: relation.target_id,
+              resolved_target_id: targetId,
+              relation_field: relation.field,
+              message: `Card ${document.data.id} links to ${targetId} through ${relation.field}, which requires ${expectedTypes.join(' or ')} rather than ${target.type}.`
+            })
+          }
+          continue
+        }
+        if (countInboundFrom(document.data)) {
+          inbound.set(targetId, (inbound.get(targetId) ?? 0) + 1)
+        }
       }
     }
   }
@@ -328,7 +347,62 @@ export function assertCardReferencesExist(
     const resolved = resolver.resolve(relation.target_id, { origin: 'structured_link' })
     if (resolved.status === 'ambiguous') throw new Error(`Related card is ambiguous: ${relation.target_id}`)
     if (!resolved.target_id) throw new Error(`Related card not found: ${relation.target_id}`)
+    if (resolved.target_id === document.id) {
+      throw new Error(`Card cannot relate to itself: ${document.id}`)
+    }
   }
+  for (const relation of intrinsicCardLinks(document)) {
+    const resolved = resolver.resolve(relation.target_id, { origin: 'structured_link' })
+    if (resolved.status === 'ambiguous') {
+      throw new Error(`Card reference is ambiguous: ${relation.field}=${relation.target_id}`)
+    }
+    const target = documents.find((item) => item.data.id === resolved.target_id)
+    if (!target) throw new Error(`Card reference not found: ${relation.field}=${relation.target_id}`)
+    if (target.data.id === document.id) {
+      throw new Error(`Card cannot reference itself through ${relation.field}: ${document.id}`)
+    }
+    const expectedTypes = intrinsicTargetTypes(document, relation.field)
+    if (expectedTypes && !expectedTypes.includes(target.data.type)) {
+      throw new Error(
+        `Card reference has the wrong type: ${relation.field}=${relation.target_id}; expected ${expectedTypes.join(' or ')}, received ${target.data.type}`
+      )
+    }
+  }
+}
+
+function intrinsicTargetTypes(document: PlanningCardDoc, field: string): string[] | null {
+  if (document.type === 'character') return ['timeline_node']
+  if (document.type === 'character_relation') {
+    return ['from_character', 'to_character'].includes(field) ? ['character'] : ['timeline_node']
+  }
+  if (document.type === 'faction') {
+    return field === 'headquarters' ? ['location'] : ['timeline_node']
+  }
+  if (document.type === 'faction_relation') {
+    return ['from_faction', 'to_faction'].includes(field) ? ['faction'] : ['timeline_node']
+  }
+  if (document.type === 'faction_membership') {
+    if (field === 'faction_id') return ['faction']
+    if (field === 'character_id') return ['character']
+    return ['timeline_node']
+  }
+  if (document.type === 'timeline_node') return ['timeline_node']
+  if (document.type === 'timeline_event') {
+    if (field === 'timeline_node') return ['timeline_node']
+    if (field === 'location') return ['location']
+    if (field === 'characters') return ['character']
+    return ['timeline_event']
+  }
+  if (document.type === 'location') return ['location']
+  if (document.type === 'route') return ['location']
+  if (document.type === 'world_entry') {
+    return field === 'used_in.scene' ? ['scene'] : ['world_entry']
+  }
+  if (document.type === 'foreshadowing') {
+    if (field === 'related_characters') return ['character']
+    if (field === 'related_arc') return ['outline']
+  }
+  return null
 }
 
 export function normalizeCardRelations(value: CardRelation[]): CardRelation[] {

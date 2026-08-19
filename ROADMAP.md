@@ -222,6 +222,62 @@ acceptance criteria are in
 The copy-ready main-window execution brief is
 [AGENT-RUNTIME-P0-PROMPT.md](docs/implementation/AGENT-RUNTIME-P0-PROMPT.md).
 
+## Completed Release Gate: v0.3.0 Settings and Reliability
+
+Released on 2026-08-19 as immutable tag
+[`v0.3.0`](https://github.com/kayz/Quillarium/releases/tag/v0.3.0). This gate carries the reliability
+work prepared after `v0.2.2` and the new setting-workbench capabilities into one tested desktop
+release.
+
+- Make CCv3 book import transactional: preflight stable IDs, stage new projects on the same file
+  system, register only after verification, and leave no project or manifest residue on failure.
+- Upgrade issue suppression to evidence-anchored V2 identities while preserving read compatibility
+  for V1 ledgers and keeping `ignored` distinct from `resolved`.
+- Save and bind assistant-prompt versions in one expected-hash transaction. Keep active bindings
+  pinned outside the five-version ordinary quota and require explicit recovery for dangling bindings.
+- Move reference-index construction off project load and ordinary saves. Rebuild the derived cache
+  on demand from one document read and a current document-set hash.
+- Resolve character-rehearsal state at the selected event, exclude future state, enforce inclusive-
+  start/exclusive-end relationship bounds, and surface multi-timeline ambiguity before execution.
+- Apply one sensitive-data boundary to prompts, provider-request archives, copying, and CCv3 export;
+  new model calls fail closed before a Run or request is created when protected content is detected.
+- Store project-local images for world entries, characters, locations, character relationships, and
+  factions under `assets/settings/`, with validated relative metadata and generated thumbnails.
+- Render setting cards from built-in or saved workspace styles without a model call. Use the bounded
+  text-only `setting-card-design` Agent only for Random style, retain navigable Roll candidates, save
+  approved styles explicitly, and export through the native Save As dialog.
+- Let projects hide part, act, or scene levels without deleting their Markdown. Reparent the visible
+  chapter tree to the nearest enabled level and hide scene-bound AI writing when scenes are disabled.
+- Add typed factions, faction relationships, and character memberships. Show active faction emblems
+  on the time-filtered character graph and use a deterministic initials mark when no emblem exists.
+- Separate deterministic reference upload from the optional AI discussion that derives multiple
+  reviewable cards. The reference remains a hash-checked read-only source and is never an AI proposal.
+
+The storage, UI, Agent, and compatibility decisions are detailed in
+[DESIGN.md](docs/DESIGN.md), [UI-ARCHITECTURE.md](docs/UI-ARCHITECTURE.md), and
+[AGENT-DESIGN.md](docs/AGENT-DESIGN.md). The [documentation map](docs/README.md) provides English and
+Simplified Chinese entry points.
+
+## 0.3.1 Local Candidate: Card Retyping, Prose Extraction, and UI Skins
+
+- Convert Canon to or from World entries and use World as the explicit hub for other supported
+  setting types. Preserve stable identity and shared metadata, require author review, and make type
+  migration hash-checked, verified, and rollback-safe.
+- Extract multiple create-only Canon and setting-card proposals from saved handwritten chapter prose.
+  Keep prose read-only, attach stable `derived_from` provenance in trusted code, and stop with zero
+  card writes when the source hash changes.
+- Keep all old cards, chapter prose, and planning sessions read-compatible without eager rewrites.
+- Route dropped text/Markdown files through an explicit reference-versus-setting-import choice; drop
+  alone performs no write and no AI call.
+- Offer disabled, draft blank-card creation beside AI creation for every directly maintained setting
+  section, while retaining required manual forms for typed relationships and time coordinates.
+- Upgrade the four compatible theme IDs into editable CSS-token skins covering palette, typography,
+  spacing, navigation/detail placement, toolbar alignment, and button treatment.
+- Save skin, density, and global language through one typed operation; preserve old config and project
+  theme reads without eager migration, and reset one customized skin without touching the others.
+- Consolidate repeated actions, toolbars, surfaces, and form grids into configurable renderer
+  primitives while retaining CSS compatibility for existing feature panels.
+
 ## P1: Auditable Lifecycle and Memory
 
 - Detect project files changed by Obsidian, editors, or Git and surface stale-session conflicts

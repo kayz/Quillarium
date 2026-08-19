@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 import { ArrowLeft, Bot, Check, LoaderCircle, MessageSquareText, RotateCcw, X } from 'lucide-react'
 import type {
+  DocEntry,
   LanguageName,
   PlanningChatMessage,
   PlanningDocumentKind,
@@ -16,6 +17,7 @@ import { MetadataEditor } from '../outline/OutlineShared.js'
 import {
   PLANNING_KIND_LABELS,
   confirmAllPlanningProposals,
+  planningDraftFieldsForKind,
   planningKindForContext,
   planningKindsForContext,
   planningProposalDependencies
@@ -23,6 +25,7 @@ import {
 
 export function PlanningCreationDialog({
   root,
+  docs,
   module,
   sessionId: initialSessionId,
   documentId,
@@ -31,6 +34,7 @@ export function PlanningCreationDialog({
   onCreated
 }: {
   root: string
+  docs: DocEntry[]
   module: string
   sessionId?: string
   documentId?: string
@@ -52,9 +56,13 @@ export function PlanningCreationDialog({
   const proposalRecord = proposals.find((item) => item.id === selectedProposalId) ?? proposals[0] ?? null
   const proposal = proposalRecord?.draft ?? null
   const editing = proposalRecord?.operation === 'update'
-  const extractingReference = Boolean(session?.source_document)
+  const activeModule = session?.module ?? module
+  const extractingReference = session?.source_document?.type === 'reference'
+  const extractingProse = session?.source_document?.type === 'chapter_prose'
+  const extractingSource = extractingReference || extractingProse
+  const convertingCard = activeModule === 'card-conversion'
   const originalKind = proposalRecord?.target?.type
-  const allowedKinds = planningKindsForContext(session?.module ?? module, originalKind)
+  const allowedKinds = planningKindsForContext(activeModule, originalKind)
   const proposalKindOptions =
     proposal && !allowedKinds.includes(proposal.kind) ? [proposal.kind, ...allowedKinds] : allowedKinds
   const changingType = Boolean(originalKind && proposal && originalKind !== proposal.kind)
@@ -67,6 +75,80 @@ export function PlanningCreationDialog({
         (item) => item.operation === 'create' && item.status === 'draft'
       )
     : []
+  const sourceTitle = session?.source_document?.title ?? ''
+  const sourceId = session?.source_document?.id ?? ''
+  const dialogKicker = extractingProse
+    ? zh
+      ? '手写正文 · 只读抽取'
+      : 'Author prose · read-only extraction'
+    : extractingReference
+      ? zh
+        ? '参考原文 · 只读生卡'
+        : 'Reference source · read-only extraction'
+      : convertingCard
+        ? zh
+          ? '设定卡类型转换 · 原子迁移'
+          : 'Setting-card conversion · atomic migration'
+        : editing
+          ? zh
+            ? '恢复 AI 对话'
+            : 'Restored AI conversation'
+          : zh
+            ? 'AI 对话式建档'
+            : 'AI guided record'
+  const dialogTitle = extractingProse
+    ? zh
+      ? `从“${sourceTitle}”抽取设定卡`
+      : `Extract setting cards from “${sourceTitle}”`
+    : extractingReference
+      ? zh
+        ? `与 AI 讨论“${sourceTitle}”并生成设定卡`
+        : `Discuss “${sourceTitle}” and create setting cards`
+      : convertingCard
+        ? zh
+          ? `转换“${proposal?.title ?? ''}”的卡片类型`
+          : `Convert the type of “${proposal?.title ?? ''}”`
+        : editing
+          ? zh
+            ? '继续讨论并编辑这张卡片'
+            : 'Continue the conversation and edit this card'
+          : zh
+            ? '把想法整理成规划资料'
+            : 'Shape an idea into a planning record'
+  const dialogDescription = extractingProse
+    ? zh
+      ? `章节正文 ${sourceId} 是哈希保护的只读证据。AI 只能生成待审阅的新卡，确认后才写入项目，不会修改正文。`
+      : `Chapter prose ${sourceId} is a hash-protected read-only source. AI may only propose new reviewable cards and cannot edit the prose.`
+    : extractingReference
+      ? zh
+        ? `参考文档 ${sourceId} 不会成为可编辑提案。AI 只能生成待审阅的新卡，确认后才写入项目。`
+        : `Reference ${sourceId} remains immutable. AI may only propose new reviewable cards, which are written after explicit confirmation.`
+      : convertingCard
+        ? zh
+          ? '选择目标类型并与 AI 核对字段映射。确认后保留稳定 ID，使用项目写锁迁移文件；外部哈希冲突时零写入。'
+          : 'Choose a target type and review the field mapping with AI. Confirmation preserves the stable ID and migrates under the project write lock; a hash conflict writes nothing.'
+        : editing
+          ? zh
+            ? '已恢复这张卡片的完整对话与上次草案。继续讨论或直接修改，确认后原位更新。'
+            : 'The full conversation and last draft are restored. Continue discussing or edit directly, then confirm the in-place update.'
+          : zh
+            ? `使用背景 AI。它会参考当前项目和“${module}”栏目，多轮确认后提出可修改草案。`
+            : `Uses the background AI profile with project and “${module}” context.`
+  const assistantIntro = extractingProse
+    ? zh
+      ? '请说明要从这章手写正文抽取哪些设定。我可以同时提出正设、人物、势力、关系、世界书、时间线和地点等多张候选，并标明它们抽取自本章；不会修改正文。'
+      : 'Describe what to extract from this author-written chapter. I can propose multiple Canon, character, faction, relationship, world, timeline, and location cards while leaving the prose unchanged.'
+    : extractingReference
+      ? zh
+        ? '请说明想从这份参考中整理哪些设定。我可以同时提出人物、势力、关系、世界书、时间线、地点等多张候选卡，但不会改动参考原文。'
+        : 'Describe what should be extracted. I can propose multiple setting cards, but the uploaded reference remains unchanged.'
+      : convertingCard
+        ? zh
+          ? '先在右侧选择目标卡片类型，再说明哪些内容应映射为核心属性。转换只处理当前锚定卡，不会新增第二张卡。'
+          : 'Choose the target card type on the right, then describe how its core fields should be mapped. Conversion affects only this anchored card.'
+        : zh
+          ? `请描述你要补充的资料。可以只给一个模糊想法，我会在当前栏目允许的类型内追问和整理${suggestedKind ? `（当前栏目：${PLANNING_KIND_LABELS[suggestedKind].zh}）` : ''}。`
+          : 'Describe the record you need. I will ask questions and stay within the current module’s allowed document types.'
 
   const close = useCallback(async () => {
     if (session) {
@@ -182,6 +264,41 @@ export function PlanningCreationDialog({
     )
   }
 
+  const changeProposalKind = async (kind: PlanningDocumentKind) => {
+    if (!proposalRecord || !proposal || !session || kind === proposal.kind) return
+    const nextProposals = proposals.map((item) =>
+      item.id === proposalRecord.id
+        ? {
+            ...item,
+            draft: {
+              ...proposal,
+              kind,
+              fields: planningDraftFieldsForKind(kind, proposal.fields)
+            },
+            status: 'draft' as const
+          }
+        : item
+    )
+    setProposals(nextProposals)
+    setBusy('load')
+    setError(null)
+    try {
+      const saved = await bridge.savePlanningSession(root, session.id, {
+        messages,
+        proposals: nextProposals,
+        selectedProposalId
+      })
+      setSession(saved)
+      setProposals(saved.proposals)
+      setSelectedProposalId(saved.selected_proposal_id)
+    } catch (cause) {
+      setProposals(proposals)
+      setError(formatDesktopError(cause, language))
+    } finally {
+      setBusy(null)
+    }
+  }
+
   const toggleConfirmation = () => {
     if (!proposalRecord) return
     setProposals((current) =>
@@ -224,43 +341,9 @@ export function PlanningCreationDialog({
       <section className="modal planning-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId}>
         <header className="planning-dialog-head">
           <div>
-            <span className="planning-kicker">
-              {extractingReference
-                ? zh
-                  ? '参考原文 · 只读生卡'
-                  : 'Reference source · read-only extraction'
-                : editing
-                  ? zh
-                    ? '恢复 AI 对话'
-                    : 'Restored AI conversation'
-                  : zh
-                    ? 'AI 对话式建档'
-                    : 'AI guided record'}
-            </span>
-            <h2 id={titleId}>
-              {extractingReference
-                ? zh
-                  ? `与 AI 讨论“${session?.source_document?.title ?? ''}”并生成设定卡`
-                  : `Discuss “${session?.source_document?.title ?? ''}” and create setting cards`
-                : editing
-                  ? zh
-                    ? '继续讨论并编辑这张卡片'
-                    : 'Continue the conversation and edit this card'
-                  : zh
-                    ? '把想法整理成规划资料'
-                    : 'Shape an idea into a planning record'}
-            </h2>
-            <p>
-              {zh
-                ? extractingReference
-                  ? `参考文档 ${session?.source_document?.id ?? ''} 不会成为可编辑提案。AI 只能生成待审阅的新卡，确认后才写入项目。`
-                  : editing
-                    ? '已恢复这张卡片的完整对话与上次草案。继续讨论或直接修改，确认后原位更新。'
-                    : `使用背景 AI。它会参考当前项目和“${module}”栏目，多轮确认后提出可修改草案。`
-                : extractingReference
-                  ? `Reference ${session?.source_document?.id ?? ''} remains immutable. AI may only propose new reviewable cards, which are written after explicit confirmation.`
-                  : `Uses the background AI profile with project and “${module}” context.`}
-            </p>
+            <span className="planning-kicker">{dialogKicker}</span>
+            <h2 id={titleId}>{dialogTitle}</h2>
+            <p>{dialogDescription}</p>
           </div>
           <button
             className="icon-button"
@@ -278,15 +361,7 @@ export function PlanningCreationDialog({
             <div className="conversation-stream" aria-live="polite" aria-busy={busy === 'discuss'}>
               <article className="conversation-message assistant">
                 <Bot size={16} />
-                <p>
-                  {zh
-                    ? extractingReference
-                      ? '请说明想从这份参考中整理哪些设定。我可以同时提出人物、势力、关系、世界书、时间线、地点等多张候选卡，但不会改动参考原文。'
-                      : `请描述你要补充的资料。可以只给一个模糊想法，我会在当前栏目允许的类型内追问和整理${suggestedKind ? `（当前栏目：${PLANNING_KIND_LABELS[suggestedKind].zh}）` : ''}。`
-                    : extractingReference
-                      ? 'Describe what should be extracted. I can propose multiple setting cards, but the uploaded reference remains unchanged.'
-                      : 'Describe the record you need. I will ask questions and stay within the current module’s allowed document types.'}
-                </p>
+                <p>{assistantIntro}</p>
               </article>
               {messages.map((item, index) => (
                 <article key={`${item.role}-${index}`} className={`conversation-message ${item.role}`}>
@@ -311,9 +386,17 @@ export function PlanningCreationDialog({
                   if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') void discuss()
                 }}
                 placeholder={
-                  zh
-                    ? '例如：这是一个前期盟友，但我还没决定他是否会背叛…'
-                    : 'Describe the idea, uncertainty, and intended story use…'
+                  convertingCard
+                    ? zh
+                      ? '例如：转成地点卡，保留名称和图片，把正文中的空间信息整理为地点属性…'
+                      : 'For example: convert to a location, preserve the name and image, and map spatial facts into location fields…'
+                    : extractingSource
+                      ? zh
+                        ? '例如：抽取已明确出现的人物、地点、势力和背景事件，推断内容保持候选状态…'
+                        : 'Extract explicit people, places, factions, and background events; keep inferred facts tentative…'
+                      : zh
+                        ? '例如：这是一个前期盟友，但我还没决定他是否会背叛…'
+                        : 'Describe the idea, uncertainty, and intended story use…'
                 }
                 disabled={Boolean(busy)}
                 aria-label={zh ? '建档讨论消息' : 'Planning discussion message'}
@@ -454,9 +537,8 @@ export function PlanningCreationDialog({
                   <PlanningFieldCopy name="document_type" language={language} />
                   <select
                     value={proposal.kind}
-                    onChange={(event) =>
-                      updateProposal({ ...proposal, kind: event.target.value as PlanningDocumentKind })
-                    }
+                    onChange={(event) => void changeProposalKind(event.target.value as PlanningDocumentKind)}
+                    disabled={Boolean(busy)}
                     aria-label={zh ? '提案文档类型' : 'Proposal document type'}
                   >
                     {proposalKindOptions.map((kind) => (
@@ -476,6 +558,8 @@ export function PlanningCreationDialog({
                 <section className="proposal-fields" aria-label={zh ? '提案结构化字段' : 'Proposal fields'}>
                   <MetadataEditor
                     data={proposal.fields}
+                    docs={docs}
+                    documentType={proposal.kind}
                     language={language}
                     onChange={(fields) => updateProposal({ ...proposal, fields })}
                   />

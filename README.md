@@ -6,6 +6,15 @@
   <img src="assets/brand/quillarium-q.png" alt="Quillarium Q app icon" width="88" />
 </p>
 
+<p align="center">
+  <strong>English</strong> · <a href="README.zh-CN.md">简体中文</a>
+</p>
+
+<p align="center">
+  Latest stable release: <a href="https://github.com/kayz/Quillarium/releases/tag/v0.3.0">v0.3.0</a>
+  · <a href="docs/README.md">Documentation map</a>
+</p>
+
 Quillarium (羽笔馆) is a local-first, Obsidian-backed writing system for long-form fiction. It
 stores a novel as Markdown and YAML, keeps planning facts traceable, records AI runs, checks
 continuity, and exports accepted prose.
@@ -14,10 +23,10 @@ Quillarium is the sole product runtime. Obsidian is its durable manual-editing s
 workspace may register multiple projects and shared guidance, while each project directory is both
 an independent Obsidian vault and a Quillarium project root.
 
-This document describes the `0.3.0` code line as of 2026-08-19. “Works now” means the
-behavior is present in the repository and covered by local tests. Strongly typed lifecycle events
-remain in the [roadmap](ROADMAP.md); atomic continuity apply is implemented as a reviewed,
-recoverable operation.
+This document describes the released `0.3.0` code line as of 2026-08-19. “Works now” means the
+behavior is present in the tagged repository and covered by local and release-gate tests. Strongly
+typed lifecycle events remain in the [roadmap](ROADMAP.md); atomic continuity apply is implemented
+as a reviewed, recoverable operation.
 
 ## What Works Now
 
@@ -107,6 +116,37 @@ recoverable operation.
   content before a new Run or provider request is created.
 - The 0.3.0 setting-card boundary adds project-local imagery, a text-only HTML design Agent,
   workspace-level reusable card styles, reversible story-tree visibility, and typed faction networks.
+
+## 0.3.1 Local Candidate
+
+The current `0.3.1` local candidate after `v0.3.0` adds reviewed setting-card retyping and extraction from
+author-written chapter prose. Canon converts only to or from a World entry. A World entry is the hub
+for converting to or from characters, character relationships, locations, timeline events,
+factions and their relationship/membership cards, foreshadowing, and narrative cards. Conversion
+keeps the stable card ID, shared tags/provenance/image metadata, and Markdown body, while the author
+reviews the target schema in the existing proposal dialog. Apply runs under the project write lock,
+checks the source hash, verifies the new file, and removes the old typed file only after the session
+snapshot is durable; a conflict or failure writes nothing.
+
+The chapter-prose editor can also open “Extract settings” for already handwritten text. The saved
+prose is a hash-protected read-only source, never an editable proposal. AI may return multiple
+create-only Canon and setting-card proposals; Quillarium attaches a code-owned `derived_from`
+relation to the source prose stable ID, and only explicitly confirmed cards are written. The prose
+itself is never changed by extraction.
+
+Local text and Markdown files can also be dropped anywhere in an open project. Quillarium asks
+whether to archive them as deterministic reference documents or open them in the reviewed AI setting
+import flow; dropping alone never writes or calls a model. Every directly maintained setting section
+also offers a separate blank-card action. Blank cards start as disabled drafts for manual completion,
+while relationship, membership, and timeline-coordinate cards retain their required structured forms.
+
+The same candidate replaces the four color-only themes with four complete, editable interface skins.
+`paper`, `ink`, `mist`, and `bamboo` remain the compatible stored IDs, while each skin now controls
+palette, interface/prose type, scale, panel spacing, navigation/detail placement, toolbar alignment,
+and button shape/treatment/size through bounded CSS tokens. Settings previews edits live and saves
+skin, density, and global language in one operation; reset removes only the selected customization.
+Old global configs and project `default_theme` values require no migration and are not rewritten on
+read. See the bilingual [UI skin contract](docs/UI-SKINS.md).
 
 AI is optional for project management, import, context assembly, deterministic checks, and export.
 Generation and `check --semantic` require an OpenAI-compatible endpoint or configured provider.
@@ -199,8 +239,8 @@ workflow only when that immutable tag matches every package version and points t
 `master`. The workflow reruns the complete quality gate, builds Windows x64 NSIS plus macOS x64 and
 arm64 DMGs on native runners, verifies the complete installer set, and only then creates one GitHub
 Release. Alpha versions are marked as pre-releases automatically. A failed tag is not moved, reused,
-or rerun; release work continues with a new forward-only version. See
-[docs/RELEASING.md](docs/RELEASING.md).
+or rerun; release work continues with a new forward-only version. See the
+[release guide](docs/RELEASING.md).
 
 ## CLI Flow
 
@@ -233,17 +273,19 @@ timeline event ID. These names do not change the current `chapter_id`-based scen
 ```text
 Writing Workspace/
   quillarium-workspace.yaml
-  methodology/            templates/
+  methodology/            templates/          styles/setting-cards/
   projects/
     my-novel/              # Quillarium project root and Obsidian vault
       .obsidian/
       project.yaml
+      assets/cover/         assets/settings/
       canon/               characters/       character-states/
+      factions/            factions/relations/  factions/memberships/
       timeline/            locations/        world/
       foreshadowing/       references/       issues/
       narrative/           strategy/         patterns/         resources/
       causality/           outlines/         chapters/         scenes/
-      prompts/             presets/          runs/             imports/
+      prompts/             assistant-prompts/  presets/        runs/        imports/
       context-bundles/     creator-roles/    explorations/
       reviews/             # reviews plus apply audits, backups, and staged copies
       style/               exports/
@@ -266,7 +308,8 @@ paths and credentials stay in the user configuration outside the workspace.
 - [@quillarium/cli](packages/cli/README.md) — Commander-based CLI assembly.
 - [@quillarium/sillytavern](packages/sillytavern/README.md) — Character Card and World Info conversion.
 
-The product and agent workflow rationale is documented in
+Start with the [documentation map](docs/README.md) for audience-specific reading paths and the
+Simplified Chinese documentation entry. The product and agent workflow rationale is documented in
 [docs/AGENT-DESIGN.md](docs/AGENT-DESIGN.md). The target architecture and delivery priorities are in
 [docs/DESIGN.md](docs/DESIGN.md) and [ROADMAP.md](ROADMAP.md). External design research, independent
 implementation rules, and license boundaries are recorded in

@@ -23,7 +23,8 @@ export const cardRelationKindSchema = z.enum([
   'involves',
   'triggers',
   'resolves',
-  'explains'
+  'explains',
+  'derived_from'
 ])
 
 export const cardRelationSchema = z.object({

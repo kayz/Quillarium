@@ -5,15 +5,21 @@ export function clampPaneSize(value: number, min: number, max: number): number {
   return Math.min(safeMax, Math.max(min, Math.round(value)))
 }
 
+export function directedResizeDelta(delta: number, reverse = false): number {
+  return reverse ? -delta : delta
+}
+
 export function SplitHandle({
   orientation,
   label,
   onResize,
+  reverse = false,
   className = ''
 }: {
   orientation: 'vertical' | 'horizontal'
   label: string
   onResize: (delta: number) => void
+  reverse?: boolean
   className?: string
 }) {
   const cleanupRef = useRef<(() => void) | null>(null)
@@ -29,7 +35,7 @@ export function SplitHandle({
         const delta = 16
         if (orientation === 'vertical' && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
           event.preventDefault()
-          onResize(event.key === 'ArrowRight' ? delta : -delta)
+          onResize(directedResizeDelta(event.key === 'ArrowRight' ? delta : -delta, reverse))
         }
         if (orientation === 'horizontal' && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
           event.preventDefault()
@@ -43,7 +49,7 @@ export function SplitHandle({
         document.body.classList.add(bodyClass)
         const move = (moveEvent: PointerEvent) => {
           const current = orientation === 'vertical' ? moveEvent.clientX : moveEvent.clientY
-          onResize(current - previous)
+          onResize(directedResizeDelta(current - previous, reverse))
           previous = current
         }
         const cleanup = () => {

@@ -1,6 +1,6 @@
 {
   "name": "@quillarium/core",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
@@ -21,6 +21,10 @@
     "./sensitive-data": {
       "types": "./dist/sensitive-data.d.ts",
       "import": "./dist/sensitive-data.js"
+    },
+    "./ui-skins": {
+      "types": "./dist/ui-skins.d.ts",
+      "import": "./dist/ui-skins.js"
     }
   },
   "scripts": {

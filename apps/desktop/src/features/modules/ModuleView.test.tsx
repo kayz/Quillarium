@@ -10,7 +10,9 @@ const baseProps = {
   root: 'C:/projects/sample',
   runs: [] as RunSummary[],
   onCreate: noopAsync,
+  onCreateBlank: noopAsync,
   onAIPlanningCreate: vi.fn(),
+  onAIConvertCard: vi.fn(),
   onUploadReferences: noopAsync,
   onAIExtractReference: vi.fn(),
   selectedTarget: null,
@@ -35,6 +37,8 @@ describe('ModuleView localized summaries', () => {
     const html = renderToStaticMarkup(<ModuleView {...baseProps} module="world" docs={docs} language="zh" />)
 
     expect(html).toContain('世界书 · 启用')
+    expect(html).toContain('新建空白卡')
+    expect(html).toContain('AI 讨论新增')
     expect(html).not.toContain('>active<')
   })
 

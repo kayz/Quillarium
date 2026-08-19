@@ -9,7 +9,12 @@ vi.mock('electron', () => ({
 }))
 
 import { createProjectAt, listDocs, readText, type ReferenceDoc } from '@quillarium/core'
-import { chooseReferenceUploadFiles, uploadReferenceFiles, type ReferenceUploadDialog } from './references.js'
+import {
+  chooseReferenceUploadFiles,
+  resolveReferenceUploadSources,
+  uploadReferenceFiles,
+  type ReferenceUploadDialog
+} from './references.js'
 
 const roots: string[] = []
 
@@ -39,6 +44,15 @@ describe('reference upload picker', () => {
     const showOpenDialog = vi.fn(async () => ({ canceled: true, filePaths: [] }))
 
     await expect(chooseReferenceUploadFiles({ showOpenDialog } as ReferenceUploadDialog)).resolves.toEqual([])
+  })
+
+  it('uses explicit dropped paths without reopening the native file picker', async () => {
+    const showOpenDialog = vi.fn(async () => ({ canceled: true, filePaths: [] }))
+
+    await expect(
+      resolveReferenceUploadSources(['C:\\notes\\dynasty.md'], { showOpenDialog } as ReferenceUploadDialog)
+    ).resolves.toEqual(['C:\\notes\\dynasty.md'])
+    expect(showOpenDialog).not.toHaveBeenCalled()
   })
 })
 

@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Bot, Plus, Upload } from 'lucide-react'
-import type { DocEntry, LanguageName, ModuleName, RunSummary, TargetSelection } from '../../app/types.js'
+import type {
+  DocEntry,
+  LanguageName,
+  ModuleName,
+  PlanningDocumentKind,
+  RunSummary,
+  TargetSelection
+} from '../../app/types.js'
 import { I18N, t } from '../../app/i18n.js'
 import { bridge } from '../../app/bridge.js'
 import { docTitle } from '../../shared/outline.js'
@@ -11,6 +18,13 @@ import { IssueWorkspace } from './IssueWorkspace.js'
 import { BoundedPager } from '../layout/BoundedPager.js'
 import { boundedPage } from '../layout/bounded-page.js'
 import { SETTING_IMAGE_TYPES, SettingThumbnail } from '../planning/SettingCardMedia.js'
+import {
+  blankSettingCardInput,
+  PLANNING_KIND_LABELS,
+  planningConversionKinds,
+  planningKindForContext
+} from '../planning/planning-model.js'
+import { OutlineCreateDialog } from '../outline/OutlineCreateDialog.js'
 
 const MODULE_PAGE_SIZE = 30
 const MODULE_TYPE_MAP: Record<string, string> = {
@@ -35,7 +49,9 @@ export function ModuleView({
   docs,
   runs,
   onCreate,
+  onCreateBlank,
   onAIPlanningCreate,
+  onAIConvertCard,
   onUploadReferences,
   onAIExtractReference,
   selectedTarget,
@@ -50,7 +66,9 @@ export function ModuleView({
   docs: DocEntry[]
   runs: RunSummary[]
   onCreate: (kind: string, input: Record<string, unknown>) => Promise<unknown>
+  onCreateBlank: (kind: PlanningDocumentKind, input: Record<string, unknown>) => Promise<void>
   onAIPlanningCreate: (module: ModuleName) => void
+  onAIConvertCard: (doc: DocEntry) => void
   onUploadReferences: () => Promise<void>
   onAIExtractReference: (doc: DocEntry) => void
   selectedTarget: TargetSelection | null
@@ -61,6 +79,8 @@ export function ModuleView({
   language: LanguageName
 }) {
   const [pageIndex, setPageIndex] = useState(0)
+  const [blankCreateOpen, setBlankCreateOpen] = useState(false)
+  const blankKind = planningKindForContext(module)
   const filtered = useMemo(
     () =>
       docs.filter((doc) =>
@@ -75,6 +95,13 @@ export function ModuleView({
     module === 'references' && selectedTarget?.type === 'reference'
       ? (filtered.find((document) => document.data.id === selectedTarget.id) ?? null)
       : null
+  const selectedConvertible = selectedTarget
+    ? (filtered.find(
+        (document) =>
+          document.data.id === selectedTarget.id &&
+          planningConversionKinds(document.data.type as PlanningDocumentKind).length > 1
+      ) ?? null)
+    : null
   const runPage = boundedPage(runs, pageIndex, MODULE_PAGE_SIZE)
   const [settingImages, setSettingImages] = useState<Awaited<ReturnType<typeof bridge.getSettingImageBatch>>>(
     {}
@@ -158,6 +185,7 @@ export function ModuleView({
         root={root}
         docs={docs.filter((doc) => doc.data.type === 'canon')}
         onCreate={onCreate}
+        onConvert={onAIConvertCard}
         onReload={onReload}
         language={language}
       />
@@ -180,7 +208,8 @@ export function ModuleView({
     <section className="module-view module-view-full">
       <ModuleCreateForm
         module={module}
-        onCreate={onAIPlanningCreate}
+        onAICreate={onAIPlanningCreate}
+        onBlankCreate={blankKind ? () => setBlankCreateOpen(true) : undefined}
         onUploadReferences={onUploadReferences}
         language={language}
       />
@@ -194,6 +223,18 @@ export function ModuleView({
           </span>
           <button className="primary" type="button" onClick={() => onAIExtractReference(selectedReference)}>
             <Bot size={15} /> {language === 'zh' ? 'AI 讨论生卡' : 'Discuss and create cards'}
+          </button>
+        </div>
+      )}
+      {selectedConvertible && (
+        <div className="assistant-card-shortcut">
+          <span>
+            {language === 'zh'
+              ? '保留稳定 ID，将当前卡片原子迁移为世界书或允许的设定类型。'
+              : 'Preserve the stable ID and atomically migrate this card to World or another allowed setting type.'}
+          </span>
+          <button className="primary" type="button" onClick={() => onAIConvertCard(selectedConvertible)}>
+            <Bot size={15} /> {language === 'zh' ? '转换卡片类型' : 'Convert card type'}
           </button>
         </div>
       )}
@@ -305,6 +346,19 @@ export function ModuleView({
         language={language}
         label={language === 'zh' ? '资料卡分页' : 'Card pagination'}
       />
+      {blankCreateOpen && blankKind && (
+        <OutlineCreateDialog
+          label={PLANNING_KIND_LABELS[blankKind][language]}
+          mode="setting"
+          language={language}
+          busy={false}
+          onClose={() => setBlankCreateOpen(false)}
+          onConfirm={async (title) => {
+            await onCreateBlank(blankKind, blankSettingCardInput(blankKind, title))
+            setBlankCreateOpen(false)
+          }}
+        />
+      )}
     </section>
   )
 }
@@ -373,12 +427,14 @@ export function RouteTable({
 
 export function ModuleCreateForm({
   module,
-  onCreate,
+  onAICreate,
+  onBlankCreate,
   onUploadReferences,
   language
 }: {
   module: ModuleName
-  onCreate: (module: ModuleName) => void
+  onAICreate: (module: ModuleName) => void
+  onBlankCreate?: () => void
   onUploadReferences: () => Promise<void>
   language: LanguageName
 }) {
@@ -391,9 +447,16 @@ export function ModuleCreateForm({
           <Upload size={15} /> {language === 'zh' ? '上传参考文档' : 'Upload references'}
         </button>
       ) : enabled ? (
-        <button className="primary" type="button" onClick={() => onCreate(module)}>
-          <Plus size={15} /> {language === 'zh' ? '与 AI 对话新增' : 'Create with AI'}
-        </button>
+        <div className="inline-create">
+          {onBlankCreate && (
+            <button className="primary" type="button" onClick={onBlankCreate}>
+              <Plus size={15} /> {language === 'zh' ? '新建空白卡' : 'New blank card'}
+            </button>
+          )}
+          <button className="secondary" type="button" onClick={() => onAICreate(module)}>
+            <Bot size={15} /> {language === 'zh' ? 'AI 讨论新增' : 'Create with AI'}
+          </button>
+        </div>
       ) : null}
     </div>
   )

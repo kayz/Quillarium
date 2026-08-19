@@ -37,6 +37,8 @@ function renderOutlineHome(
       dirty={false}
       busy={false}
       project={project}
+      navigationPosition="left"
+      detailPosition="right"
       onSection={noop}
       onToggleLeft={noop}
       onToggleRight={noop}
@@ -47,6 +49,7 @@ function renderOutlineHome(
       onOpenVolume={noop}
       onCreate={noopAsync}
       onAIPlanningCreate={noop}
+      onAIConvertCard={noop}
       onAIEditCard={noop}
       onUploadReferences={noopAsync}
       onAIExtractReference={noop}
@@ -100,9 +103,10 @@ describe('OutlineHome issue workflow', () => {
 
     const html = renderOutlineHome(docs, 'factions')
     expect(html).toContain('势力、关系与成员')
-    expect(html).toContain('新增势力')
+    expect(html).toContain('新建空白势力')
     expect(html).toContain('势力关系')
     expect(html).toContain('人物所属')
+    expect(html).toContain('AI 讨论新增')
     expect(html.match(/class="outline-item/g)).toHaveLength(3)
     expect(html).toContain('setting-thumbnail-fallback')
   })
@@ -182,5 +186,12 @@ describe('OutlineHome issue workflow', () => {
     expect(html).toContain('上传参考文档')
     expect(html).not.toContain('>新增<')
     expect(html).not.toContain('与 AI 对话新增')
+  })
+
+  it('offers manual blank creation and AI creation as separate setting-card actions', () => {
+    const html = renderOutlineHome([], 'world')
+
+    expect(html).toContain('新建空白卡')
+    expect(html).toContain('AI 讨论新增')
   })
 })

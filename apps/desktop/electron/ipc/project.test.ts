@@ -65,6 +65,36 @@ describe('workspace project primitives used by desktop', () => {
 })
 
 describe('desktop document identity', () => {
+  it('creates every top-level setting card as a hand-authored disabled draft', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'quillarium-desktop-blank-settings-'))
+    roots.push(root)
+    await createProjectAt(root, { id: 'blank-settings', title: 'Blank Settings' })
+
+    for (const kind of [
+      'canon',
+      'world_entry',
+      'character',
+      'faction',
+      'timeline_event',
+      'location',
+      'foreshadowing',
+      'narrative'
+    ] as const) {
+      const file = await createProjectDocument(root, kind, {
+        title: `Blank ${kind}`,
+        content: '',
+        status: 'draft',
+        enabled: false,
+        ...(kind === 'canon' ? { strength: 'hard', source: 'user' } : {}),
+        ...(kind === 'world_entry' ? { entry_status: 'candidate' } : {}),
+        ...(kind === 'foreshadowing' ? { state: 'planned' } : {}),
+        ...(kind === 'narrative' ? { category: 'style', scope: 'project', source: 'user' } : {})
+      })
+      const created = await readMarkdown<Record<string, unknown>>(file)
+      expect(created.data).toMatchObject({ type: kind, status: 'draft', enabled: false })
+    }
+  })
+
   it('keeps a legacy overview distinct from the book outline when its title changes', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'quillarium-desktop-overview-'))
     roots.push(root)

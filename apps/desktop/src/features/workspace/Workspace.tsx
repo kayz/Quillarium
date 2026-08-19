@@ -13,6 +13,7 @@ import type {
   PlanningCheckScope,
   TargetSelection,
   ThemeName,
+  UISkinPreferencesV1,
   ViewMode,
   VolumeSection,
   WorkLevel,
@@ -50,10 +51,12 @@ export function Workspace({
   theme,
   density,
   language,
+  skinPreferences,
   aiStatus,
   onTheme,
   onDensity,
   onLanguage,
+  onSkinPreferences,
   onAIStatus,
   onBack
 }: {
@@ -61,10 +64,12 @@ export function Workspace({
   theme: ThemeName
   density: DensityName
   language: LanguageName
+  skinPreferences?: UISkinPreferencesV1
   aiStatus: AIStatus
   onTheme: (theme: ThemeName) => void
   onDensity: (density: DensityName) => void
   onLanguage: (language: LanguageName) => void
+  onSkinPreferences: (preferences: UISkinPreferencesV1 | undefined) => void
   onAIStatus: (status: AIStatus) => void
   onBack: () => void
 }) {
@@ -660,7 +665,20 @@ export function Workspace({
   return (
     <>
       <WorkspaceView
-        app={{ root, theme, density, language, aiStatus, onTheme, onDensity, onLanguage, onAIStatus, onBack }}
+        app={{
+          root,
+          theme,
+          density,
+          language,
+          skinPreferences,
+          aiStatus,
+          onTheme,
+          onDensity,
+          onLanguage,
+          onSkinPreferences,
+          onAIStatus,
+          onBack
+        }}
         state={{
           data,
           workspaceMode,

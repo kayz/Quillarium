@@ -39,6 +39,24 @@ describe('AIImportDialog', () => {
     expect(html).toContain('先与设定整理助手讨论')
   })
 
+  it('opens dropped files directly in file-import mode without starting the analysis', () => {
+    const html = renderToStaticMarkup(
+      <AIImportDialog
+        root="C:/project"
+        docs={[]}
+        language="zh"
+        initialSourcePaths={['C:/notes/人物.md', 'C:/notes/地点.txt']}
+        onClose={() => undefined}
+        onImported={async () => undefined}
+      />
+    )
+
+    expect(html).toContain('人物.md')
+    expect(html).toContain('地点.txt')
+    expect(html).toContain('交给 AI 拆分')
+    expect(html).not.toContain('placeholder="粘贴人物小传')
+  })
+
   it('uses the typed import-source picker when the preload bridge is current', async () => {
     const chooseImportSources = vi.fn(async () => ['C:/notes/story.md'])
 

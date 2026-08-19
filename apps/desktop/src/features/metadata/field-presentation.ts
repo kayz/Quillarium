@@ -1576,7 +1576,8 @@ const DEFAULT_ENUM_OPTIONS: Record<string, readonly string[]> = {
     'involves',
     'triggers',
     'resolves',
-    'explains'
+    'explains',
+    'derived_from'
   ],
   scope_type: ['timeline_event', 'outline', 'scene']
 }
@@ -1674,6 +1675,7 @@ const ENUM_LABELS: Record<string, { zh: string; en: string }> = {
   triggers: { zh: '触发', en: 'Triggers' },
   resolves: { zh: '解决/回收', en: 'Resolves' },
   explains: { zh: '解释', en: 'Explains' },
+  derived_from: { zh: '抽取自', en: 'Derived from' },
   timeline_event: { zh: '时间线事件', en: 'Timeline event' },
   outline: { zh: '故事节点', en: 'Story node' },
   scene: { zh: '节', en: 'Scene' }

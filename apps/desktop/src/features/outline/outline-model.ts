@@ -32,6 +32,7 @@ import {
   fieldLabel as localizedFieldLabel,
   outlineLevelDisplayLabel
 } from '../metadata/field-presentation.js'
+import { blankSettingCardInput } from '../planning/planning-model.js'
 
 export interface OutlineSectionDefinition<T extends string> {
   id: T
@@ -473,19 +474,19 @@ export function createInputForOutlineSection(
       }
     }
   }
-  if (section === 'canon')
-    return { kind: 'canon', data: { title, content, status: 'confirmed', strength: 'hard' } }
-  if (section === 'world') return { kind: 'world_entry', data: { title, content, entry_status: 'candidate' } }
-  if (section === 'characters') return { kind: 'character', data: { title, content } }
-  if (section === 'factions') return { kind: 'faction', data: { title, content } }
-  if (section === 'timeline') return { kind: 'timeline_event', data: { title, content } }
-  if (section === 'locations') return { kind: 'location', data: { title, content } }
-  if (section === 'foreshadowing') return { kind: 'foreshadowing', data: { title, content } }
+  if (section === 'canon') return { kind: 'canon', data: blankSettingCardInput('canon', title) }
+  if (section === 'world') return { kind: 'world_entry', data: blankSettingCardInput('world_entry', title) }
+  if (section === 'characters') return { kind: 'character', data: blankSettingCardInput('character', title) }
+  if (section === 'factions') return { kind: 'faction', data: blankSettingCardInput('faction', title) }
+  if (section === 'timeline') {
+    return { kind: 'timeline_event', data: blankSettingCardInput('timeline_event', title) }
+  }
+  if (section === 'locations') return { kind: 'location', data: blankSettingCardInput('location', title) }
+  if (section === 'foreshadowing') {
+    return { kind: 'foreshadowing', data: blankSettingCardInput('foreshadowing', title) }
+  }
   if (section === 'narrative') {
-    return {
-      kind: 'narrative',
-      data: { title, content, category: 'style', scope: 'project', source: 'user', enabled: false }
-    }
+    return { kind: 'narrative', data: blankSettingCardInput('narrative', title) }
   }
   if (section === 'issues') return { kind: 'issue', data: { title, content, priority: 'medium' } }
   return { kind: 'reference', data: { title, content } }
