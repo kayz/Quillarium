@@ -35,6 +35,7 @@ import type {
   TimelineNodeDoc
 } from './types.js'
 import { compareTimelineNodes } from './timeline.js'
+import { selectCharacterTimePointContext } from './assistant-workflows.js'
 import type { WritingPresetV2 } from './types.js'
 
 export interface AssistantContextTarget {
@@ -48,6 +49,7 @@ export interface ContextBundleWarning {
     | 'CONTEXT_PREFERRED_SOURCE_DUPLICATE'
     | 'CONTEXT_SELECTOR_EMPTY'
     | 'CONTEXT_SOURCE_EXCLUDED'
+    | 'CHARACTER_TIME_CONTEXT_WARNING'
   message: string
   source?: { document_type: BundleDocumentType; document_id: string }
   selector?: ContextBundleSelectorV1['kind']
@@ -414,12 +416,25 @@ function activeTimelineContext(
   projectTimelineNode: string | null
 ): LoadedAssistantDocument[] {
   const directTimeline = current?.data['timeline_node']
+  let eventSelection: ReturnType<typeof selectCharacterTimePointContext> | null = null
+  if (current?.data.type === 'timeline_event') {
+    try {
+      eventSelection = selectCharacterTimePointContext(documents, {
+        timeline_event_id: current.data.id
+      })
+    } catch {
+      return []
+    }
+  }
+  if (eventSelection?.status === 'ambiguous') return []
   const nodeId =
     current?.data.type === 'timeline_node'
       ? current.data.id
-      : typeof directTimeline === 'string' && directTimeline
-        ? directTimeline
-        : projectTimelineNode
+      : eventSelection?.timeline_node_id
+        ? eventSelection.timeline_node_id
+        : typeof directTimeline === 'string' && directTimeline
+          ? directTimeline
+          : projectTimelineNode
   if (!nodeId) return []
   const nodes = documents
     .filter((document) => document.data.type === 'timeline_node')
@@ -445,9 +460,13 @@ function activeTimelineContext(
     }
     if (document.data.type === 'character_relation') {
       const relation = document.data as unknown as CharacterRelationDoc
+      if (eventSelection) {
+        if (eventSelection.active_relation_ids.includes(relation.id)) selected.push(document)
+        continue
+      }
       const starts = relation.starts_at ? order.get(relation.starts_at) : undefined
       const ends = relation.ends_at ? order.get(relation.ends_at) : undefined
-      if ((starts === undefined || starts <= nodeIndex) && (ends === undefined || nodeIndex < ends)) {
+      if (starts !== undefined && starts <= nodeIndex && (ends === undefined || nodeIndex < ends)) {
         selected.push(document)
       }
     }

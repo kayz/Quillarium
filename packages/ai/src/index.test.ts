@@ -330,7 +330,7 @@ describe('generation run snapshots', () => {
     }
   })
 
-  it('orders and snapshots the book header and persists the sanitized provider-visible request', async () => {
+  it('orders and snapshots the book header and persists the provider-visible request', async () => {
     const tmp = await mkdtemp(path.join(os.tmpdir(), 'quillarium-ai-book-header-'))
     try {
       const project = await createProjectAt(path.join(tmp, 'project'), {
@@ -348,7 +348,7 @@ describe('generation run snapshots', () => {
       const run = await createGenerationRun(
         project.root,
         'scene-one',
-        'PromptBlock context. C:\\Users\\writer\\notes.md sk-visiblecredential12345',
+        'PromptBlock context with no machine-local material.',
         supportedConfig
       )
       const envelope = JSON.parse(await readRunFile(project.root, run.id, 'prompt-envelope.json')) as {
@@ -381,16 +381,33 @@ describe('generation run snapshots', () => {
       })
       expect(headerSnapshot.actual_tokens).toBeGreaterThan(0)
       expect(providerRequest.messages[0]).toEqual(envelope.messages[0])
-      expect(JSON.stringify(providerRequest)).not.toMatch(
-        /sk-must-never-be-snapshotted|sk-visiblecredential12345|private-endpoint|C:\\\\Users\\\\writer/u
-      )
-      expect(JSON.stringify(providerRequest)).toContain('[LOCAL_PATH_REDACTED]')
-      expect(JSON.stringify(providerRequest)).toContain('[REDACTED_CREDENTIAL]')
+      expect(JSON.stringify(providerRequest)).not.toMatch(/sk-must-never-be-snapshotted|private-endpoint/u)
 
       await saveBookGenerationHeader(project.root, 'A later header that must not rewrite old runs.')
       expect(
         JSON.parse(await readRunFile(project.root, run.id, 'book-generation-header.json'))
       ).toMatchObject({ text: headerText })
+    } finally {
+      await rm(tmp, { recursive: true, force: true })
+    }
+  })
+
+  it('blocks sensitive model-visible input before creating a Run', async () => {
+    const tmp = await mkdtemp(path.join(os.tmpdir(), 'quillarium-ai-sensitive-preflight-'))
+    try {
+      const project = await createProjectAt(path.join(tmp, 'project'), {
+        id: 'sensitive-preflight',
+        title: 'Sensitive Preflight'
+      })
+      await expect(
+        createGenerationRun(
+          project.root,
+          'scene-one',
+          'Read C:\\Users\\writer\\notes.md with sk-syntheticcredential12345.',
+          config
+        )
+      ).rejects.toMatchObject({ code: 'SENSITIVE_PROMPT_CONTENT' })
+      await expect(listRuns(project.root)).resolves.toEqual([])
     } finally {
       await rm(tmp, { recursive: true, force: true })
     }

@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import {
   createProjectAt,
   applyIssueBatchAction,
+  createCharacter,
   createForeshadowing,
   createLocation,
   createReference,
@@ -14,6 +15,8 @@ import {
   listDocs,
   pathExists,
   type IssueDoc,
+  type FactionDoc,
+  type FactionMembershipDoc,
   type LocationDoc,
   type WorldEntryDoc
 } from '@quillarium/core'
@@ -259,6 +262,261 @@ describe('planning discussion side effects', () => {
     })
   })
 
+  it('uses an uploaded reference as a read-only source for multiple reviewable cards', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'quillarium-reference-extraction-'))
+    roots.push(root)
+    await createProjectAt(root, { id: 'reference-extraction', title: '参考生卡' })
+    const referencePath = await createReference(
+      root,
+      '港口见闻',
+      { id: 'reference-harbor-notes', location: 'harbor-notes.md' },
+      '# 港口见闻\n\n林澜在北门核验夜间通行证。'
+    )
+    const sourceBefore = await readFile(referencePath, 'utf8')
+    const session = await startPlanningSession(root, 'reference-extraction', 'reference-harbor-notes')
+    let prompt = ''
+
+    expect(session).toMatchObject({
+      module: 'reference-extraction',
+      proposal: null,
+      proposals: [],
+      selected_proposal_id: null,
+      source_document: {
+        id: 'reference-harbor-notes',
+        type: 'reference',
+        title: '港口见闻'
+      }
+    })
+    expect(session.document).toBeUndefined()
+
+    const response = await discussPlanningRecord(
+      root,
+      {
+        module: 'reference-extraction',
+        sessionId: session.id,
+        messages: [{ role: 'author', content: '把其中的人物和制度整理成卡。' }]
+      },
+      {
+        loadAIProfile: async () => configuredAI,
+        generate: async (value) => {
+          prompt = value
+          return JSON.stringify({
+            message: '生成两张待审阅卡片。',
+            proposals: [
+              {
+                id: 'proposal-character-lin-lan',
+                kind: 'character',
+                title: '林澜',
+                fields: { role: 'supporting' },
+                content: '负责核验通行证。'
+              },
+              {
+                id: 'proposal-world-night-pass',
+                kind: 'world_entry',
+                title: '夜间通行证',
+                fields: { role: 'constraint', entry_status: 'candidate', triggers: ['通行证'] },
+                content: '北门夜间通行凭证。'
+              }
+            ]
+          })
+        }
+      }
+    )
+
+    expect(prompt).toContain('参考生卡的只读来源')
+    expect(prompt).toContain('林澜在北门核验夜间通行证')
+    expect(response.proposals.map((proposal) => proposal.draft.kind)).toEqual(['character', 'world_entry'])
+    for (const proposal of response.proposals) {
+      expect(proposal.draft.fields['source_refs']).toContain('reference-harbor-notes')
+      expect(proposal.operation).toBe('create')
+    }
+
+    await confirmPlanningRecord(root, {
+      sessionId: session.id,
+      messages: [{ role: 'author', content: '确认这两张。' }],
+      proposals: response.proposals.map((proposal) => ({ ...proposal, status: 'confirmed' as const })),
+      selectedProposalId: response.proposals[0]!.id
+    })
+
+    expect(await readFile(referencePath, 'utf8')).toBe(sourceBefore)
+    expect((await listDocs(root)).filter((document) => document.data.type === 'reference')).toHaveLength(1)
+    const derived = (await listDocs(root)).filter((document) =>
+      ['character', 'world_entry'].includes(document.data.type)
+    )
+    expect(derived).toHaveLength(2)
+    expect(
+      derived.every((document) =>
+        ((document.data as unknown as Record<string, unknown>)['source_refs'] as string[]).includes(
+          'reference-harbor-notes'
+        )
+      )
+    ).toBe(true)
+  })
+
+  it('blocks reference edits and performs zero card writes when the source changes before apply', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'quillarium-reference-conflict-'))
+    roots.push(root)
+    await createProjectAt(root, { id: 'reference-conflict', title: '参考冲突' })
+    const referencePath = await createReference(
+      root,
+      '旧城备忘',
+      { id: 'reference-old-city' },
+      '旧城有一座钟楼。'
+    )
+    const session = await startPlanningSession(root, 'reference-extraction', 'reference-old-city')
+    const response = await discussPlanningRecord(
+      root,
+      {
+        module: 'reference-extraction',
+        sessionId: session.id,
+        messages: [{ role: 'author', content: '建立地点卡。' }]
+      },
+      {
+        loadAIProfile: async () => configuredAI,
+        generate: async () =>
+          JSON.stringify({
+            message: '待审阅地点卡。',
+            proposals: [
+              {
+                id: 'proposal-old-city-tower',
+                kind: 'location',
+                title: '旧城钟楼',
+                fields: { kind: 'position', scale: 'interior' },
+                content: '钟楼位于旧城中心。'
+              }
+            ]
+          })
+      }
+    )
+    await writeFile(referencePath, `${await readFile(referencePath, 'utf8')}\n外部补充。\n`, 'utf8')
+
+    await expect(
+      confirmPlanningRecord(root, {
+        sessionId: session.id,
+        messages: [{ role: 'author', content: '确认。' }],
+        proposals: response.proposals.map((proposal) => ({ ...proposal, status: 'confirmed' as const })),
+        selectedProposalId: response.proposals[0]!.id
+      })
+    ).rejects.toThrow(/参考文档[\s\S]*已在会话外变化[\s\S]*未写入/u)
+
+    expect(await listDocs<LocationDoc>(root, 'location')).toHaveLength(0)
+    expect(await readFile(referencePath, 'utf8')).toContain('外部补充')
+
+    await expect(
+      discussPlanningRecord(
+        root,
+        {
+          module: 'reference-extraction',
+          sessionId: session.id,
+          messages: [{ role: 'author', content: '请直接改掉参考文档。' }]
+        },
+        {
+          loadAIProfile: async () => configuredAI,
+          generate: async () => {
+            throw new Error('must not call AI after source conflict')
+          }
+        }
+      )
+    ).rejects.toThrow(/参考文档.*已在会话外变化/u)
+  })
+
+  it('requires explicit dependency confirmation and then atomically applies linked faction cards', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'quillarium-planning-factions-'))
+    roots.push(root)
+    await createProjectAt(root, { id: 'faction-sample', title: '势力样例' })
+    await createCharacter(root, '朱祁镇', { id: 'zhu_qizhen', role: 'protagonist' })
+    const session = await startPlanningSession(root, 'factions')
+    const response = await discussPlanningRecord(
+      root,
+      {
+        module: 'factions',
+        sessionId: session.id,
+        messages: [{ role: 'author', content: '建立明皇室，以及朱祁镇与它的所属关系。' }]
+      },
+      {
+        loadAIProfile: async () => configuredAI,
+        generate: async () =>
+          JSON.stringify({
+            message: '给出一张势力卡和一张人物所属势力卡。',
+            proposals: [
+              {
+                id: 'membership_zhu_qizhen',
+                operation: 'create',
+                kind: 'faction_membership',
+                title: '朱祁镇所属明皇室',
+                fields: {
+                  faction_id: 'faction_daming_huangshi',
+                  character_id: 'zhu_qizhen',
+                  role: '皇帝',
+                  primary: true
+                },
+                content: '明皇室的核心成员。'
+              },
+              {
+                id: 'faction_daming_huangshi',
+                operation: 'create',
+                kind: 'faction',
+                title: '明皇室',
+                fields: {
+                  faction_kind: 'government',
+                  summary: '大明皇权核心。'
+                },
+                content: '## 势力概览\n\n皇室与宗室网络。'
+              }
+            ]
+          })
+      }
+    )
+    const membershipOnly = response.proposals.map((proposal) => ({
+      ...proposal,
+      status: proposal.id === 'membership_zhu_qizhen' ? ('confirmed' as const) : ('draft' as const)
+    }))
+
+    await expect(
+      confirmPlanningRecord(root, {
+        sessionId: session.id,
+        messages: [{ role: 'author', content: '只确认人物所属卡。' }],
+        proposals: membershipOnly,
+        selectedProposalId: 'membership_zhu_qizhen'
+      })
+    ).rejects.toThrow(/朱祁镇所属明皇室.*明皇室.*尚未确认.*确认全部/u)
+    expect(await listDocs<FactionDoc>(root, 'faction')).toHaveLength(0)
+    expect(await listDocs<FactionMembershipDoc>(root, 'faction_membership')).toHaveLength(0)
+
+    const result = await confirmPlanningRecord(root, {
+      sessionId: session.id,
+      messages: [{ role: 'author', content: '确认这两张卡。' }],
+      proposals: response.proposals.map((proposal) => ({
+        ...proposal,
+        status: 'confirmed' as const
+      })),
+      selectedProposalId: 'membership_zhu_qizhen'
+    })
+    const factions = await listDocs<FactionDoc>(root, 'faction')
+    const memberships = await listDocs<FactionMembershipDoc>(root, 'faction_membership')
+
+    expect(result.results.map((item) => item.proposal_id)).toEqual([
+      'faction_daming_huangshi',
+      'membership_zhu_qizhen'
+    ])
+    expect(factions).toHaveLength(1)
+    expect(memberships).toHaveLength(1)
+    expect(memberships[0]!.data).toMatchObject({
+      faction_id: factions[0]!.data.id,
+      character_id: 'zhu_qizhen'
+    })
+    expect(memberships[0]!.data.faction_id).not.toBe('faction_daming_huangshi')
+
+    const restored = await loadPlanningSession(root, session.id)
+    expect(restored.proposals).toHaveLength(2)
+    expect(restored.proposals.every((proposal) => proposal.status === 'applied')).toBe(true)
+    expect(
+      restored.proposals.find((proposal) => proposal.id === 'membership_zhu_qizhen')?.draft.fields[
+        'faction_id'
+      ]
+    ).toBe(factions[0]!.data.id)
+  })
+
   it('keeps the real anchor first and performs zero project writes on an external hash conflict', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'quillarium-planning-anchor-'))
     roots.push(root)
@@ -392,6 +650,10 @@ describe('planning discussion side effects', () => {
     expect(updated.path).toBe(result.path)
     expect(updated.document.data.id).toBe(result.document.data.id)
     expect(updated.document.data.title).toBe('河港夜行规则')
+    expect(updated.document.data.quillarium_origin).toMatchObject({
+      kind: 'ai-conversation',
+      session_id: session.id
+    })
     expect((await snapshotPaths(root)).filter((entry) => entry.endsWith('.md'))).toHaveLength(
       before.filter((entry) => entry.endsWith('.md')).length + 1
     )
@@ -521,6 +783,13 @@ describe('manual project-wide planning check', () => {
               title: '伏笔缺少回收条件',
               message: '启用伏笔尚未提供回收条件。',
               evidence: '卡片只描述了埋设。',
+              evidence_refs: [
+                {
+                  document_id: 'foreshadow-enabled',
+                  kind: 'body',
+                  quote: '应发送给检查 AI 的确定性卡片正文。'
+                }
+              ],
               related_ids: ['foreshadow-enabled']
             }
           ]

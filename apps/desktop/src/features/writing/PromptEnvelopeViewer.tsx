@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Copy, X } from 'lucide-react'
 import type { AgentPromptEnvelopeV1, PromptBlock } from '@quillarium/core'
+import { sanitizeSensitiveText, sanitizeSensitiveValue } from '@quillarium/core/sensitive-data'
 import type { LanguageName } from '../../app/types.js'
 
 export interface PromptViewerData {
@@ -48,7 +49,7 @@ export function PromptEnvelopeViewer({
     [data.promptEnvelope.messages]
   )
   const fullText = modelVisiblePromptText(messages)
-  const sources = promptSourceNotes(data.promptBlocks)
+  const sources = sanitizePromptText(promptSourceNotes(data.promptBlocks))
   const copy = async (kind: 'text' | 'json' | 'sources') => {
     const value =
       kind === 'json'
@@ -104,14 +105,15 @@ export function PromptEnvelopeViewer({
                   <article key={block.id}>
                     <span className="prompt-block-order">{index + 1}</span>
                     <div>
-                      <strong>{block.title}</strong>
+                      <strong>{sanitizePromptText(block.title)}</strong>
                       <small>
-                        {block.role} · {block.source.type}:{block.source.id} · {block.authority}
+                        {block.role} · {block.source.type}:{sanitizePromptText(block.source.id)} ·{' '}
+                        {block.authority}
                       </small>
                       <small>
                         {block.token_count.toLocaleString()} token
                         {block.truncated ? (zh ? ' · 已截断' : ' · truncated') : ''} ·{' '}
-                        {block.selection_reason}
+                        {sanitizePromptText(block.selection_reason)}
                       </small>
                     </div>
                   </article>
@@ -167,30 +169,11 @@ export function sanitizePromptMessages<T extends { role: string; content: string
 }
 
 export function sanitizePromptValue(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(sanitizePromptValue)
-  if (value && typeof value === 'object') {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>).map(([key, child]) => [
-        key,
-        /^(?:authorization|api[_-]?key|access[_-]?token|secret|credential|endpoint|base[_-]?url)$/iu.test(key)
-          ? '[REDACTED]'
-          : sanitizePromptValue(child)
-      ])
-    )
-  }
-  return typeof value === 'string' ? sanitizePromptText(value) : value
+  return sanitizeSensitiveValue(value)
 }
 
 export function sanitizePromptText(value: string): string {
-  return value
-    .replace(/Bearer\s+[A-Za-z0-9._~+/-]+/giu, 'Bearer [REDACTED]')
-    .replace(/\b(?:sk|rk|pk|ghp)-[A-Za-z0-9_-]{12,}\b/giu, '[REDACTED_CREDENTIAL]')
-    .replace(
-      /\b(api[_ -]?key|authorization|access[_ -]?token|credential)\s*[:=]\s*["']?[^\s"',;]+/giu,
-      '$1: [REDACTED]'
-    )
-    .replace(/[A-Za-z]:\\(?:[^\\\s\r\n]+\\)*[^\\\s\r\n]*/gu, '[LOCAL_PATH_REDACTED]')
-    .replace(/\/(?:Users|home|private|tmp|var|opt|mnt)\/[^\s"'<>]+/gu, '[LOCAL_PATH_REDACTED]')
+  return sanitizeSensitiveText(value)
 }
 
 function promptSourceNotes(blocks: PromptBlock[]): string {

@@ -123,4 +123,42 @@ describe('StructureTree', () => {
       )
     ).toBeNull()
   })
+
+  it('flattens disabled outline levels and hides scene-bound AI controls without deleting source entries', () => {
+    const docs: DocEntry[] = [
+      outline('book', 'book', null, '总纲'),
+      outline('volume', 'volume', 'book', '卷'),
+      outline('part', 'part', 'volume', '篇'),
+      outline('act', 'act', 'part', '幕'),
+      outline('chapter', 'chapter', 'act', '章'),
+      {
+        path: 'scenes/legacy-scene.md',
+        data: {
+          id: 'legacy-scene',
+          type: 'scene',
+          title: '保留的旧节',
+          chapter_id: 'chapter',
+          section: 'chapter'
+        },
+        content: ''
+      }
+    ]
+    const html = renderToStaticMarkup(
+      <StructureTree
+        docs={docs}
+        storyStructure={{ part_enabled: false, act_enabled: false, scene_enabled: false }}
+        selectedTarget={null}
+        onSelect={() => undefined}
+        language="zh"
+      />
+    )
+
+    expect(html).toContain('卷 · 卷')
+    expect(html).toContain('章 · 章')
+    expect(html).not.toContain('篇 · 篇')
+    expect(html).not.toContain('幕 · 幕')
+    expect(html).not.toContain('保留的旧节')
+    expect(html).not.toContain('节管理 / AI 编写')
+    expect(docs.some((item) => item.data.id === 'legacy-scene')).toBe(true)
+  })
 })

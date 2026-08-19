@@ -208,7 +208,7 @@ describe('derived forward and backlink index', () => {
     expect(await listDocs<DocumentIdentity>(root)).toHaveLength(2)
   })
 
-  it('loads the on-disk cache without scanning the vault again', async () => {
+  it('validates the cache against the current document set and rebuilds after an external edit', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'quillarium-reference-load-'))
     roots.push(root)
     await createProjectAt(root, { id: 'reference-load', title: 'Reference Load' })
@@ -221,19 +221,17 @@ describe('derived forward and backlink index', () => {
     expect(loaded.forward['world-source']).toEqual(
       expect.arrayContaining([expect.objectContaining({ target_id: 'lore-0077' })])
     )
-    expect(loaded.forward['world-new']).toBeUndefined()
-
-    const rebuilt = await rebuildLocalDocumentLinkIndex(root)
-    expect(rebuilt.forward['world-new']).toBeDefined()
+    expect(loaded.forward['world-new']).toBeDefined()
   })
 
-  it('rebuilds the link index only when the cache file is missing', async () => {
+  it('reuses a matching cache and rebuilds when the cache file is missing', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'quillarium-reference-missing-'))
     roots.push(root)
     await createProjectAt(root, { id: 'reference-missing', title: 'Reference Missing' })
     await createWorldEntry(root, '女真三部', { id: 'lore-0077', code: 'LORE-0077' }, '正文')
     await createWorldEntry(root, '引用者', { id: 'world-source', links: ['LORE-0077'] }, '[[女真三部]]')
-    await rebuildLocalDocumentLinkIndex(root)
+    const initial = await rebuildLocalDocumentLinkIndex(root)
+    expect((await loadLocalDocumentLinkIndex(root)).generated_at).toBe(initial.generated_at)
     await rm(path.join(root, '.quillarium', 'cache', 'document-links.json'), { force: true })
 
     const loaded = await loadLocalDocumentLinkIndex(root)

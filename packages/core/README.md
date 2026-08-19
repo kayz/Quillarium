@@ -13,7 +13,8 @@ imports and runs, manages finalization review sessions, and exports accepted man
   `migrateOutlineCycleFields`, and fingerprinted verification reports.
 - Documents and index: `createCanon`, `createCharacter`, `createCharacterState`,
   `createCharacterRelation`, `createTimelineNode`, `createTimelineEventAtNode`,
-  `appendTimelineEvent`, `createLocation`, `createRoute`, `createOutline`, `createScene`,
+  `appendTimelineEvent`, `createLocation`, `createRoute`, `createFaction`,
+  `createFactionRelation`, `createFactionMembership`, `createOutline`, `createScene`,
   `createChapterProse`, the other `create*` helpers, `listDocs`, `findDoc`, `requireDoc`, and
   `buildIndex`.
 - Context and planning: `assembleContext`, `assembleContextPacket`, `renderContextPacket`,
@@ -30,6 +31,13 @@ imports and runs, manages finalization review sessions, and exports accepted man
   `writeRunFile`, `listRuns`, `requireNonEmptyRunOutput`, and `exportManuscript`.
 - Public schemas, document types, Markdown/YAML helpers, IDs, and filesystem helpers are re-exported
   from the package entry point.
+- Browser-safe subpaths: `@quillarium/core/assistant-workflows` provides continuity/rehearsal guards,
+  while `@quillarium/core/sensitive-data` provides recursive sanitization, scanning, and fail-closed
+  assertions without importing Node filesystem modules into the renderer.
+- Setting-card styles: `normalizeSettingCardTemplate`, `renderSettingCardHtml`,
+  `listWorkspaceSettingCardStyles`, and `saveWorkspaceSettingCardStyle` enforce passive HTML/CSS and
+  version reusable templates at workspace scope. Project setting-image bytes remain desktop-owned
+  assets; core schemas store only nullable relative-path metadata.
 
 ## Minimal Example
 
@@ -56,6 +64,15 @@ pins/exclusions, enabled state, keyword activation, warnings, bounded relation e
 exact tokenizer budget. It emits typed `PromptBlock` values and a complete `ContextTrace`. A selected
 versioned WritingPreset supplies its policy and block order; snapshots reject credentials, absolute
 paths, and content/hash mismatches.
+
+Reference indexes are on-demand, set-hash-validated derived caches. Project load and ordinary
+document saves do not wait for a rebuild. Issue suppression reads V1 without mutation and lazily
+upgrades reconstructable entries to evidence-anchored V2 only during an explicit author action.
+Assistant prompt save/bind uses one expected-hash transaction; active pinned versions are never
+deleted by the five-ordinary-version retention policy.
+Faction, faction-relation, and faction-membership documents use stable references and optional
+timeline intervals. `story_structure` defaults all levels on for old projects; disabling a level
+changes allowed parents and scene creation without mutating or deleting existing outline files.
 
 ## Boundaries and Tests
 

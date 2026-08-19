@@ -18,8 +18,60 @@ export function formatDesktopError(err: unknown, language: LanguageName = 'en'):
   // the effective max_tokens value the author needs in order to adjust the connection profile.
   if (/AI_(?:OUTPUT_TRUNCATED|CONTEXT_WINDOW_EXCEEDED)/u.test(message)) return message
 
+  if (/SENSITIVE_PROMPT_CONTENT/u.test(message)) {
+    return zh
+      ? '实际提示词中检出了凭据、Endpoint 或本机路径，本轮已在落盘和调用 AI 前停止。请修改所示来源后重新预览。'
+      : 'The actual prompt contains a credential, endpoint, or machine-local path. The run stopped before persistence and provider I/O; fix the reported source and preview again.'
+  }
+
+  if (/SETTING_IMAGE_(?:TYPE_UNSUPPORTED|TYPE_MISMATCH|DECODE_FAILED)/u.test(message)) {
+    return zh
+      ? '无法读取这张图片。请选择内容与扩展名一致的 PNG、JPEG 或 WebP 文件。'
+      : 'Quillarium could not read this image. Choose a PNG, JPEG, or WebP whose contents match its extension.'
+  }
+  if (/SETTING_IMAGE_DOCUMENT_HASH_CONFLICT/u.test(message)) {
+    return zh
+      ? '这张设定卡在选择图片期间发生了变化，图片未写入。请刷新卡片后重试。'
+      : 'This setting changed while the image was being selected. Nothing was written; refresh the card and try again.'
+  }
+  if (/SETTING_IMAGE_(?:PATH_UNSAFE|DOCUMENT_PATH_UNSAFE|SYMLINK_FORBIDDEN)/u.test(message)) {
+    return zh
+      ? '图片目标路径不在当前项目的安全资产目录中，本次未写入。请检查项目目录后重试。'
+      : 'The image target is outside the project-safe asset directory. Nothing was written; check the project folder and try again.'
+  }
+
   if (/AGENT_AUTHOR_INPUT_REQUIRED/u.test(message)) {
     return zh ? '请输入本轮要讨论或检查的内容。' : 'Enter a message for this assistant turn.'
+  }
+  if (/AGENT_PROVIDER_AUTH_FAILED/u.test(message)) {
+    return zh
+      ? '模型服务拒绝了当前凭据。请在“设置 → AI 配置”中重新保存对应 API Key。'
+      : 'The model provider rejected the current credential. Re-save the matching API key under Settings → AI.'
+  }
+  if (/AGENT_PROVIDER_(?:QUOTA_EXCEEDED|RATE_LIMITED)/u.test(message)) {
+    return zh
+      ? '模型服务当前限流或额度不足，本轮没有生成候选。请检查额度或稍后重试。'
+      : 'The model provider is rate-limited or out of quota. No candidate was generated; check quota or try again later.'
+  }
+  if (/AGENT_PROVIDER_TIMEOUT/u.test(message)) {
+    return zh
+      ? '模型服务响应超时，本轮没有生成候选。请检查连接后重试。'
+      : 'The model provider timed out. No candidate was generated; check the connection and try again.'
+  }
+  if (/AGENT_PROVIDER_CONTEXT_EXCEEDED/u.test(message)) {
+    return zh
+      ? '本轮资料超过模型上下文上限。请缩短设定内容或改用更大上下文模型。'
+      : 'This request exceeded the model context window. Shorten the setting content or use a larger-context model.'
+  }
+  if (/AGENT_PROVIDER_TRANSPORT_FAILED/u.test(message)) {
+    return zh
+      ? '无法连接模型服务，本轮没有生成候选。请检查模型、Endpoint 和网络后重试。'
+      : 'Quillarium could not reach the model provider. No candidate was generated; check the model, endpoint, and network.'
+  }
+  if (/AGENT_EMPTY_RESPONSE/u.test(message)) {
+    return zh
+      ? '模型返回了空内容，本轮没有生成候选。请重试或切换模型。'
+      : 'The model returned an empty response. No candidate was generated; retry or choose another model.'
   }
   if (/AGENT_AI_NOT_CONFIGURED/u.test(message)) {
     return zh

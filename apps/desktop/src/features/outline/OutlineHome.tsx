@@ -25,6 +25,7 @@ import type {
   ViewMode
 } from '../../app/types.js'
 import { t } from '../../app/i18n.js'
+import { bridge } from '../../app/bridge.js'
 import { compareStoryEntries, filterDocs } from '../../shared/outline.js'
 import {
   countSection,
@@ -60,6 +61,8 @@ import {
   type CharacterRelationDialogInitial
 } from '../planning/CharacterRelationDialog.js'
 import { IssueWorkspace } from '../modules/IssueWorkspace.js'
+import { FactionLinkDialog, type FactionLinkMode } from '../planning/FactionLinkDialog.js'
+import { SETTING_IMAGE_TYPES, SettingCardMediaPanel, SettingThumbnail } from '../planning/SettingCardMedia.js'
 
 export function OutlineHome({
   docs,
@@ -85,6 +88,8 @@ export function OutlineHome({
   onCreate,
   onAIPlanningCreate,
   onAIEditCard,
+  onUploadReferences,
+  onAIExtractReference,
   onPlanningCheck,
   onDelete,
   onOpenExternal,
@@ -119,6 +124,8 @@ export function OutlineHome({
   onCreate: (kind: string, input: Record<string, unknown>) => Promise<void>
   onAIPlanningCreate: (section: OutlineHomeSection) => void
   onAIEditCard: (doc: DocEntry) => void
+  onUploadReferences: () => Promise<void>
+  onAIExtractReference: (doc: DocEntry) => void
   onPlanningCheck: (scope: PlanningCheckScope) => Promise<void>
   onDelete: () => Promise<void>
   onOpenExternal: () => Promise<void>
@@ -140,8 +147,12 @@ export function OutlineHome({
     sourceEventId?: string
   } | null>(null)
   const [relationCreate, setRelationCreate] = React.useState<CharacterRelationDialogInitial | null>(null)
+  const [factionLinkCreate, setFactionLinkCreate] = React.useState<FactionLinkMode | null>(null)
   const [creating, setCreating] = React.useState(false)
   const [collectionPage, setCollectionPage] = React.useState(0)
+  const [settingImages, setSettingImages] = React.useState<
+    Awaited<ReturnType<typeof bridge.getSettingImageBatch>>
+  >({})
   const zh = language === 'zh'
   const section = OUTLINE_HOME_SECTIONS.find((item) => item.id === activeSection) ?? OUTLINE_HOME_SECTIONS[0]
   const sectionTitle = zh ? section.title : section.enTitle
@@ -151,6 +162,12 @@ export function OutlineHome({
   const items = React.useMemo(() => filterDocs(sectionItems, deferredSearch), [deferredSearch, sectionItems])
   const timelineNodes = React.useMemo(() => docs.filter((item) => item.data.type === 'timeline_node'), [docs])
   const itemPage = boundedPage(items, collectionPage, listPageSize)
+  const settingImageIds = React.useMemo(
+    () =>
+      itemPage.items.filter((item) => SETTING_IMAGE_TYPES.has(item.data.type)).map((item) => item.data.id),
+    [itemPage.items]
+  )
+  const settingImageKey = settingImageIds.join('\n')
   const selected = selectedTarget
     ? docs.find((item) => item.data.id === selectedTarget.id && item.data.type === selectedTarget.type)
     : null
@@ -166,6 +183,28 @@ export function OutlineHome({
       : -1
     setCollectionPage(selectedIndex >= 0 ? Math.floor(selectedIndex / listPageSize) : 0)
   }, [activeSection, items, listPageSize, selectedTarget?.id, selectedTarget?.type])
+
+  React.useEffect(() => {
+    let active = true
+    if (!settingImageKey) {
+      setSettingImages({})
+      return () => {
+        active = false
+      }
+    }
+    const ids = settingImageKey.split('\n')
+    void bridge
+      .getSettingImageBatch(project.root, ids)
+      .then((result) => {
+        if (active) setSettingImages(result)
+      })
+      .catch(() => {
+        if (active) setSettingImages({})
+      })
+    return () => {
+      active = false
+    }
+  }, [project.root, settingImageKey])
 
   const createCurrent = () => {
     if (isAIPlanningContext(activeSection)) {
@@ -277,7 +316,11 @@ export function OutlineHome({
               <h2>{sectionHeading}</h2>
             </div>
             <div className="outline-actions">
-              {activeSection === 'issues' ? null : activeSection === 'timeline' ? (
+              {activeSection === 'issues' ? null : activeSection === 'references' ? (
+                <button onClick={() => void onUploadReferences()} disabled={busy}>
+                  <Upload size={15} /> {zh ? '上传参考文档' : 'Upload references'}
+                </button>
+              ) : activeSection === 'timeline' ? (
                 <>
                   <button onClick={() => setTimelineCoordinate({})} disabled={busy}>
                     <CalendarPlus2 size={15} /> {zh ? '时间坐标' : 'Time coordinate'}
@@ -293,6 +336,18 @@ export function OutlineHome({
                   </button>
                   <button onClick={() => setRelationCreate({})} disabled={busy}>
                     <Link2 size={15} /> {zh ? '新增关系' : 'New relationship'}
+                  </button>
+                </>
+              ) : activeSection === 'factions' ? (
+                <>
+                  <button onClick={createCurrent} disabled={busy}>
+                    <Plus size={15} /> {zh ? '新增势力' : 'New faction'}
+                  </button>
+                  <button onClick={() => setFactionLinkCreate('relation')} disabled={busy}>
+                    <Link2 size={15} /> {zh ? '势力关系' : 'Faction relationship'}
+                  </button>
+                  <button onClick={() => setFactionLinkCreate('membership')} disabled={busy}>
+                    <Link2 size={15} /> {zh ? '人物所属' : 'Membership'}
                   </button>
                 </>
               ) : (
@@ -374,6 +429,8 @@ export function OutlineHome({
           ) : activeSection === 'characters' ? (
             <CharacterRelationView
               items={items}
+              allDocs={docs}
+              projectRoot={project.root}
               timelineNodes={timelineNodes}
               selectedTarget={selectedTarget}
               onSelect={onSelect}
@@ -402,9 +459,15 @@ export function OutlineHome({
                 {itemPage.items.map((item) => (
                   <button
                     key={item.data.id}
-                    className={`outline-item ${item.data.enabled === false ? 'disabled-card' : ''} ${selectedTarget?.id === item.data.id ? 'active' : ''}`}
+                    className={`outline-item ${settingImages[item.data.id] || item.data.type === 'faction' ? 'has-setting-image' : ''} ${item.data.enabled === false ? 'disabled-card' : ''} ${selectedTarget?.id === item.data.id ? 'active' : ''}`}
                     onClick={() => onSelect({ type: item.data.type, id: item.data.id })}
                   >
+                    <SettingThumbnail
+                      preview={settingImages[item.data.id]}
+                      title={item.data.title}
+                      type={item.data.type}
+                      compact={viewMode === 'list'}
+                    />
                     <span>
                       <b>{item.data.title}</b>
                       <small>
@@ -481,6 +544,19 @@ export function OutlineHome({
                   style={{ gridTemplateRows: `${detailMetadataPct}% 10px minmax(0, 1fr)` }}
                 >
                   <div className="detail-metadata-pane">
+                    <SettingCardMediaPanel
+                      root={project.root}
+                      document={{
+                        path: doc.path,
+                        data: doc.data as DocEntry['data'],
+                        content: doc.content
+                      }}
+                      dirty={dirty}
+                      onSave={onSave}
+                      onReloadDocument={onReloadDoc}
+                      onReloadProject={onReloadProject}
+                      language={language}
+                    />
                     <PlanningCardSupportPanel
                       doc={{ path: doc.path, data: doc.data as DocEntry['data'], content: doc.content }}
                       docs={docs}
@@ -536,7 +612,19 @@ export function OutlineHome({
                   </div>
                 </div>
                 <div className="detail-actions">
-                  {AI_EDITABLE_CARD_TYPES.has(String(doc.data.type)) && (
+                  {doc.data.type === 'reference' ? (
+                    <button
+                      onClick={() =>
+                        onAIExtractReference({
+                          path: doc.path,
+                          data: doc.data as DocEntry['data'],
+                          content: doc.content
+                        })
+                      }
+                    >
+                      <Bot size={15} /> {zh ? 'AI 讨论生卡' : 'Discuss and create cards'}
+                    </button>
+                  ) : AI_EDITABLE_CARD_TYPES.has(String(doc.data.type)) ? (
                     <button
                       onClick={() =>
                         onAIEditCard({
@@ -548,7 +636,7 @@ export function OutlineHome({
                     >
                       <Bot size={15} /> {zh ? 'AI 协助调整' : 'Edit with AI'}
                     </button>
-                  )}
+                  ) : null}
                   <button onClick={onOpenExternal}>
                     <FileText size={15} /> {zh ? '编辑' : 'Edit'}
                   </button>
@@ -631,6 +719,24 @@ export function OutlineHome({
             try {
               await onCreate('character_relation', { ...input })
               setRelationCreate(null)
+            } finally {
+              setCreating(false)
+            }
+          }}
+        />
+      )}
+      {factionLinkCreate && (
+        <FactionLinkDialog
+          mode={factionLinkCreate}
+          docs={docs}
+          language={language}
+          busy={creating}
+          onClose={() => setFactionLinkCreate(null)}
+          onConfirm={async (kind, input) => {
+            setCreating(true)
+            try {
+              await onCreate(kind, input)
+              setFactionLinkCreate(null)
             } finally {
               setCreating(false)
             }

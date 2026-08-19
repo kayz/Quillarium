@@ -11,6 +11,8 @@ const baseProps = {
   runs: [] as RunSummary[],
   onCreate: noopAsync,
   onAIPlanningCreate: vi.fn(),
+  onUploadReferences: noopAsync,
+  onAIExtractReference: vi.fn(),
   selectedTarget: null,
   onSelect: vi.fn(),
   onReload: noopAsync
@@ -73,5 +75,27 @@ describe('ModuleView localized summaries', () => {
 
     expect(html.match(/class="info-card module-info-card/g)).toHaveLength(30)
     expect(html).toContain('1–30 / 185')
+  })
+
+  it('uploads references without offering generic AI creation, then exposes source-based card discussion', () => {
+    const reference: DocEntry = {
+      path: 'references/ref-notes.md',
+      data: { id: 'ref-notes', type: 'reference', title: '史料笔记' },
+      content: '一份已上传的参考原文。'
+    }
+    const html = renderToStaticMarkup(
+      <ModuleView
+        {...baseProps}
+        module="references"
+        docs={[reference]}
+        selectedTarget={{ type: 'reference', id: 'ref-notes' }}
+        language="zh"
+      />
+    )
+
+    expect(html).toContain('上传参考文档')
+    expect(html).toContain('AI 讨论生卡')
+    expect(html).toContain('只读来源')
+    expect(html).not.toContain('与 AI 对话新增')
   })
 })

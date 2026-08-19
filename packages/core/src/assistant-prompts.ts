@@ -52,7 +52,7 @@ export function creatorAssistantIdForTask(taskId: string): CreatorAssistantId {
   throw new Error(`UNKNOWN_CREATOR_ASSISTANT_TASK: ${taskId}`)
 }
 
-const MAX_CONFIG_VERSIONS = 5
+export const MAX_ASSISTANT_PROMPT_CONFIG_VERSIONS = 5
 
 export async function ensureBuiltinAssistantPrompts(
   projectRoot: string
@@ -77,7 +77,10 @@ export async function listAssistantPromptVersions(
   projectRoot: string,
   assistantId: CreatorAssistantId
 ): Promise<LoadedAssistantPromptVersion[]> {
-  return (await listAssistantPromptVersionsUnlocked(projectRoot, assistantId)).slice(0, MAX_CONFIG_VERSIONS)
+  return (await listAssistantPromptVersionsUnlocked(projectRoot, assistantId)).slice(
+    0,
+    MAX_ASSISTANT_PROMPT_CONFIG_VERSIONS
+  )
 }
 
 export async function loadAssistantPromptVersion(
@@ -103,27 +106,64 @@ export async function saveAssistantPromptVersion(
   now: () => Date = () => new Date()
 ): Promise<LoadedAssistantPromptVersion> {
   return withProjectWriteLock(projectRoot, async () => {
-    const versions = await listAssistantPromptVersionsUnlocked(projectRoot, input.assistant_id)
-    const latest = versions[0]?.value.version ?? input.base_version ?? '1.0.0'
-    const version = input.version?.trim() || nextPatchVersion(input.base_version ?? latest)
-    const name = input.name?.trim() || `${displayAssistantName(input.assistant_id)} ${version}`
-    const id = assistantPromptId(input.assistant_id, version, name)
-    const value = assistantPromptVersionV1Schema.parse({
-      schema_version: 1,
-      id,
-      assistant_id: input.assistant_id,
-      version,
-      name,
-      instructions: input.instructions,
-      created_at: now().toISOString(),
-      source: 'author'
-    }) as AssistantPromptVersionV1
-    const file = assistantPromptPath(projectRoot, input.assistant_id, id)
-    if (await pathExists(file)) throw new Error(`ASSISTANT_PROMPT_VERSION_EXISTS: ${id}`)
+    const value = await prepareAssistantPromptVersion(projectRoot, input, now)
+    const file = assistantPromptPath(projectRoot, input.assistant_id, value.id)
+    if (await pathExists(file)) throw new Error(`ASSISTANT_PROMPT_VERSION_EXISTS: ${value.id}`)
     await writeAssistantPrompt(projectRoot, value)
-    await pruneAssistantPromptVersions(projectRoot, input.assistant_id)
-    return loadAssistantPromptVersion(projectRoot, input.assistant_id, id)
+    const { listCreatorRoles } = await import('./creator-roles.js')
+    const pinnedIds = new Set(
+      (await listCreatorRoles(projectRoot))
+        .filter((role) => creatorAssistantIdForTask(role.value.task_id) === input.assistant_id)
+        .map((role) => role.value.assistant_prompt_id)
+        .filter((id): id is string => Boolean(id))
+    )
+    await pruneAssistantPromptVersions(projectRoot, input.assistant_id, pinnedIds)
+    return loadAssistantPromptVersion(projectRoot, input.assistant_id, value.id)
   })
+}
+
+export async function prepareAssistantPromptVersion(
+  projectRoot: string,
+  input: SaveAssistantPromptVersionInput,
+  now: () => Date = () => new Date()
+): Promise<AssistantPromptVersionV1> {
+  const versions = await listAssistantPromptVersionsUnlocked(projectRoot, input.assistant_id)
+  const latest = versions[0]?.value.version ?? input.base_version ?? '1.0.0'
+  const version = input.version?.trim() || nextPatchVersion(input.base_version ?? latest)
+  const name = input.name?.trim() || `${displayAssistantName(input.assistant_id)} ${version}`
+  const id = assistantPromptId(input.assistant_id, version, name)
+  return assistantPromptVersionV1Schema.parse({
+    schema_version: 1,
+    id,
+    assistant_id: input.assistant_id,
+    version,
+    name,
+    instructions: input.instructions,
+    created_at: now().toISOString(),
+    source: 'author'
+  }) as AssistantPromptVersionV1
+}
+
+export async function listAssistantPromptVersionsUnbounded(
+  projectRoot: string,
+  assistantId: CreatorAssistantId
+): Promise<LoadedAssistantPromptVersion[]> {
+  return listAssistantPromptVersionsUnlocked(projectRoot, assistantId)
+}
+
+export function assistantPromptVersionPath(
+  projectRoot: string,
+  assistantId: CreatorAssistantId,
+  id: string
+): string {
+  return assistantPromptPath(projectRoot, assistantId, id)
+}
+
+export async function writeAssistantPromptVersionUnlocked(
+  projectRoot: string,
+  value: AssistantPromptVersionV1
+): Promise<void> {
+  await writeAssistantPrompt(projectRoot, value)
 }
 
 export function nextAssistantPromptPatchVersion(value: string): string {
@@ -188,14 +228,25 @@ async function writeAssistantPrompt(projectRoot: string, value: AssistantPromptV
   await writeText(file, `${JSON.stringify(parsed, null, 2)}\n`)
 }
 
-async function pruneAssistantPromptVersions(
+export async function pruneAssistantPromptVersions(
   projectRoot: string,
-  assistantId: CreatorAssistantId
-): Promise<void> {
+  assistantId: CreatorAssistantId,
+  pinnedIds: ReadonlySet<string> = new Set()
+): Promise<LoadedAssistantPromptVersion[]> {
   const versions = await listAssistantPromptVersionsUnlocked(projectRoot, assistantId)
-  for (const version of versions.slice(MAX_CONFIG_VERSIONS)) {
+  const ordinaryToKeep = new Set(
+    versions
+      .filter((version) => !pinnedIds.has(version.value.id))
+      .slice(0, MAX_ASSISTANT_PROMPT_CONFIG_VERSIONS)
+      .map((version) => version.value.id)
+  )
+  const removed: LoadedAssistantPromptVersion[] = []
+  for (const version of versions) {
+    if (pinnedIds.has(version.value.id) || ordinaryToKeep.has(version.value.id)) continue
+    removed.push(version)
     await rm(assertProjectPath(projectRoot, path.join(projectRoot, version.source_path)), { force: true })
   }
+  return removed
 }
 
 function assistantPromptDirectory(projectRoot: string, assistantId: CreatorAssistantId): string {

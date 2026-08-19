@@ -7,6 +7,7 @@ export type ModuleName =
   | 'canon'
   | 'world'
   | 'characters'
+  | 'factions'
   | 'timeline'
   | 'foreshadowing'
   | 'issues'
@@ -28,6 +29,7 @@ export type OutlineHomeSection =
   | 'canon'
   | 'world'
   | 'characters'
+  | 'factions'
   | 'timeline'
   | 'locations'
   | 'foreshadowing'
@@ -42,6 +44,9 @@ export type AIProviderName = 'openai-compatible' | 'openai' | 'claude' | 'gemini
 export type PlanningDocumentKind =
   | 'character'
   | 'character_relation'
+  | 'faction'
+  | 'faction_relation'
+  | 'faction_membership'
   | 'world_entry'
   | 'timeline_node'
   | 'timeline_event'
@@ -105,6 +110,13 @@ export interface PlanningSession {
     id: string
     type: PlanningDocumentKind
   }
+  source_document?: {
+    path: string
+    id: string
+    type: PlanningDocumentKind
+    title: string
+    expected_sha256: string
+  }
 }
 
 export interface AIProfileForm {
@@ -141,6 +153,11 @@ export interface ProjectListItem {
   chapter_words: number
   section_words: number
   default_theme?: ThemeName
+  story_structure?: {
+    part_enabled: boolean
+    act_enabled: boolean
+    scene_enabled: boolean
+  }
   cover?: {
     original_path: string
     thumbnail_path: string

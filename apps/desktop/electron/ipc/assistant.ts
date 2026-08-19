@@ -12,12 +12,14 @@ import {
   createCreatorRole,
   createWritingPresetSnapshot,
   contextBundleV1Schema,
+  creatorAssistantIdForTask,
   creatorAssistantWorkflowInputV1Schema,
   creatorRoleV1Schema,
   deleteContextBundle,
   deleteCreatorRole,
   ensureBuiltinCreatorRoles,
   listAssistantPromptVersions,
+  loadAssistantPromptVersion,
   forkAgentSession,
   listAgentSessions,
   listAgentTaskDefinitions,
@@ -27,11 +29,13 @@ import {
   loadAgentSessionDetail,
   loadCreatorRole,
   readMarkdown,
+  recoverAssistantPromptBinding,
   recordAssistantTurn,
   recordAssistantTurnFailure,
   rejectAssistantConfigurationProposal,
   resolveContextBundleDefinition,
-  saveAssistantPromptVersion,
+  saveAndBindAssistantPromptVersion,
+  selectCharacterTimePointContext,
   startAgentSession,
   updateAssistantProposalStatus,
   updateContextBundle,
@@ -51,6 +55,7 @@ import {
   type ResolvedContextBundle,
   type WritingPresetSnapshot
 } from '@quillarium/core'
+import { assertSensitiveSourcesSafe } from '@quillarium/core/sensitive-data'
 import {
   contextCompileOptions,
   defaultBaseUrl,
@@ -344,7 +349,12 @@ export function registerAssistantHandlers(): void {
   typedHandle('assistant:listPrompts', async (_event, root, assistantId) =>
     listAssistantPromptVersions(root, assistantId)
   )
-  typedHandle('assistant:savePrompt', async (_event, root, input) => saveAssistantPromptVersion(root, input))
+  typedHandle('assistant:savePrompt', async (_event, root, input) =>
+    saveAndBindAssistantPromptVersion(root, input)
+  )
+  typedHandle('assistant:recoverPrompt', async (_event, root, input) =>
+    recoverAssistantPromptBinding(root, input)
+  )
   typedHandle('assistant:start', async (_event, root, roleId, target, title, workflowInput) =>
     startAssistantWorkflowSession(root, roleId, target, title, workflowInput)
   )
@@ -440,7 +450,50 @@ export async function initializeAssistantWorkspace(root: string): Promise<Assist
       )
     ).then((groups) => groups.flat())
   ])
-  return { tasks: listAgentTaskDefinitions(), roles, bundles, sessions, prompts }
+  const promptBindingIssues: AssistantWorkspaceState['prompt_binding_issues'] = []
+  for (const role of roles) {
+    const assistantId = creatorAssistantIdForTask(role.value.task_id)
+    const promptId = role.value.assistant_prompt_id
+    if (!promptId) continue
+    try {
+      const pinned = await loadAssistantPromptVersion(root, assistantId, promptId)
+      if (!prompts.some((prompt) => prompt.value.id === pinned.value.id)) prompts.push(pinned)
+    } catch {
+      const snapshots = sessions
+        .filter(
+          (session) =>
+            session.session.configuration.creator_role.id === role.value.id &&
+            session.session.configuration.assistant_prompt?.id === promptId &&
+            session.session.configuration.assistant_prompt_sha256
+        )
+        .map((session) => ({
+          session_id: session.session.id,
+          prompt: session.session.configuration.assistant_prompt!,
+          prompt_sha256: session.session.configuration.assistant_prompt_sha256!
+        }))
+        .filter(
+          (snapshot, index, all) =>
+            all.findIndex((candidate) => candidate.prompt_sha256 === snapshot.prompt_sha256) === index
+        )
+      promptBindingIssues.push({
+        role_id: role.value.id,
+        assistant_id: assistantId,
+        missing_prompt_id: promptId,
+        recovery_snapshots: snapshots,
+        available_prompt_ids: prompts
+          .filter((prompt) => prompt.value.assistant_id === assistantId)
+          .map((prompt) => prompt.value.id)
+      })
+    }
+  }
+  return {
+    tasks: listAgentTaskDefinitions(),
+    roles,
+    bundles,
+    sessions,
+    prompts,
+    prompt_binding_issues: promptBindingIssues
+  }
 }
 
 export async function startAssistantWorkflowSession(
@@ -452,9 +505,17 @@ export async function startAssistantWorkflowSession(
 ) {
   await ensureBuiltinCreatorRoles(root)
   const parsedTarget = targetSchema.parse(target) as AssistantContextTarget
+  const role = await loadCreatorRole(root, roleId)
+  const assistantId = creatorAssistantIdForTask(role.value.task_id)
+  if (role.value.assistant_prompt_id) {
+    try {
+      await loadAssistantPromptVersion(root, assistantId, role.value.assistant_prompt_id)
+    } catch {
+      throw new Error(`ASSISTANT_PROMPT_BINDING_UNRESOLVED: ${role.value.id}`)
+    }
+  }
   if (!workflowInput) return startAgentSession(root, roleId, parsedTarget, title)
   const workflow = creatorAssistantWorkflowInputV1Schema.parse(workflowInput)
-  const role = await loadCreatorRole(root, roleId)
   if (role.value.task_id !== workflow.task_id) throw new Error('ASSISTANT_WORKFLOW_TASK_MISMATCH')
   const documents = await listDocs<DocumentIdentity>(root)
   let canonicalTarget: AssistantContextTarget
@@ -462,6 +523,14 @@ export async function startAssistantWorkflowSession(
     requireWorkflowDocument(documents, workflow.character_id, ['character'])
     requireWorkflowDocument(documents, workflow.timeline_event_id, ['timeline_event'])
     requireWorkflowDocument(documents, workflow.location_id, ['location', 'scene'])
+    const timeContext = selectCharacterTimePointContext(documents, {
+      character_id: workflow.character_id,
+      timeline_event_id: workflow.timeline_event_id,
+      ...(workflow.timeline_id ? { timeline_id: workflow.timeline_id } : {})
+    })
+    if (timeContext.status === 'ambiguous') {
+      throw new Error(`CHARACTER_TIME_TIMELINE_REQUIRED: ${timeContext.timeline_options.join(',')}`)
+    }
     canonicalTarget = { document_type: 'character', document_id: workflow.character_id }
   } else {
     const candidates = continuityRangeCandidatesFromDocuments(documents)
@@ -500,9 +569,12 @@ function requireWorkflowDocument(
 async function assistantWorkflowContextSources(
   root: string,
   session: AgentSessionV1
-): Promise<ContextBundleSourceV1[]> {
+): Promise<{
+  sources: ContextBundleSourceV1[]
+  temporal_context?: ReturnType<typeof selectCharacterTimePointContext>
+}> {
   const input = session.workflow_input
-  if (!input) return []
+  if (!input) return { sources: [] }
   const documents = await listDocs<DocumentIdentity>(root)
   const sources = new Map<string, ContextBundleSourceV1>()
   const add = (
@@ -560,27 +632,39 @@ async function assistantWorkflowContextSources(
     add(character, 'required', 'subject')
     add(event, 'required', 'evidence')
     add(location, 'required', 'constraint')
-    const eventRecord = event.data as DocumentIdentity & Record<string, unknown>
-    const eventNode = typeof eventRecord['timeline_node'] === 'string' ? eventRecord['timeline_node'] : ''
-    for (const document of documents) {
-      const record = document.data as DocumentIdentity & Record<string, unknown>
-      if (record.type === 'character_state' && record['character'] === input.character_id) {
-        add(document, 'preferred', 'evidence')
-      }
-      if (
-        record.type === 'character_relation' &&
-        (record['from_character'] === input.character_id || record['to_character'] === input.character_id)
-      ) {
-        add(document, 'preferred', 'evidence')
-      }
-      if (eventNode && record.type === 'timeline_node' && record.id === eventNode) {
-        add(document, 'preferred', 'evidence')
-      }
+    const temporalContext = selectCharacterTimePointContext(documents, {
+      character_id: input.character_id,
+      timeline_event_id: input.timeline_event_id,
+      ...(input.timeline_id ? { timeline_id: input.timeline_id } : {})
+    })
+    if (temporalContext.status === 'ambiguous') {
+      throw new Error(`CHARACTER_TIME_TIMELINE_REQUIRED: ${temporalContext.timeline_options.join(',')}`)
+    }
+    add(uniqueById(temporalContext.timeline_node_id!), 'preferred', 'constraint')
+    add(uniqueById(temporalContext.selected_state_id ?? ''), 'preferred', 'constraint')
+    for (const relationId of temporalContext.active_relation_ids) {
+      add(uniqueById(relationId), 'preferred', 'constraint')
+    }
+    for (const relationId of temporalContext.untimed_relation_ids) {
+      add(uniqueById(relationId), 'preferred', 'evidence')
     }
     addRelated(character)
     addRelated(event)
     addRelated(location)
-    return [...sources.values()]
+    const allowedTemporalIds = new Set([
+      temporalContext.selected_state_id,
+      ...temporalContext.active_relation_ids,
+      ...temporalContext.untimed_relation_ids
+    ])
+    for (const [key, source] of sources) {
+      if (
+        ['character_state', 'character_relation'].includes(source.document_type) &&
+        !allowedTemporalIds.has(source.document_id)
+      ) {
+        sources.delete(key)
+      }
+    }
+    return { sources: [...sources.values()], temporal_context: temporalContext }
   }
 
   const selected = input.document_ids.map((id) =>
@@ -615,7 +699,7 @@ async function assistantWorkflowContextSources(
       add(document, 'preferred', 'evidence')
     }
   }
-  return [...sources.values()]
+  return { sources: [...sources.values()] }
 }
 
 export async function previewAssistantTurn(
@@ -635,7 +719,7 @@ export async function previewAssistantTurn(
     { role: 'assistant' as const, content: turn.assistant_reply }
   ])
   const systemMessage = assistantSystemMessage(session.session)
-  const workflowSources = await assistantWorkflowContextSources(root, session.session)
+  const workflowContext = await assistantWorkflowContextSources(root, session.session)
   const compileOptions = contextCompileOptions(runtime.config, runtime.presetSnapshot)
   const framingText = [
     systemMessage,
@@ -650,7 +734,7 @@ export async function previewAssistantTurn(
     session.session.target,
     session.session.configuration.writing_preset,
     { ...compileOptions, framing_text: framingText },
-    workflowSources
+    workflowContext.sources
   )
   const envelope = createAgentPromptEnvelope({
     systemMessage,
@@ -660,7 +744,40 @@ export async function previewAssistantTurn(
     currentInput: input,
     sentUserContent
   })
-  return previewResult(session, resolvedContext, envelope)
+  assertSensitiveSourcesSafe([
+    {
+      source: 'assistant-prompt',
+      text:
+        session.session.configuration.assistant_prompt?.instructions ??
+        session.session.configuration.creator_role.behavior_instructions.join('\n')
+    },
+    { source: 'writing-preset:system', text: runtime.presetSnapshot.prompt_stack.system_prompt },
+    ...resolvedContext.context.blocks.map((block) => ({
+      source: `prompt-block:${block.id}`,
+      text: block.content
+    })),
+    ...conversation.map((message, index) => ({
+      source: `assistant-conversation:${index}:${message.role}`,
+      text: message.content
+    })),
+    { source: 'author-input', text: sentUserContent?.trim() || input },
+    ...envelope.messages.map((message, index) => ({
+      source: `compiled-envelope:${index}:${message.role}`,
+      text: message.content
+    }))
+  ])
+  if (workflowContext.temporal_context) {
+    resolvedContext.warnings.push(
+      ...workflowContext.temporal_context.warnings.map((message) => ({
+        code: 'CHARACTER_TIME_CONTEXT_WARNING' as const,
+        message
+      }))
+    )
+  }
+  return {
+    ...previewResult(session, resolvedContext, envelope),
+    ...(workflowContext.temporal_context ? { temporal_context: workflowContext.temporal_context } : {})
+  }
 }
 
 export async function sendAssistantTurn(

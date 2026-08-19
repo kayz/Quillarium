@@ -5,7 +5,8 @@ import type {
   AuthorApplyDecisionV1,
   PlanningCheckScope,
   PlanningIntegrityReviewResult,
-  PlanningIssueApplicationResultV1
+  PlanningIssueApplicationResultV1,
+  SettingCardDesignResultV1
 } from '@quillarium/agent-runtime'
 import type {
   AIProfileConfig,
@@ -72,7 +73,16 @@ import type {
   TimelineDeterministicIssueV1,
   CreatorAssistantId,
   CreatorAssistantWorkflowInputV1,
-  SaveAssistantPromptVersionInput
+  SaveAndBindAssistantPromptVersionInput,
+  SaveAndBindAssistantPromptVersionResult,
+  AssistantPromptVersionV1,
+  RecoverAssistantPromptBindingInput,
+  SettingImageAssetV1,
+  LoadedSettingCardStyle,
+  SettingCardDocumentType,
+  SettingCardSizeV1,
+  SettingCardTemplateV1,
+  StoryStructureConfigV1
 } from '@quillarium/core'
 import { recordIpcFailure } from '../logging.js'
 import type { CheckReport, CheckScore } from '@quillarium/checks'
@@ -153,6 +163,44 @@ export interface ProjectCoverResult {
   previewDataUrl: string
 }
 
+export interface SettingImagePreview {
+  asset: SettingImageAssetV1
+  previewDataUrl: string
+}
+
+export interface SettingImageResult extends SettingImagePreview {
+  warning: string | null
+}
+
+export interface SettingCardDesignResponse {
+  candidate: SettingCardDesignResultV1
+  html: string
+  run_relative_path: string
+}
+
+export interface SettingCardPreviewData {
+  id: string
+  type: SettingCardDocumentType
+  title: string
+  content: string
+  fields: Record<string, unknown>
+  image_data_url?: string | null
+}
+
+export type SettingCardRenderSource =
+  | { kind: 'builtin'; id: string }
+  | { kind: 'workspace'; id: string; version: string }
+  | { kind: 'candidate'; template: SettingCardTemplateV1 }
+
+export interface SettingCardRenderResponse {
+  html: string
+  template: SettingCardTemplateV1
+  style: LoadedSettingCardStyle | null
+}
+
+export type SettingCardExportResult =
+  { canceled: true; file_name: null; bytes: 0 } | { canceled: false; file_name: string; bytes: number }
+
 export interface ImportedBookProject {
   project: ProjectSummary
   import: BookCharacterCardImportResult
@@ -184,6 +232,16 @@ export interface PromptViewerSnapshot {
 export interface MarkdownDocument {
   data: Record<string, unknown>
   content: string
+}
+
+export interface ReferenceUploadItem {
+  path: string
+  source_name: string
+  document: MarkdownDocument
+}
+
+export interface ReferenceUploadResult {
+  items: ReferenceUploadItem[]
 }
 
 export type TargetInput = {
@@ -256,6 +314,9 @@ export interface CanonDiscussionRequest {
 export const PLANNING_DOCUMENT_KINDS = [
   'character',
   'character_relation',
+  'faction',
+  'faction_relation',
+  'faction_membership',
   'world_entry',
   'timeline_node',
   'timeline_event',
@@ -331,6 +392,11 @@ export interface PlanningDocumentRef {
   type: PlanningDocumentKind
 }
 
+export interface PlanningSourceDocumentRef extends PlanningDocumentRef {
+  title: string
+  expected_sha256: string
+}
+
 export interface PlanningSession {
   schema_version: 2
   id: string
@@ -343,6 +409,8 @@ export interface PlanningSession {
   selected_proposal_id: string | null
   anchor_proposal_id?: string
   document?: PlanningDocumentRef
+  /** Read-only source material for a card-extraction conversation; never an editable proposal. */
+  source_document?: PlanningSourceDocumentRef
 }
 
 export type PlanningCheckSummary = AgentExecutionOutcome<PlanningIntegrityReviewResult, AgentRuntimeErrorV1>
@@ -407,6 +475,19 @@ export interface AssistantWorkspaceState {
   bundles: LoadedContextBundle[]
   sessions: LoadedAgentSession[]
   prompts: LoadedAssistantPromptVersion[]
+  prompt_binding_issues: AssistantPromptBindingIssue[]
+}
+
+export interface AssistantPromptBindingIssue {
+  role_id: string
+  assistant_id: CreatorAssistantId
+  missing_prompt_id: string
+  recovery_snapshots: Array<{
+    session_id: string
+    prompt: AssistantPromptVersionV1
+    prompt_sha256: string
+  }>
+  available_prompt_ids: string[]
 }
 
 export interface AssistantRunPreview {
@@ -426,6 +507,19 @@ export interface AssistantRunPreview {
   }>
   can_do: string[]
   result_destination: string
+  temporal_context?: {
+    status: 'resolved' | 'ambiguous'
+    timeline_options: string[]
+    timeline_id?: string
+    timeline_node_id?: string
+    timeline_event_id: string
+    character_id?: string
+    selected_state_id?: string
+    state_source: 'event-exact' | 'nearest-prior' | 'node-exact' | 'none'
+    active_relation_ids: string[]
+    untimed_relation_ids: string[]
+    warnings: string[]
+  }
 }
 
 export interface AssistantProposalActionResult {
@@ -477,11 +571,74 @@ export interface IpcContract {
   'project:create': { request: [input: ProjectCreateInput]; response: ProjectSummary }
   'project:choose': { request: []; response: ProjectSummary | null }
   'project:load': { request: [root: string]; response: LoadedProject }
+  'project:updateStoryStructure': {
+    request: [root: string, structure: StoryStructureConfigV1]
+    response: ProjectConfig
+  }
   'cover:choose': { request: [root: string]; response: ProjectCoverResult | null }
   'cover:get': { request: [root: string]; response: ProjectCoverResult | null }
   'cover:focus': {
     request: [root: string, focusX: number, focusY: number]
     response: ProjectCoverResult
+  }
+  'settingImage:choose': {
+    request: [root: string, documentPath: string, altText?: string]
+    response: SettingImageResult | null
+  }
+  'settingImage:get': { request: [root: string, documentId: string]; response: SettingImageResult | null }
+  'settingImage:batch': {
+    request: [root: string, documentIds: string[]]
+    response: Record<string, SettingImagePreview>
+  }
+  'settingImage:remove': { request: [root: string, documentPath: string]; response: boolean }
+  'settingCard:styles': {
+    request: [root: string, documentType: SettingCardDocumentType]
+    response: LoadedSettingCardStyle[]
+  }
+  'settingCard:design': {
+    request: [
+      root: string,
+      input: {
+        document_id: string
+        document_type: SettingCardDocumentType
+        style_direction: string
+        variation_index?: number
+        size: SettingCardSizeV1
+        base_style?: { id: string; version: string } | null
+        language: 'zh' | 'en'
+        preview?: SettingCardPreviewData
+      }
+    ]
+    response: SettingCardDesignResponse
+  }
+  'settingCard:renderStyle': {
+    request: [
+      root: string,
+      input: {
+        document_id: string
+        source: SettingCardRenderSource
+        size: SettingCardSizeV1
+        language: 'zh' | 'en'
+        preview: SettingCardPreviewData
+      }
+    ]
+    response: SettingCardRenderResponse
+  }
+  'settingCard:saveStyle': {
+    request: [root: string, input: { name: string; candidate: SettingCardDesignResultV1 }]
+    response: LoadedSettingCardStyle
+  }
+  'settingCard:export': {
+    request: [
+      root: string,
+      input: {
+        document_id: string
+        template: SettingCardTemplateV1
+        size: SettingCardSizeV1
+        language: 'zh' | 'en'
+      }
+    ]
+    response: SettingCardExportResult
   }
   'assistant:initialize': { request: [root: string]; response: AssistantWorkspaceState }
   'assistant:listPrompts': {
@@ -489,8 +646,12 @@ export interface IpcContract {
     response: LoadedAssistantPromptVersion[]
   }
   'assistant:savePrompt': {
-    request: [root: string, input: SaveAssistantPromptVersionInput]
-    response: LoadedAssistantPromptVersion
+    request: [root: string, input: SaveAndBindAssistantPromptVersionInput]
+    response: SaveAndBindAssistantPromptVersionResult
+  }
+  'assistant:recoverPrompt': {
+    request: [root: string, input: RecoverAssistantPromptBindingInput]
+    response: SaveAndBindAssistantPromptVersionResult
   }
   'assistant:start': {
     request: [
@@ -591,6 +752,10 @@ export interface IpcContract {
   'references:index': {
     request: [root: string]
     response: LocalDocumentLinkIndexV1
+  }
+  'references:upload': {
+    request: [root: string]
+    response: ReferenceUploadResult
   }
   'references:format': {
     request: [root: string, documentId: string, displayText?: string]
@@ -926,12 +1091,23 @@ export const QUILLARIUM_API_CHANNELS = {
   createProject: 'project:create',
   chooseProject: 'project:choose',
   loadProject: 'project:load',
+  updateProjectStoryStructure: 'project:updateStoryStructure',
   chooseProjectCover: 'cover:choose',
   getProjectCover: 'cover:get',
   updateProjectCoverFocus: 'cover:focus',
+  chooseSettingImage: 'settingImage:choose',
+  getSettingImage: 'settingImage:get',
+  getSettingImageBatch: 'settingImage:batch',
+  removeSettingImage: 'settingImage:remove',
+  listSettingCardStyles: 'settingCard:styles',
+  designSettingCard: 'settingCard:design',
+  renderSettingCardStyle: 'settingCard:renderStyle',
+  saveSettingCardStyle: 'settingCard:saveStyle',
+  exportSettingCard: 'settingCard:export',
   initializeAssistants: 'assistant:initialize',
   listAssistantPromptVersions: 'assistant:listPrompts',
   saveAssistantPromptVersion: 'assistant:savePrompt',
+  recoverAssistantPromptBinding: 'assistant:recoverPrompt',
   startAssistantSession: 'assistant:start',
   loadAssistantSession: 'assistant:session',
   forkAssistantSession: 'assistant:fork',
@@ -960,6 +1136,7 @@ export const QUILLARIUM_API_CHANNELS = {
   createDoc: 'doc:create',
   reorderStorySiblings: 'story:reorder',
   rebuildDocumentLinkIndex: 'references:index',
+  uploadReferenceDocuments: 'references:upload',
   formatDocumentLink: 'references:format',
   planDocumentReferenceMigration: 'references:migrationPlan',
   applyDocumentReferenceMigration: 'references:migrationApply',

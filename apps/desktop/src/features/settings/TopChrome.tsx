@@ -17,6 +17,7 @@ import type {
   AIProviderName,
   AIStatus,
   DensityName,
+  DocEntry,
   GitHubSettings,
   GitState,
   LanguageName,
@@ -29,7 +30,11 @@ import { BrandWordmark } from '../../app/BrandWordmark.js'
 import { formatDesktopError } from '../../shared/errors.js'
 import { ExportModal } from './ExportModal.js'
 import { gitActionFor } from './git-presentation.js'
-import type { BookGenerationHeaderState, WritingPresetListItem } from '@quillarium/core'
+import type {
+  BookGenerationHeaderState,
+  StoryStructureConfigV1,
+  WritingPresetListItem
+} from '@quillarium/core'
 
 type CoverResult = NonNullable<Awaited<ReturnType<typeof bridge.getProjectCover>>>
 
@@ -58,7 +63,8 @@ export function TopChrome({
   root,
   locationLabel,
   workspaceMode,
-  onWorkspaceMode
+  onWorkspaceMode,
+  onProjectChanged
 }: {
   theme: ThemeName
   density: DensityName
@@ -79,10 +85,12 @@ export function TopChrome({
   locationLabel?: string
   workspaceMode?: WorkspaceMode
   onWorkspaceMode?: (mode: WorkspaceMode) => void
+  onProjectChanged?: () => void | Promise<void>
 }) {
   const [showSettings, setShowSettings] = useState(false)
   const [showExport, setShowExport] = useState(false)
   const gitAction = gitActionFor(language, git)
+
   return (
     <header className="top-chrome">
       <button className="brand" onClick={onBack} aria-label="Quillarium" title="Quillarium">
@@ -171,6 +179,7 @@ export function TopChrome({
           onLanguage={onLanguage}
           onAIStatus={onAIStatus}
           onGitCreateRemote={onGitCreateRemote}
+          onProjectChanged={onProjectChanged}
           onClose={() => setShowSettings(false)}
         />
       )}
@@ -251,6 +260,7 @@ function SettingsModal({
   onLanguage,
   onAIStatus,
   onGitCreateRemote,
+  onProjectChanged,
   onClose
 }: {
   root?: string
@@ -263,6 +273,7 @@ function SettingsModal({
   onLanguage: (language: LanguageName) => void
   onAIStatus: (status: AIStatus) => void
   onGitCreateRemote?: () => void
+  onProjectChanged?: () => void | Promise<void>
   onClose: () => void
 }) {
   const closeRef = useRef<HTMLButtonElement | null>(null)
@@ -297,6 +308,12 @@ function SettingsModal({
   const [selectedCcv3Ids, setSelectedCcv3Ids] = useState<string[]>([])
   const [ccv3ExportPath, setCcv3ExportPath] = useState('')
   const [display, setDisplay] = useState({ theme, density, language })
+  const [storyStructure, setStoryStructure] = useState<StoryStructureConfigV1>({
+    part_enabled: true,
+    act_enabled: true,
+    scene_enabled: true
+  })
+  const [projectDocs, setProjectDocs] = useState<DocEntry[]>([])
   const [busyAction, setBusyAction] = useState<string | null>(null)
   const [notice, setNotice] = useState<SettingsNotice | null>(null)
 
@@ -389,6 +406,15 @@ function SettingsModal({
                 title: doc.data.title
               }))
           )
+          setProjectDocs(loadedProject?.docs ?? [])
+          if (loadedProject?.project.story_structure) {
+            const partEnabled = loadedProject.project.story_structure.part_enabled
+            setStoryStructure({
+              part_enabled: partEnabled,
+              act_enabled: partEnabled && loadedProject.project.story_structure.act_enabled,
+              scene_enabled: loadedProject.project.story_structure.scene_enabled
+            })
+          }
         }
       } catch (error) {
         if (!cancelled) {
@@ -449,6 +475,32 @@ function SettingsModal({
       setNotice({
         tone: 'success',
         message: display.language === 'zh' ? '显示设置已保存。' : 'Display settings saved.'
+      })
+    } catch (error) {
+      setNotice({ tone: 'danger', message: formatDesktopError(error, language) })
+    } finally {
+      setBusyAction(null)
+    }
+  }
+
+  const saveStoryStructure = async () => {
+    if (!root) return
+    setBusyAction('save-story-structure')
+    setNotice(null)
+    try {
+      const normalized = {
+        ...storyStructure,
+        act_enabled: storyStructure.part_enabled && storyStructure.act_enabled
+      }
+      await bridge.updateProjectStoryStructure(root, normalized)
+      setStoryStructure(normalized)
+      await onProjectChanged?.()
+      setNotice({
+        tone: 'success',
+        message:
+          language === 'zh'
+            ? '章节树设置已保存。被停用层级的文件仍保留在项目中。'
+            : 'Story tree settings saved. Files at disabled levels remain in the project.'
       })
     } catch (error) {
       setNotice({ tone: 'danger', message: formatDesktopError(error, language) })
@@ -748,6 +800,14 @@ function SettingsModal({
     : 'none'
   const storageEncrypted = storage?.mode === 'encrypted'
   const storageHealthy = storageEncrypted && !storage.warning
+  const disabledStructureDocs = projectDocs.filter((doc) => {
+    if (doc.data.type === 'scene') return !storyStructure.scene_enabled
+    if (doc.data.type !== 'outline') return false
+    const level = String(doc.data.level ?? '')
+    if (level === 'part' || level === 'arc') return !storyStructure.part_enabled
+    if (level === 'act') return !storyStructure.act_enabled
+    return false
+  })
 
   return (
     <div className="modal-backdrop">
@@ -860,6 +920,119 @@ function SettingsModal({
             </label>
           </div>
         </div>
+        {root && (
+          <div className="settings-group story-structure-settings">
+            <div className="settings-section-head">
+              <div>
+                <h3>{language === 'zh' ? '章节树' : 'Story tree'}</h3>
+                <p className="muted">
+                  {language === 'zh'
+                    ? '只调整工作区的层级呈现。关闭层级不会删除或改写现有 Markdown 文件。'
+                    : 'Controls the workspace hierarchy only. Disabling a level never deletes or rewrites existing Markdown files.'}
+                </p>
+              </div>
+              <button
+                className="secondary"
+                type="button"
+                onClick={() => void saveStoryStructure()}
+                disabled={busyAction !== null}
+              >
+                {busyAction === 'save-story-structure'
+                  ? t(language, 'saving')
+                  : language === 'zh'
+                    ? '保存章节树'
+                    : 'Save story tree'}
+              </button>
+            </div>
+            <div className="story-structure-options">
+              <label className="story-structure-option">
+                <input
+                  type="checkbox"
+                  checked={storyStructure.part_enabled}
+                  onChange={(event) =>
+                    setStoryStructure((current) => ({
+                      ...current,
+                      part_enabled: event.target.checked,
+                      act_enabled: event.target.checked ? current.act_enabled : false
+                    }))
+                  }
+                />
+                <span>
+                  <strong>{language === 'zh' ? '启用篇' : 'Enable parts'}</strong>
+                  <small>
+                    {language === 'zh' ? '关闭后，章直接挂在卷下。' : 'Chapters attach directly to volumes.'}
+                  </small>
+                </span>
+              </label>
+              <label className="story-structure-option">
+                <input
+                  type="checkbox"
+                  checked={storyStructure.act_enabled}
+                  disabled={!storyStructure.part_enabled}
+                  onChange={(event) =>
+                    setStoryStructure((current) => ({ ...current, act_enabled: event.target.checked }))
+                  }
+                />
+                <span>
+                  <strong>{language === 'zh' ? '启用幕' : 'Enable acts'}</strong>
+                  <small>
+                    {language === 'zh' ? '关闭后，章直接挂在篇下。' : 'Chapters attach directly to parts.'}
+                  </small>
+                </span>
+              </label>
+              <label className="story-structure-option">
+                <input
+                  type="checkbox"
+                  checked={storyStructure.scene_enabled}
+                  onChange={(event) =>
+                    setStoryStructure((current) => ({ ...current, scene_enabled: event.target.checked }))
+                  }
+                />
+                <span>
+                  <strong>{language === 'zh' ? '启用节' : 'Enable scenes'}</strong>
+                  <small>
+                    {language === 'zh'
+                      ? '关闭后隐藏节与绑定在节上的 AI 生文入口。'
+                      : 'Hides scenes and the scene-bound AI writing entry.'}
+                  </small>
+                </span>
+              </label>
+            </div>
+            {disabledStructureDocs.length > 0 && (
+              <details className="disabled-structure-inspector">
+                <summary>
+                  {language === 'zh'
+                    ? `查看停用层级中的内容（${disabledStructureDocs.length}）`
+                    : `Inspect content in disabled levels (${disabledStructureDocs.length})`}
+                </summary>
+                <p className="muted">
+                  {language === 'zh'
+                    ? '这些文件仍在 Obsidian 项目目录中，可在外部编辑器中检查。'
+                    : 'These files remain in the Obsidian project directory and can be inspected externally.'}
+                </p>
+                <div className="disabled-structure-list">
+                  {disabledStructureDocs.map((item) => (
+                    <button
+                      key={`${item.data.type}:${item.data.id}`}
+                      type="button"
+                      className="secondary"
+                      onClick={() =>
+                        void bridge
+                          .openDocExternal(item.path)
+                          .catch((error) =>
+                            setNotice({ tone: 'danger', message: formatDesktopError(error, language) })
+                          )
+                      }
+                    >
+                      <span>{item.data.title}</span>
+                      <small>{String(item.data.level ?? item.data.type)}</small>
+                    </button>
+                  ))}
+                </div>
+              </details>
+            )}
+          </div>
+        )}
         <div className="settings-group update-settings">
           <div className="settings-section-head">
             <div>

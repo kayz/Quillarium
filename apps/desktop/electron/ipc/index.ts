@@ -16,12 +16,16 @@ import { registerStoryOrderHandlers } from './story-order.js'
 import { registerReferenceHandlers } from './references.js'
 import { registerTimelineHandlers } from './timeline.js'
 import { registerCoverHandlers } from './cover.js'
+import { registerSettingAssetHandlers } from './setting-assets.js'
+import { registerSettingCardHandlers } from './setting-cards.js'
 
 export function registerAllHandlers(): void {
   registerAIStreamHandlers()
   registerConfigHandlers()
   registerProjectHandlers()
   registerCoverHandlers()
+  registerSettingAssetHandlers()
+  registerSettingCardHandlers()
   registerStoryOrderHandlers()
   registerReferenceHandlers()
   registerTimelineHandlers()

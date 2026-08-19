@@ -14,6 +14,9 @@ import {
   ensureDir,
   fileForDoc,
   foreshadowingSchema,
+  factionMembershipSchema,
+  factionRelationSchema,
+  factionSchema,
   issueSchema,
   listDocs,
   loadProject,
@@ -72,15 +75,29 @@ const planningKindSchema = z.enum(PLANNING_DOCUMENT_KINDS)
 const CREATABLE_PLANNING_KINDS = PLANNING_DOCUMENT_KINDS.filter(
   (kind) => kind !== 'strategy' && kind !== 'pattern'
 )
+const REFERENCE_DERIVED_PLANNING_KINDS: readonly PlanningDocumentKind[] = [
+  'character',
+  'character_relation',
+  'faction',
+  'faction_relation',
+  'faction_membership',
+  'world_entry',
+  'timeline_node',
+  'timeline_event',
+  'location',
+  'foreshadowing',
+  'narrative'
+]
 const MODULE_PLANNING_KINDS: Partial<Record<string, readonly PlanningDocumentKind[]>> = {
   planning: CREATABLE_PLANNING_KINDS,
   world: ['world_entry'],
   characters: ['character', 'character_relation'],
+  factions: ['faction', 'faction_relation', 'faction_membership'],
   timeline: ['timeline_node', 'timeline_event'],
   locations: ['location'],
   foreshadowing: ['foreshadowing'],
   narrative: ['narrative'],
-  references: ['reference'],
+  'reference-extraction': REFERENCE_DERIVED_PLANNING_KINDS,
   issues: CREATABLE_PLANNING_KINDS
 }
 const rawDraftSchema = z
@@ -197,6 +214,23 @@ export async function startPlanningSession(
   if (documentId) {
     const document = (await listDocs<BaseDoc>(root)).find((item) => item.data.id === documentId)
     if (!document) throw new Error(`Planning card not found: ${documentId}`)
+    if (document.data.type === 'reference') {
+      if (session.module !== 'reference-extraction') {
+        throw new Error('参考文档只能作为“AI 讨论生卡”的只读来源，不能作为 AI 可编辑提案。')
+      }
+      session.source_document = {
+        path: document.path,
+        id: document.data.id,
+        type: 'reference',
+        title: document.data.title,
+        expected_sha256: sha256Text(await readText(document.path))
+      }
+      await writePlanningSession(root, session)
+      return session
+    }
+    if (session.module === 'reference-extraction') {
+      throw new Error('“AI 讨论生卡”必须从一张已上传的参考文档开始。')
+    }
     if (!PLANNING_DOCUMENT_KINDS.includes(document.data.type as PlanningDocumentKind)) {
       throw new Error(
         `This document type cannot be edited in the planning conversation: ${document.data.type}`
@@ -234,6 +268,8 @@ export async function startPlanningSession(
     session.selected_proposal_id = proposalId
     session.anchor_proposal_id = proposalId
     session.document = { path: document.path, id: document.data.id, type: kind }
+  } else if (session.module === 'reference-extraction') {
+    throw new Error('请先上传并选中一份参考文档，再开始 AI 讨论生卡。')
   }
   await writePlanningSession(root, session)
   return session
@@ -270,18 +306,25 @@ export async function confirmPlanningRecord(
     throw new Error('Confirm at least one proposal before applying it to the project.')
   }
   assertPlanningProposalsInModuleScope(confirmed, session.module, session.document?.type)
-  return withProjectWriteLock(root, () =>
-    applyPlanningProposalTransaction(root, session, confirmed, persistence)
-  )
+  return withProjectWriteLock(root, async () => {
+    await assertPlanningSourceDocumentUnchanged(root, session.source_document)
+    return applyPlanningProposalTransaction(root, session, confirmed, persistence)
+  })
 }
 
 interface PreparedPlanningUpdate {
   proposal: PlanningProposal
+  draft: PlanningDraft
   source: string
   target: string
   source_raw: string
-  data: Record<string, unknown>
+  current_data: Record<string, unknown>
   changing_type: boolean
+}
+
+interface PreparedPlanningCreate {
+  proposal: PlanningProposal
+  draft: PlanningDraft
 }
 
 async function applyPlanningProposalTransaction(
@@ -291,21 +334,40 @@ async function applyPlanningProposalTransaction(
   persistence: PlanningPersistenceDependencies
 ) {
   const documents = await listDocs<DocumentIdentity>(root)
+  assertConfirmedPlanningDependencies(session.proposals, confirmed)
+  const creates = orderPlanningCreatesByDependency(confirmed).map<PreparedPlanningCreate>((proposal) => ({
+    proposal,
+    draft: normalizePlanningDraft(proposal.draft)
+  }))
+  const existingIds = new Set(documents.map((document) => document.data.id))
+  for (const { proposal } of creates) {
+    if (existingIds.has(proposal.id)) {
+      throw new Error(
+        `会话临时 ID “${proposal.id}” 与现有项目卡片冲突，无法可靠解析多卡引用。请让 AI 重新生成这张卡片。`
+      )
+    }
+  }
+  const virtualCreates = creates.map(({ proposal, draft }) => ({
+    path: path.join(root, '.quillarium', 'planning-preview', `${sha256Text(proposal.id).slice(0, 16)}.md`),
+    data: parseDocumentFields(draft.kind, {
+      id: proposal.id,
+      type: draft.kind,
+      schema_version: 1,
+      title: draft.title,
+      status: defaultStatus(draft.kind),
+      tags: [],
+      enabled: defaultEnabled(draft.kind),
+      ...draft.fields
+    }) as unknown as DocumentIdentity,
+    content: draft.content
+  }))
+  const validationDocuments = [...documents, ...virtualCreates]
   const updates: PreparedPlanningUpdate[] = []
   for (const proposal of confirmed) {
     const normalized = normalizePlanningDraft(proposal.draft)
     if (proposal.operation === 'create') {
-      const validationCandidate = parseDocumentFields(normalized.kind, {
-        id: `planning-preview-${proposal.id.replace(/[^a-z0-9-]+/giu, '-').toLowerCase()}`,
-        type: normalized.kind,
-        schema_version: 1,
-        title: normalized.title,
-        status: defaultStatus(normalized.kind),
-        tags: [],
-        enabled: defaultEnabled(normalized.kind),
-        ...normalized.fields
-      })
-      await assertCardReferencesExist(validationCandidate as unknown as DocumentIdentity, documents, root)
+      const validationCandidate = virtualCreates.find((item) => item.data.id === proposal.id)!.data
+      await assertCardReferencesExist(validationCandidate, validationDocuments, root)
       continue
     }
     if (!proposal.target) throw new Error(`Update proposal ${proposal.id} has no target document.`)
@@ -329,7 +391,7 @@ async function applyPlanningProposalTransaction(
       schema_version: 1,
       title: normalized.title
     })
-    await assertCardReferencesExist(parsed as unknown as DocumentIdentity, documents, root)
+    await assertCardReferencesExist(parsed as unknown as DocumentIdentity, validationDocuments, root)
     const target = changingType
       ? assertProjectPath(root, fileForDoc(root, normalized.kind, proposal.target.id, normalized.title))
       : source
@@ -338,10 +400,11 @@ async function applyPlanningProposalTransaction(
     }
     updates.push({
       proposal,
+      draft: normalized,
       source,
       target,
       source_raw: sourceRaw,
-      data: { ...parsed, [DOCUMENT_ORIGIN_FIELD]: planningOrigin(session, proposal.id) },
+      current_data: current.data,
       changing_type: changingType
     })
   }
@@ -356,16 +419,24 @@ async function applyPlanningProposalTransaction(
     source_sha256: string
   }> = []
   const beforeApply = structuredClone(session)
+  const resolvedProposalIds = new Map<string, string>()
+  for (const proposal of session.proposals) {
+    if (proposal.target) resolvedProposalIds.set(proposal.id, proposal.target.id)
+  }
+  const appliedDrafts = new Map<string, PlanningDraft>()
   try {
-    for (const proposal of confirmed.filter((item) => item.operation === 'create')) {
-      const normalized = normalizePlanningDraft(proposal.draft)
-      const file = await createProjectDocument(root, normalized.kind, {
-        ...normalized.fields,
-        title: normalized.title,
-        content: normalized.content
+    for (const { proposal, draft } of creates) {
+      const resolvedDraft = resolvePlanningProposalReferences(draft, resolvedProposalIds)
+      const file = await createProjectDocument(root, resolvedDraft.kind, {
+        ...resolvedDraft.fields,
+        title: resolvedDraft.title,
+        content: resolvedDraft.content
       })
       createdPaths.push(file)
       const current = await readMarkdown<Record<string, unknown>>(file)
+      const stableId = String(current.data['id'])
+      resolvedProposalIds.set(proposal.id, stableId)
+      appliedDrafts.set(proposal.id, resolvedDraft)
       await writeMarkdown(
         file,
         { ...current.data, [DOCUMENT_ORIGIN_FIELD]: planningOrigin(session, proposal.id) },
@@ -380,14 +451,31 @@ async function applyPlanningProposalTransaction(
         source_sha256: sha256Text(await readText(file))
       })
     }
+    const documentsAfterCreates = await listDocs<DocumentIdentity>(root)
     for (const update of updates) {
-      await writeMarkdown(update.target, update.data, update.proposal.draft.content)
+      const resolvedDraft = resolvePlanningProposalReferences(update.draft, resolvedProposalIds)
+      const parsed = parseDocumentFields(resolvedDraft.kind, {
+        ...(update.changing_type
+          ? sharedMigrationFields(update.current_data, resolvedDraft.fields, resolvedDraft.kind)
+          : { ...update.current_data, ...resolvedDraft.fields }),
+        id: update.current_data['id'],
+        type: resolvedDraft.kind,
+        schema_version: 1,
+        title: resolvedDraft.title
+      })
+      await assertCardReferencesExist(parsed as unknown as DocumentIdentity, documentsAfterCreates, root)
+      await writeMarkdown(
+        update.target,
+        { ...parsed, [DOCUMENT_ORIGIN_FIELD]: planningOrigin(session, update.proposal.id) },
+        resolvedDraft.content
+      )
       writtenTargets.push(update.target)
       const document = await readMarkdown<Record<string, unknown>>(update.target)
-      const verified = parseDocumentFields(update.proposal.draft.kind, document.data)
-      if (verified.id !== update.proposal.target?.id || verified.type !== update.proposal.draft.kind) {
+      const verified = parseDocumentFields(resolvedDraft.kind, document.data)
+      if (verified.id !== update.proposal.target?.id || verified.type !== resolvedDraft.kind) {
         throw new Error(`Planning card write verification failed: ${update.proposal.id}`)
       }
+      appliedDrafts.set(update.proposal.id, resolvedDraft)
       results.push({
         proposal_id: update.proposal.id,
         operation: 'update',
@@ -403,10 +491,16 @@ async function applyPlanningProposalTransaction(
       proposals: session.proposals.map((proposal) => {
         const result = resultByProposal.get(proposal.id)
         if (!result) return proposal
+        const appliedDraft = appliedDrafts.get(proposal.id) ?? proposal.draft
         return {
           ...proposal,
           operation: 'update',
           status: 'applied',
+          draft: appliedDraft,
+          revisions: appendRevision(
+            proposal.revisions,
+            planningRevision(appliedDraft, proposal.source === 'ai' ? 'ai' : 'author')
+          ),
           target: {
             path: result.path,
             id: String(result.document.data['id']),
@@ -457,6 +551,94 @@ async function applyPlanningProposalTransaction(
       )
     }
     throw error
+  }
+}
+
+function assertConfirmedPlanningDependencies(
+  proposals: PlanningProposal[],
+  confirmed: PlanningProposal[]
+): void {
+  const proposalsById = new Map(proposals.map((proposal) => [proposal.id, proposal]))
+  const proposalIds = new Set(proposalsById.keys())
+  const confirmedIds = new Set(confirmed.map((proposal) => proposal.id))
+  for (const proposal of confirmed) {
+    for (const dependencyId of collectSessionProposalReferences(proposal.draft.fields, proposalIds)) {
+      const dependency = proposalsById.get(dependencyId)
+      if (
+        !dependency ||
+        dependency.operation !== 'create' ||
+        dependency.status === 'applied' ||
+        confirmedIds.has(dependency.id)
+      ) {
+        continue
+      }
+      throw new Error(
+        `已确认卡片“${proposal.draft.title}”依赖会话中的新卡“${dependency.draft.title}”，但依赖卡尚未确认。请先确认依赖卡，或使用“确认全部”。本次未写入任何卡片。`
+      )
+    }
+  }
+}
+
+function orderPlanningCreatesByDependency(confirmed: PlanningProposal[]): PlanningProposal[] {
+  const creates = confirmed.filter((proposal) => proposal.operation === 'create')
+  const createIds = new Set(creates.map((proposal) => proposal.id))
+  const dependencies = new Map(
+    creates.map((proposal) => [
+      proposal.id,
+      collectSessionProposalReferences(proposal.draft.fields, createIds)
+    ])
+  )
+  const remaining = new Map(creates.map((proposal) => [proposal.id, proposal]))
+  const ordered: PlanningProposal[] = []
+  while (remaining.size) {
+    const next = creates.find(
+      (proposal) =>
+        remaining.has(proposal.id) &&
+        [...(dependencies.get(proposal.id) ?? [])].every((dependencyId) => !remaining.has(dependencyId))
+    )
+    if (!next) {
+      const cycle = [...remaining.values()].map((proposal) => `“${proposal.draft.title}”`).join('、')
+      throw new Error(`会话多卡存在循环依赖：${cycle}。请调整卡片引用后再应用；本次未写入任何卡片。`)
+    }
+    ordered.push(next)
+    remaining.delete(next.id)
+  }
+  return ordered
+}
+
+function collectSessionProposalReferences(value: unknown, proposalIds: Set<string>): Set<string> {
+  const result = new Set<string>()
+  const visit = (item: unknown): void => {
+    if (typeof item === 'string') {
+      if (proposalIds.has(item)) result.add(item)
+      return
+    }
+    if (Array.isArray(item)) {
+      for (const entry of item) visit(entry)
+      return
+    }
+    if (!item || typeof item !== 'object') return
+    for (const entry of Object.values(item as Record<string, unknown>)) visit(entry)
+  }
+  visit(value)
+  return result
+}
+
+function resolvePlanningProposalReferences(
+  draft: PlanningDraft,
+  resolvedIds: ReadonlyMap<string, string>
+): PlanningDraft {
+  const resolve = (value: unknown): unknown => {
+    if (typeof value === 'string') return resolvedIds.get(value) ?? value
+    if (Array.isArray(value)) return value.map(resolve)
+    if (!value || typeof value !== 'object') return value
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, entry]) => [key, resolve(entry)])
+    )
+  }
+  return {
+    ...draft,
+    fields: resolve(draft.fields) as Record<string, unknown>
   }
 }
 
@@ -511,6 +693,8 @@ export async function discussPlanningRecord(
     throw new Error('背景 AI 尚未配置。请返回“设置 → AI 配置 → 背景”，保存可用的模型和密钥后重试。')
   }
 
+  await assertPlanningSourceDocumentUnchanged(root, session?.source_document)
+
   const sessionModule = session?.module ?? input.module
   const currentProposals = session?.proposals ?? input.proposals ?? []
   const promptInput: PlanningChatRequest = {
@@ -525,14 +709,31 @@ export async function discussPlanningRecord(
   }
 
   const raw = await dependencies.generate(
-    buildPlanningPrompt(project, docs, promptInput, Boolean(session?.document), root),
+    buildPlanningPrompt(
+      project,
+      docs,
+      promptInput,
+      Boolean(session?.document),
+      root,
+      session?.source_document
+    ),
     config,
-    planningSystemPrompt(Boolean(session?.document), sessionModule, allowedKinds),
+    planningSystemPrompt(
+      Boolean(session?.document),
+      sessionModule,
+      allowedKinds,
+      Boolean(session?.source_document)
+    ),
     { responseFormat: 'json_object' }
   )
   const parsedResponse = parsePlanningAIResponse(raw)
   assertPlanningProposalsInModuleScope(parsedResponse.proposals, sessionModule, session?.document?.type)
-  const proposals = mergeAIPlanningProposals(currentProposals, parsedResponse.proposals, session ?? undefined)
+  const generatedProposals = session?.source_document
+    ? parsedResponse.proposals.map((proposal) =>
+        attachPlanningSourceReference(proposal, session.source_document!.id)
+      )
+    : parsedResponse.proposals
+  const proposals = mergeAIPlanningProposals(currentProposals, generatedProposals, session ?? undefined)
   const selectedProposalId = selectExistingProposalId(
     parsedResponse.selectedProposalId ?? input.selectedProposalId ?? session?.selected_proposal_id ?? null,
     proposals
@@ -716,7 +917,10 @@ function normalizePlanningProposals(
     .filter((proposal) => validProposalId(proposal.id))
     .map<PlanningProposal>((proposal) => {
       const previous = existing.get(proposal.id)
-      const draft = normalizePlanningDraft(proposal.draft)
+      const normalizedDraft = normalizePlanningDraft(proposal.draft)
+      const draft = session.source_document
+        ? withPlanningSourceReference(normalizedDraft, session.source_document.id)
+        : normalizedDraft
       const revision = planningRevision(draft, proposal.source === 'ai' ? 'ai' : 'author')
       const changed = previous ? planningDraftHash(previous.draft) !== revision.content_sha256 : false
       const status = changed && proposal.status !== 'draft' ? 'draft' : proposal.status
@@ -736,6 +940,33 @@ function normalizePlanningProposals(
     : undefined
   if (anchor && !normalized.some((proposal) => proposal.id === anchor.id)) normalized.unshift(anchor)
   return normalized
+}
+
+function attachPlanningSourceReference(
+  proposal: PlanningProposal,
+  sourceDocumentId: string
+): PlanningProposal {
+  const draft = withPlanningSourceReference(proposal.draft, sourceDocumentId)
+  return {
+    ...proposal,
+    draft,
+    revisions: appendRevision(proposal.revisions, planningRevision(draft, proposal.source))
+  }
+}
+
+function withPlanningSourceReference(draft: PlanningDraft, sourceDocumentId: string): PlanningDraft {
+  const existing = Array.isArray(draft.fields['source_refs'])
+    ? draft.fields['source_refs'].filter(
+        (value): value is string => typeof value === 'string' && Boolean(value)
+      )
+    : []
+  return normalizePlanningDraft({
+    ...draft,
+    fields: {
+      ...draft.fields,
+      source_refs: [...new Set([...existing, sourceDocumentId])]
+    }
+  })
 }
 
 function updateLegacyProposal(session: PlanningSession, draftValue: PlanningDraft): PlanningProposal[] {
@@ -819,7 +1050,8 @@ export function buildPlanningPrompt(
   docs: Array<{ path?: string; data: BaseDoc; content: string }>,
   input: PlanningChatRequest,
   editingExisting = false,
-  projectRoot?: string
+  projectRoot?: string,
+  sourceDocument?: PlanningSession['source_document']
 ): string {
   const recentMessages = normalizeMessages(input.messages)
   const anchorKind = (input.proposals ?? []).find((proposal) => proposal.source === 'anchor')?.target?.type
@@ -838,6 +1070,11 @@ export function buildPlanningPrompt(
       status: doc.data.status
     }))
   const issueContext = buildIssuePlanningContext(docs, input, projectRoot)
+  const referenceSource = sourceDocument
+    ? docs.find(
+        (document) => document.data.id === sourceDocument.id && document.data.type === sourceDocument.type
+      )
+    : undefined
   return [
     `Current project: ${project.title}`,
     `Genre: ${project.genre}`,
@@ -854,6 +1091,20 @@ export function buildPlanningPrompt(
           '',
           'Issue-specific context. The anchored issue is first, followed by same-kind issues, explicit targets, and locally resolved references:',
           JSON.stringify(issueContext, null, 2)
+        ]
+      : []),
+    ...(referenceSource
+      ? [
+          '',
+          '参考生卡的只读来源 (read-only source for card extraction; never edit or return it as a proposal):',
+          JSON.stringify(
+            {
+              ...planningContextDocument(referenceSource, 24_000),
+              source_sha256: sourceDocument?.expected_sha256
+            },
+            null,
+            2
+          )
         ]
       : []),
     '',
@@ -880,7 +1131,13 @@ export function buildPlanningPrompt(
     '',
     'The proposal must use only fields valid for the selected kind. Markdown belongs in content, not fields.',
     'For source_refs, relations, timeline_node, character endpoints, locations, and other links, use only exact IDs from the project catalog. Never invent a related card ID.',
+    "Exception for cards created together in this response: use the referenced card's stable proposal id in the structured reference field. Quillarium resolves that temporary id to the new project card's stable id inside one atomic apply transaction. Never use a title or array position as a reference.",
     'Reference documents are source material, not fact cards: do not copy their full body into another card and never assign them a lifecycle status.',
+    ...(referenceSource
+      ? [
+          `Every proposal is derived from reference ${sourceDocument!.id}. Quillarium attaches this stable id to source_refs in code. Never propose an update to the reference itself.`
+        ]
+      : []),
     'Style, pacing, structure, and former strategy/pattern concepts must be proposed as one narrative card. Never create a new strategy or pattern card.'
   ].join('\n')
 }
@@ -948,7 +1205,10 @@ function buildIssuePlanningContext(
   }
 }
 
-function planningContextDocument(document: { data: BaseDoc; content: string }): Record<string, unknown> {
+function planningContextDocument(
+  document: { data: BaseDoc; content: string },
+  contentLimit = 4_000
+): Record<string, unknown> {
   return {
     id: document.data.id,
     type: document.data.type,
@@ -958,14 +1218,15 @@ function planningContextDocument(document: { data: BaseDoc; content: string }): 
         ([key]) => !['id', 'type', 'schema_version', 'title', DOCUMENT_ORIGIN_FIELD].includes(key)
       )
     ),
-    content: limitText(document.content, 4_000)
+    content: limitText(document.content, contentLimit)
   }
 }
 
 function planningSystemPrompt(
   editingExisting = false,
   module = 'planning',
-  allowedKinds: readonly PlanningDocumentKind[] = CREATABLE_PLANNING_KINDS
+  allowedKinds: readonly PlanningDocumentKind[] = CREATABLE_PLANNING_KINDS,
+  extractingReference = false
 ): string {
   return [
     'You are Quillarium Planning Curator for structured serialized fiction.',
@@ -975,6 +1236,9 @@ function planningSystemPrompt(
     editingExisting
       ? 'The first proposal is the immutable session anchor: reuse its proposal id when suggesting an edit, never duplicate it, and never reorder it. New cards follow it. Keep stable project identities and never write files directly.'
       : 'Choose suitable record kinds and return every distinct card in proposals. Reuse a proposal id to revise that card; never let a later card overwrite an earlier one. Never propose canon, outline, scene, or accepted prose.',
+    extractingReference
+      ? 'The uploaded reference is immutable evidence, not a proposal. Extract one or more reviewable setting cards from it, keep uncertain claims tentative, and never suggest editing, replacing, or deleting the reference.'
+      : '',
     'Keep claims tentative when the author has not confirmed them. Return valid JSON only and follow the requested response shape.'
   ].join('\n')
 }
@@ -1029,7 +1293,10 @@ async function migratePlanningSession(root: string, value: unknown): Promise<Pla
       ...(typeof raw['anchor_proposal_id'] === 'string'
         ? { anchor_proposal_id: raw['anchor_proposal_id'] }
         : {}),
-      ...(isPlanningDocumentRef(raw['document']) ? { document: raw['document'] } : {})
+      ...(isPlanningDocumentRef(raw['document']) ? { document: raw['document'] } : {}),
+      ...(isPlanningSourceDocumentRef(raw['source_document'])
+        ? { source_document: raw['source_document'] }
+        : {})
     }
     provisional.proposals = normalizePlanningProposals(
       (raw['proposals'] as PlanningProposal[]).map((proposal) => ({
@@ -1096,6 +1363,48 @@ function isPlanningDocumentRef(value: unknown): value is NonNullable<PlanningSes
     typeof item['id'] === 'string' &&
     PLANNING_DOCUMENT_KINDS.includes(item['type'] as PlanningDocumentKind)
   )
+}
+
+function isPlanningSourceDocumentRef(
+  value: unknown
+): value is NonNullable<PlanningSession['source_document']> {
+  if (!isPlanningDocumentRef(value)) return false
+  const item = value as unknown as Record<string, unknown>
+  return (
+    item['type'] === 'reference' &&
+    typeof item['title'] === 'string' &&
+    typeof item['expected_sha256'] === 'string' &&
+    /^[a-f0-9]{64}$/u.test(item['expected_sha256'])
+  )
+}
+
+async function assertPlanningSourceDocumentUnchanged(
+  root: string,
+  sourceDocument?: PlanningSession['source_document']
+): Promise<void> {
+  if (!sourceDocument) return
+  const source = assertProjectPath(root, sourceDocument.path)
+  if (!(await pathExists(source))) {
+    throw new Error(
+      `参考文档“${sourceDocument.title}”已不存在。未调用 AI，也未写入任何卡片；请重新上传后开始新会话。`
+    )
+  }
+  const raw = await readText(source)
+  const currentSha256 = sha256Text(raw)
+  if (currentSha256 !== sourceDocument.expected_sha256) {
+    throw new Error(
+      [
+        `参考文档“${sourceDocument.title}”已在会话外变化。`,
+        `Expected SHA-256: ${sourceDocument.expected_sha256}`,
+        `Current SHA-256: ${currentSha256}`,
+        '未调用 AI，也未写入任何卡片。请核对文档后重新开始“AI 讨论生卡”。'
+      ].join('\n')
+    )
+  }
+  const parsed = await readMarkdown<Record<string, unknown>>(source)
+  if (parsed.data['id'] !== sourceDocument.id || parsed.data['type'] !== 'reference') {
+    throw new Error(`参考文档“${sourceDocument.title}”的稳定身份已改变。未写入任何卡片。`)
+  }
 }
 
 function planningHashConflict(
@@ -1165,6 +1474,12 @@ function parseDocumentFields(kind: PlanningDocumentKind, value: Record<string, u
       return characterSchema.parse(value)
     case 'character_relation':
       return characterRelationSchema.parse(value)
+    case 'faction':
+      return factionSchema.parse(value)
+    case 'faction_relation':
+      return factionRelationSchema.parse(value)
+    case 'faction_membership':
+      return factionMembershipSchema.parse(value)
     case 'world_entry':
       return worldEntrySchema.parse(value)
     case 'timeline_event':

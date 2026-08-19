@@ -250,6 +250,16 @@ async function completedExecution(
         title: `Permit exception ${index + 1} unclear`,
         message: `Specify exception ${index + 1}.`,
         evidence: `The card says day only; exception ${index + 1} is not defined.`,
+        evidence_refs:
+          index === 0
+            ? [
+                {
+                  document_id: 'foreshadow-permit',
+                  kind: 'field',
+                  field_path: 'trigger_conditions.0.keyword'
+                }
+              ]
+            : [{ document_id: 'foreshadow-permit', kind: 'body', quote: 'Day only.' }],
         related_ids: ['foreshadow-permit']
       }))
     })

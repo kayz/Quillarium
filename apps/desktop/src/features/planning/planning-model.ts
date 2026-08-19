@@ -3,12 +3,16 @@ import type {
   OutlineHomeSection,
   PlanningCheckScope,
   PlanningDocumentKind,
+  PlanningProposal,
   VolumeSection
 } from '../../app/types.js'
 
 export const PLANNING_KIND_LABELS: Record<PlanningDocumentKind, { zh: string; en: string }> = {
   character: { zh: '人物', en: 'Character' },
   character_relation: { zh: '人物关系', en: 'Character relationship' },
+  faction: { zh: '势力', en: 'Faction' },
+  faction_relation: { zh: '势力关系', en: 'Faction relationship' },
+  faction_membership: { zh: '人物所属势力', en: 'Faction membership' },
   world_entry: { zh: '世界书', en: 'World entry' },
   timeline_node: { zh: '时间节点', en: 'Timeline node' },
   timeline_event: { zh: '时间线', en: 'Timeline event' },
@@ -31,12 +35,12 @@ export function planningKindForContext(
   const map: Partial<Record<typeof context, PlanningDocumentKind>> = {
     world: 'world_entry',
     characters: 'character',
+    factions: 'faction',
     timeline: 'timeline_event',
     locations: 'location',
     foreshadowing: 'foreshadowing',
     narrative: 'narrative',
-    issues: 'issue',
-    references: 'reference'
+    issues: 'issue'
   }
   return map[context] ?? null
 }
@@ -52,6 +56,7 @@ export function planningCheckScopeForContext(
     canon: 'canon',
     world: 'world',
     characters: 'characters',
+    factions: 'characters',
     timeline: 'timeline',
     locations: 'locations',
     foreshadowing: 'foreshadowing',
@@ -69,12 +74,53 @@ export function planningKindsForContext(
   const map: Partial<Record<string, PlanningDocumentKind[]>> = {
     world: ['world_entry'],
     characters: ['character', 'character_relation'],
+    factions: ['faction', 'faction_relation', 'faction_membership'],
     timeline: ['timeline_node', 'timeline_event'],
     locations: ['location'],
     foreshadowing: ['foreshadowing'],
     narrative: ['narrative'],
-    references: ['reference']
+    'reference-extraction': [
+      'character',
+      'character_relation',
+      'faction',
+      'faction_relation',
+      'faction_membership',
+      'world_entry',
+      'timeline_node',
+      'timeline_event',
+      'location',
+      'foreshadowing',
+      'narrative'
+    ]
   }
   const scoped = map[context] ?? CREATABLE_PLANNING_KINDS
   return anchorKind && !scoped.includes(anchorKind) ? [anchorKind, ...scoped] : [...scoped]
+}
+
+export function planningProposalDependencies(
+  proposal: PlanningProposal,
+  proposals: PlanningProposal[]
+): PlanningProposal[] {
+  const proposalIds = new Set(proposals.map((item) => item.id))
+  const referencedIds = new Set<string>()
+  const visit = (value: unknown): void => {
+    if (typeof value === 'string') {
+      if (proposalIds.has(value) && value !== proposal.id) referencedIds.add(value)
+      return
+    }
+    if (Array.isArray(value)) {
+      for (const item of value) visit(item)
+      return
+    }
+    if (!value || typeof value !== 'object') return
+    for (const item of Object.values(value as Record<string, unknown>)) visit(item)
+  }
+  visit(proposal.draft.fields)
+  return proposals.filter((item) => referencedIds.has(item.id))
+}
+
+export function confirmAllPlanningProposals(proposals: PlanningProposal[]): PlanningProposal[] {
+  return proposals.map((proposal) =>
+    proposal.status === 'applied' ? proposal : { ...proposal, status: 'confirmed' as const }
+  )
 }

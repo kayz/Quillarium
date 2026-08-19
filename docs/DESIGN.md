@@ -59,13 +59,17 @@ ordered proposal set rather than one replaceable proposal. Each item has a stabl
 source, create/update operation, state, body, and revision history. When discussion starts from an
 existing card, that real card is the immutable first-position anchor; it is never copied into a new
 card or displaced by regeneration or session restore. Confirmation is reversible review state, so
-the author can resume editing before apply. Apply preflights every update hash, then uses the project
-write lock, atomic replacement, verification, and whole-set rollback. A conflict therefore produces
-zero project-document writes. The trusted process limits both context and proposal schemas to the
-active module: timeline conversations, for example, can read and propose only timeline nodes and
-events, while character conversations can propose only characters and relationships. A model output
-outside that allowlist is rejected before session merge and is checked again before apply. An explicit
-“edit with AI” action can seed the same reviewed conversation from one existing planning card; Canon,
+the author can resume editing before apply. The UI exposes the complete set in a bounded multi-card
+grid with an exact count, per-card selection, explicit dependency warnings, and reversible “confirm
+all”; an unconfirmed new dependency is never silently included. Apply preflights every update hash,
+orders confirmed creates by their session-local dependencies, resolves stable temporary proposal IDs
+to the newly written project IDs, then uses the project write lock, atomic replacement, verification,
+and whole-set rollback. A conflict, missing confirmation, or dependency cycle therefore produces zero
+project-document writes. The trusted process limits both context and proposal schemas to the active
+module: timeline conversations, for example, can read and propose only timeline nodes and events,
+while character conversations can propose only characters and relationships. A model output outside
+that allowlist is rejected before session merge and is checked again before apply. An explicit “edit
+with AI” action can seed the same reviewed conversation from one existing planning card; Canon,
 outlines, scenes, and accepted prose remain outside this flow.
 
 Planning documents expose separate Markdown source and read-only preview modes over one unsaved
@@ -282,9 +286,15 @@ Foreshadowing is a ledger of planned plants, actual plants, reinforcement, resol
 state. Its timeline, outline, keyword, and enabled-card conditions are evaluated deterministically for
 the current writing scope and produce author reminders without silently mutating the ledger. World
 entries are atomic lore records selected by exact textual triggers, explicit pins, and typed links.
-References preserve research without becoming Canon or entering prompts; their editor derives a live
-reverse index from every card's `source_refs`. Issues keep findings out of ephemeral AI exchanges and
-link to the cards that can be inspected, manually repaired, or discussed with AI.
+References preserve research without becoming Canon or entering ordinary prompts; their editor
+derives a live reverse index from every card's `source_refs`. Desktop reference creation is a
+deterministic UTF-8 text/Markdown upload: files become project-local `references/*.md` records in one
+rollback-safe batch, with only the original filename retained and no AI call. A later explicit
+“AI discussion to create cards” session may read one saved reference as immutable, hash-checked source
+material and return multiple reviewable setting-card proposals. The source itself is never a proposal,
+and Core-owned normalization adds its stable ID to each derived card's `source_refs` before apply.
+Issues keep findings out of ephemeral AI exchanges and link to the cards that can be inspected,
+manually repaired, or discussed with AI.
 
 All planning-card reference fields use one searchable `PlanningCardSelector`. It filters titles,
 stable IDs, aliases, tags, and document types, renders type and stable identity beside the display
@@ -532,6 +542,141 @@ Probability, sticky state, and cooldown do not decide which authoritative facts 
 the same project snapshot, preset, model tokenizer, and writing scope, compilation produces the same
 ordered blocks and trace. See
 [ADR-context-activation.md](adr/ADR-context-activation.md).
+
+## 0.2.3 Transaction and Compatibility Boundaries
+
+CCv3 book import is a two-phase operation. Preflight parses every candidate, rejects duplicate card
+IDs and conflicts against all stable IDs already present in the project, and records the configuration
+before-image plus every intended path. Applying to an existing project uses one project write lock;
+any failure restores overwritten bytes and removes only files created by that transaction. Welcome-
+screen import first builds and validates a transaction-marked temporary project under the workspace
+`projects_dir`, atomically renames it on the same filesystem, and only then registers the workspace
+manifest. A registration failure removes only that marked new directory and leaves no manifest or
+project residue. The author title override is part of the import plan, not a later rewrite.
+
+Issue suppression uses `IssueIdentityV2`: checker ID, issue code, sorted stable target IDs, and sorted
+evidence anchors. A field anchor contains the real field path and a SHA-256 of its current value; a
+body anchor contains a verified source range and a SHA-256 of the exact source text. Localized titles,
+display language, and AI explanatory prose do not affect identity. AI evidence references must resolve
+to a prompt-visible source field or exact body fragment before an issue proposal is accepted. V1
+ledgers and issue fields remain readable without write-on-read migration. An author ignore, resolve,
+or reopen action lazily upgrades reconstructable entries; unreconstructable legacy AI entries remain
+intact until the author explicitly ignores matching evidence again. Only `ignored` enters suppression;
+`resolved` remains eligible for later detection.
+
+Assistant prompt creation and role binding form one write-locked transaction guarded by the role's
+expected SHA-256. Failure restores the role, removes the new version, and restores any retention
+victims. Each assistant retains its newest five unpinned ordinary versions; any older version still
+referenced by a role is pinned outside that quota. A dangling binding is reported as
+`prompt_binding_issues`, blocks new sessions for that role, and can be repaired only by explicit
+rebind or by choosing an exact same-ID historical session snapshot. Initialization never guesses
+between different snapshots and never changes historical session or Run content.
+
+The document-reference index is derived cache data. Project load and document save do not synchronously
+rebuild it. A reference request reads the document set once, hashes that set, returns a matching cache,
+or rebuilds and atomically replaces the cache from the same read. Resolver maps for stable ID, code,
+path, filename, title, and aliases keep resolution linear in documents plus references while retaining
+all ambiguity candidates. External edits are detected by the set hash; invalidation hints improve
+latency but are not required for correctness. On the same 2,000-document benchmark used during the
+0.2.3 review, the median fell from the 881.7 ms baseline to 94.47 ms (about 9.33 times faster).
+
+Character rehearsal resolves one trusted story-time point. An exact state scoped to the selected
+event wins; otherwise the nearest state on or before the selected node is used, and future states are
+excluded. Relationships are constraints only for `starts_at <= node < ends_at`; missing-time
+relationships remain low-authority evidence with a visible warning. A unique placement or the main
+timeline resolves automatically. Conflicting non-main placements require the author to select
+`timeline_id`, which is stored in the workflow input and previewed with the chosen node, state source,
+active relationships, and ambiguity warnings. Legacy workflow input without `timeline_id` remains
+readable.
+
+Sensitive-data handling is one shared, browser-safe core boundary. It recognizes credential-bearing
+headers and assignments, common provider-token forms, endpoints, Windows/UNC/file URLs, and local
+POSIX paths. New AI work scans source blocks and actual messages before Run/PromptEnvelope persistence
+and again before provider invocation; a hit fails closed as `SENSITIVE_PROMPT_CONTENT` with only the
+source identity, never the matched secret. It does not silently rewrite and send. Old Runs are not
+mutated, but viewing/copying them is recursively sanitized. Provider-request archives and CCv3 export
+use the same sanitizer, and final serialized CCv3 content is scanned before PNG bytes are written.
+
+## 0.3.0 Setting Cards, Story-Tree Visibility, and Factions
+
+### Project-local setting images
+
+`world_entry`, `character`, `location`, `character_relation`, and `faction` documents may carry one
+nullable `SettingImageAssetV1`. The original PNG/JPEG/WebP and generated PNG thumbnail are stored at
+`assets/settings/<document-type>/<stable-id-key>/`; safe legacy ASCII IDs remain readable in the
+directory name, while Unicode or filename-unsafe IDs use a deterministic SHA-256-derived key.
+Frontmatter contains only project-relative paths,
+MIME type, SHA-256, dimensions, focus, alternative text, and a small code-derived color palette. The
+main process resolves every path inside the project, rejects symlink traversal, rechecks the document
+before-image under the project write lock, and restores the exact Markdown plus any newly created
+asset files on failure. Replacing or removing a current image does not destroy older asset bytes, so
+manual recovery remains possible. Batch thumbnail loading reads the project document set once rather
+than rescanning it per visible card.
+
+The renderer prefers thumbnails in setting lists, detail panes, module cards, and the character-
+relationship workbench. A faction without an emblem uses a deterministic circle plus one or two title
+characters. Existing documents without `image` parse as `null` in memory; opening or listing them does
+not write that default back to disk. No image bytes or asset paths enter CCv3 world-book fields.
+
+### HTML setting-card Agent and workspace styles
+
+`setting-card-design` is a code-owned, candidate-only Agent task for world entries, characters,
+locations, and character relationships. Its source block removes `image` metadata and exposes only
+width, height, aspect ratio, orientation, palette, and alt text. The model never receives image pixels,
+hashes, or local paths. It returns exactly one schema-validated `{ template_html, css, notes }` object
+using the required `{{image}}`, `{{title}}`, and `{{content}}` placeholders. `{{fields}}` renders the
+bounded core-attribute block, while a safe single-key placeholder such as `{{fields.role}}` lets a
+design feature one escaped core value without exposing arbitrary object traversal. Sanitization rejects scripts,
+event handlers, remote URLs, CSS imports, expressions, and unknown placeholders; validation names the
+exact rejected placeholder so the runtime's bounded repair has actionable evidence. Preview uses an
+iframe with an empty sandbox capability set; exported HTML carries a deny-by-default CSP and embeds
+only the selected thumbnail as a data URL.
+
+The UI has one style selector. Code-owned built-ins and saved workspace styles rerender immediately and
+never invoke a model; only `Random style` exposes Roll and calls the Agent without a base-style input.
+The renderer supplies a zero-based candidate index. Trusted code rotates twelve primary composition
+archetypes by that index and derives typography, image treatment, information density, palette, and
+graphic language from the execution ID. The resulting brief is exact and reproducible in the Run
+PromptEnvelope, while successive Rolls cannot reuse the same primary composition until the rotation
+wraps. Successful Rolls append to an in-memory candidate history so authors can move backward and
+forward without losing earlier results. The save controls appear only for the selected random
+candidate, and an approved candidate is named and inserted into that same style selector as a
+versioned style under the writing workspace at
+`styles/setting-cards/<style-id>/<version>.json`. Styles therefore cross novel boundaries while project
+facts and images do not. Applying a saved style rerenders the current card data; it does not copy the
+source card or mutate Canon. Agent executions retain their exact PromptEnvelope and result snapshots,
+while HTML export opens the operating system Save As dialog and writes only the explicitly selected
+destination; canceling writes nothing. Required template placeholders and active-content rules
+participate in the structured-output schema so one bounded repair can correct an invalid model
+response. Card rendering formats prioritized core fields as semantic definition/list structures and
+renders a bounded safe Markdown subset for long-form text.
+
+### Reversible story-tree visibility
+
+`ProjectConfig.story_structure` stores `part_enabled`, `act_enabled`, and `scene_enabled`. Missing
+configuration in an old project defaults to all three enabled without a read-time migration. Acts
+cannot be enabled when parts are disabled. When part or act is off, the renderer walks through the
+disabled ancestors and presents chapters beneath the nearest enabled parent; every existing outline
+keeps its original `parent` and file. The Settings inspector lists disabled part/act/scene files and
+can open them in the external editor. Creation validates the effective hierarchy: chapters attach to
+volumes when parts are off, or to parts when acts are off. Disabling scenes blocks new scene creation
+in core and hides scene management plus the scene-bound generation surface, but it does not delete
+legacy scenes or Runs.
+
+### Faction network
+
+Faction data uses three independent planning documents under `factions/`, `factions/relations/`, and
+`factions/memberships/`: `faction`, `faction_relation`, and `faction_membership`. Relationship endpoints,
+memberships, headquarters, and timeline bounds are stable IDs. Faction-to-faction relations require
+different valid endpoints. Character memberships require an existing faction and character. Optional
+intervals follow `starts_at <= selected node < ends_at`; untimed memberships remain visible as
+lower-confidence, visually marked badges. Multiple active memberships are ordered with the primary
+membership first and all emblems remain attached to the person in the relationship graph.
+
+CCv3 book export includes confirmed faction, faction-relation, and membership setting data through the
+same allowlisted world-book extension fields, while excluding project image paths. Import recreates
+them as disabled candidate/draft documents for review. Projects and CCv3 archives made before 0.3.0
+remain readable, and none of the new defaults trigger silent rewrites.
 
 ## Events, Notes, and Summaries
 

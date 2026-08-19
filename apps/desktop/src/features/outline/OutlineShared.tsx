@@ -454,6 +454,9 @@ function DocumentReferenceList({
 export const AI_EDITABLE_CARD_TYPES = new Set([
   'character',
   'character_relation',
+  'faction',
+  'faction_relation',
+  'faction_membership',
   'world_entry',
   'timeline_node',
   'timeline_event',
@@ -462,8 +465,7 @@ export const AI_EDITABLE_CARD_TYPES = new Set([
   'strategy',
   'pattern',
   'narrative',
-  'issue',
-  'reference'
+  'issue'
 ])
 
 const IDENTITY_FIELDS = new Set([
@@ -532,6 +534,13 @@ const RELATION_FIELDS = new Set([
   'died_at',
   'introduced_at',
   'exited_at',
+  'headquarters',
+  'founded_at',
+  'dissolved_at',
+  'from_faction',
+  'to_faction',
+  'faction_id',
+  'character_id',
   'characters',
   'related_characters',
   'related_arc',
@@ -568,6 +577,13 @@ const DOCUMENT_LINK_FIELDS: Record<string, string[]> = {
   related_characters: ['character'],
   from_character: ['character'],
   to_character: ['character'],
+  from_faction: ['faction'],
+  to_faction: ['faction'],
+  faction_id: ['faction'],
+  character_id: ['character'],
+  headquarters: ['location'],
+  founded_at: ['timeline_node', 'timeline_event'],
+  dissolved_at: ['timeline_node', 'timeline_event'],
   born_at: ['timeline_node'],
   died_at: ['timeline_node'],
   introduced_at: ['timeline_node'],
@@ -613,7 +629,7 @@ export function MetadataEditor({
   const resolvedDocumentType = documentType ?? String(data['type'] ?? '')
   const editableKeys = Object.keys(data).filter(
     (key) =>
-      !['id', 'type', 'schema_version', 'title', 'quillarium_origin'].includes(key) &&
+      !['id', 'type', 'schema_version', 'title', 'quillarium_origin', 'image'].includes(key) &&
       !(
         resolvedDocumentType === 'reference' &&
         ['status', 'enabled', 'source_refs', 'relations'].includes(key)
@@ -636,25 +652,47 @@ export function MetadataEditor({
   }
   const suggestions = useMemo(() => collectTagSuggestions(docs), [docs])
   const [referenceIndex, setReferenceIndex] = useState<LocalDocumentLinkIndexV1>()
+  const [referenceIndexLoading, setReferenceIndexLoading] = useState(false)
+  const [referenceIndexFailed, setReferenceIndexFailed] = useState(false)
   const indexKey = documentLinkIndexLoadKey(projectRoot, documentPath)
   useEffect(() => {
     let active = true
     if (!indexKey) return () => undefined
+    setReferenceIndexLoading(true)
+    setReferenceIndexFailed(false)
     void window.quillarium
       .rebuildDocumentLinkIndex(indexKey)
       .then((index) => {
         if (active) setReferenceIndex(index)
       })
       .catch(() => {
-        if (active) setReferenceIndex(undefined)
+        if (active) {
+          setReferenceIndex(undefined)
+          setReferenceIndexFailed(true)
+        }
+      })
+      .finally(() => {
+        if (active) setReferenceIndexLoading(false)
       })
     return () => {
       active = false
     }
-  }, [indexKey])
+  }, [indexKey, docs])
   const referenceResults = referenceIndex?.forward[String(data['id'] ?? '')] ?? []
   return (
     <div className="metadata-editor">
+      {referenceIndexLoading && (
+        <p className="reference-index-status" role="status">
+          {language === 'zh' ? '正在校验引用索引…' : 'Validating reference index…'}
+        </p>
+      )}
+      {referenceIndexFailed && (
+        <p className="reference-index-status warning-text" role="status">
+          {language === 'zh'
+            ? '引用索引暂时不可用；卡片仍可正常编辑和保存。'
+            : 'The reference index is temporarily unavailable; card editing and saving remain available.'}
+        </p>
+      )}
       {groups.map((group) => {
         const keys = [...(grouped.get(group.id) ?? [])]
         if (group.id === 'identity' && resolvedDocumentType === 'character') {

@@ -96,6 +96,12 @@ const FIELD_DEFINITIONS: Record<string, LocalizedFieldDefinition> = {
     'Aliases',
     'Other names that can be used to find this record.'
   ),
+  image: field(
+    '设定图片',
+    '项目内原图、缩略图、尺寸、焦点和色板的受控相对路径元数据；请通过图片面板管理。',
+    'Setting image',
+    'Controlled project-relative metadata for the original, thumbnail, dimensions, focus, and palette; manage it through the image panel.'
+  ),
   role: field(
     '叙事作用',
     '说明这项内容在故事中承担的主要功能。',
@@ -1163,6 +1169,12 @@ const FIELD_DEFINITIONS: Record<string, LocalizedFieldDefinition> = {
     'Issue fingerprint',
     'Used to deduplicate the same finding within one check.'
   ),
+  legacy_check_fingerprints: field(
+    '兼容问题指纹',
+    '供旧问题账本兼容匹配的历史指纹别名；作者操作时会按可重建情况惰性迁移。',
+    'Legacy issue fingerprints',
+    'Historical aliases used for compatible matching and lazily migrated on an author action.'
+  ),
   checked_at: field(
     '检查时间',
     '最近一次发现或确认这个问题的时间。',
@@ -1316,6 +1328,54 @@ const FIELD_DEFINITIONS: Record<string, LocalizedFieldDefinition> = {
     'Spatial scale',
     'Whether the location is world-wide, regional, city-level, district-level, an estate, or an interior.'
   ),
+  faction_kind: field(
+    '势力类型',
+    '势力在世界中属于组织、政府、行会、宗教、军队或家族等哪种形态。',
+    'Faction type',
+    'Whether this faction is an organization, government, guild, religion, military body, family, or another form.'
+  ),
+  motto: field('格言', '势力公开或内部使用的格言。', 'Motto', 'The faction’s public or internal motto.'),
+  goals: field('目标', '势力持续追求的长期目标。', 'Goals', 'Long-term goals pursued by the faction.'),
+  methods: field('手段', '势力通常采用的行动方式。', 'Methods', 'Methods commonly used by the faction.'),
+  headquarters: field(
+    '总部地点',
+    '势力主要据点关联的稳定地点 ID。',
+    'Headquarters',
+    'Stable location ID for the faction’s primary base.'
+  ),
+  founded_at: field(
+    '成立时间',
+    '势力成立所关联的稳定时间节点或事件 ID。',
+    'Founded at',
+    'Stable timeline node or event ID marking the faction’s founding.'
+  ),
+  dissolved_at: field(
+    '解散时间',
+    '势力解散所关联的稳定时间节点或事件 ID。',
+    'Dissolved at',
+    'Stable timeline node or event ID marking the faction’s dissolution.'
+  ),
+  from_faction: field(
+    '起始势力',
+    '势力关系的起始方稳定 ID。',
+    'From faction',
+    'Stable ID of the source faction in this relationship.'
+  ),
+  to_faction: field(
+    '目标势力',
+    '势力关系的目标方稳定 ID。',
+    'To faction',
+    'Stable ID of the target faction in this relationship.'
+  ),
+  faction_id: field('所属势力', '成员所属势力的稳定 ID。', 'Faction', 'Stable ID of the faction.'),
+  character_id: field('人物', '成员人物的稳定 ID。', 'Character', 'Stable ID of the character.'),
+  rank: field('职位/等级', '人物在势力中的职位或等级。', 'Rank', 'The character’s rank within the faction.'),
+  primary: field(
+    '主要所属',
+    '多个势力并存时，标记这是否为人物的主要所属。',
+    'Primary membership',
+    'Whether this is the character’s primary membership when several coexist.'
+  ),
   source_outline: field(
     '来源大纲',
     '导入或迁移时这项内容对应的原大纲。',
@@ -1325,6 +1385,12 @@ const FIELD_DEFINITIONS: Record<string, LocalizedFieldDefinition> = {
 }
 
 const FIELD_OVERRIDES: Record<string, LocalizedFieldDefinition> = {
+  'faction_membership.role': field(
+    '成员身份',
+    '人物在该势力中承担的身份或职责。',
+    'Membership role',
+    'The character’s role or responsibility in the faction.'
+  ),
   'outline.level': field(
     '故事树层级',
     '总览、总纲、卷、篇、幕、章或节在故事树中的位置。',
@@ -1496,6 +1562,7 @@ const DEFAULT_ENUM_OPTIONS: Record<string, readonly string[]> = {
   kind: ['story', 'writing', 'prompt'],
   scope: ['book', 'volume', 'part', 'act', 'chapter', 'section', 'agent', 'project'],
   direction: ['directed', 'mutual'],
+  faction_kind: ['organization', 'government', 'guild', 'religion', 'military', 'family', 'other'],
   visibility: ['public', 'private', 'secret'],
   precision: ['month', 'day', 'hour', 'minute'],
   scale: ['global', 'region', 'city', 'district', 'estate', 'interior'],
@@ -1644,6 +1711,9 @@ const DOCUMENT_TYPE_LABELS: Record<string, { zh: string; en: string }> = {
   canon: { zh: '正设', en: 'Canon' },
   character: { zh: '人物', en: 'Character' },
   character_relation: { zh: '人物关系', en: 'Character relationship' },
+  faction: { zh: '势力', en: 'Faction' },
+  faction_relation: { zh: '势力关系', en: 'Faction relationship' },
+  faction_membership: { zh: '势力成员关系', en: 'Faction membership' },
   foreshadowing: { zh: '伏笔', en: 'Foreshadowing' },
   world_entry: { zh: '世界书', en: 'World entry' },
   reference: { zh: '参考材料', en: 'Reference material' },
@@ -1674,6 +1744,9 @@ export function enumOptionsForField(
   if (name === 'status') {
     if (context.documentType === 'chapter_prose') return ['draft', 'final', 'published']
     if (context.documentType === 'world_entry') return ['canon', 'draft', 'confirmed', 'deprecated']
+  }
+  if (name === 'faction_kind' && context.documentType === 'faction') {
+    return ['organization', 'government', 'guild', 'religion', 'military', 'family', 'other']
   }
   if (name === 'source') {
     if (context.documentType === 'canon') return ['user', 'ai', 'imported', 'historical']

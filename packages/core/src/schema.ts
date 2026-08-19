@@ -32,11 +32,48 @@ export const cardRelationSchema = z.object({
   note: z.string().default('')
 })
 
+export const settingImageAssetV1Schema = z
+  .object({
+    schema_version: z.literal(1),
+    original_path: z.string().min(1),
+    thumbnail_path: z.string().min(1),
+    mime_type: z.enum(['image/png', 'image/jpeg', 'image/webp']),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/u),
+    width: z.number().int().positive(),
+    height: z.number().int().positive(),
+    palette: z
+      .array(z.string().regex(/^#[a-f0-9]{6}$/iu))
+      .max(8)
+      .default([]),
+    focus_x: z.number().min(0).max(1).default(0.5),
+    focus_y: z.number().min(0).max(1).default(0.5),
+    alt_text: z.string().default('')
+  })
+  .strict()
+
 export const planningCardSchema = baseDocSchema.extend({
   enabled: z.boolean().default(true),
   source_refs: z.array(z.string().min(1)).default([]),
-  relations: z.array(cardRelationSchema).default([])
+  relations: z.array(cardRelationSchema).default([]),
+  image: settingImageAssetV1Schema.nullable().default(null)
 })
+
+export const storyStructureConfigV1Schema = z
+  .object({
+    part_enabled: z.boolean().default(true),
+    act_enabled: z.boolean().default(true),
+    scene_enabled: z.boolean().default(true)
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (!value.part_enabled && value.act_enabled) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['act_enabled'],
+        message: 'Act level cannot be enabled when part level is disabled'
+      })
+    }
+  })
 
 export const projectIdSchema = z
   .string()
@@ -51,6 +88,11 @@ export const projectConfigV1Schema = z.object({
   current_volume: z.number().int().positive().default(1),
   current_timeline_node: z.string().nullable().default(null),
   default_theme: z.enum(['paper', 'ink', 'mist', 'bamboo']).default('paper'),
+  story_structure: storyStructureConfigV1Schema.default({
+    part_enabled: true,
+    act_enabled: true,
+    scene_enabled: true
+  }),
   schema_version: z.literal(1).default(1)
 })
 
@@ -67,6 +109,11 @@ export const projectConfigSchema = z.object({
   current_timeline_node: z.string().nullable().default(null),
   writing_preset: projectIdSchema.nullable().default('default'),
   default_theme: z.enum(['paper', 'ink', 'mist', 'bamboo']).default('paper'),
+  story_structure: storyStructureConfigV1Schema.default({
+    part_enabled: true,
+    act_enabled: true,
+    scene_enabled: true
+  }),
   cover: z
     .object({
       original_path: z.string().min(1),
@@ -182,6 +229,47 @@ export const characterRelationSchema = planningCardSchema.extend({
   visibility: z.enum(['public', 'private', 'secret']).default('private')
 })
 
+const factionVisibilitySchema = z.enum(['public', 'private', 'secret'])
+
+export const factionSchema = planningCardSchema.extend({
+  type: z.literal('faction'),
+  aliases: z.array(z.string()).default([]),
+  faction_kind: z
+    .enum(['organization', 'government', 'guild', 'religion', 'military', 'family', 'other'])
+    .default('organization'),
+  summary: z.string().default(''),
+  motto: z.string().default(''),
+  goals: z.array(z.string()).default([]),
+  methods: z.array(z.string()).default([]),
+  headquarters: z.string().nullable().default(null),
+  founded_at: z.string().nullable().default(null),
+  dissolved_at: z.string().nullable().default(null),
+  visibility: factionVisibilitySchema.default('private')
+})
+
+export const factionRelationSchema = planningCardSchema.extend({
+  type: z.literal('faction_relation'),
+  from_faction: z.string().min(1),
+  to_faction: z.string().min(1),
+  relation_type: z.string().min(1),
+  direction: z.enum(['directed', 'mutual']).default('directed'),
+  starts_at: z.string().nullable().default(null),
+  ends_at: z.string().nullable().default(null),
+  visibility: factionVisibilitySchema.default('private')
+})
+
+export const factionMembershipSchema = planningCardSchema.extend({
+  type: z.literal('faction_membership'),
+  faction_id: z.string().min(1),
+  character_id: z.string().min(1),
+  role: z.string().default('member'),
+  rank: z.string().default(''),
+  primary: z.boolean().default(false),
+  starts_at: z.string().nullable().default(null),
+  ends_at: z.string().nullable().default(null),
+  visibility: factionVisibilitySchema.default('private')
+})
+
 /**
  * Stable story-time location used by foreshadowing plans.  The human-readable
  * label is a snapshot only; identity is always timeline_id + target_id.
@@ -262,6 +350,40 @@ export const referenceSchema = documentIdentitySchema.extend({
   value_assessment: z.string().default('')
 })
 
+export const issueEvidenceAnchorV2Schema = z.union([
+  z
+    .object({
+      document_id: z.string().min(1),
+      kind: z.literal('field'),
+      field_path: z.string().min(1),
+      evidence_sha256: z.string().regex(/^[a-f0-9]{64}$/u)
+    })
+    .strict(),
+  z
+    .object({
+      document_id: z.string().min(1),
+      kind: z.literal('body'),
+      start: z.number().int().nonnegative(),
+      end: z.number().int().positive(),
+      evidence_sha256: z.string().regex(/^[a-f0-9]{64}$/u)
+    })
+    .strict()
+    .refine((anchor) => anchor.end > anchor.start, {
+      path: ['end'],
+      message: 'valid body range required'
+    })
+])
+
+export const issueIdentityV2Schema = z
+  .object({
+    schema_version: z.literal(2),
+    checker: z.string().min(1),
+    issue_code: z.string().min(1),
+    target_ids: z.array(z.string().min(1)).min(1),
+    evidence_anchors: z.array(issueEvidenceAnchorV2Schema).min(1)
+  })
+  .strict()
+
 export const issueSchema = planningCardSchema.extend({
   type: z.literal('issue'),
   priority: z.enum(['high', 'medium', 'low']).default('medium'),
@@ -273,6 +395,8 @@ export const issueSchema = planningCardSchema.extend({
   rule_id: z.string().default(''),
   evidence: z.string().default(''),
   check_fingerprint: z.string().default(''),
+  issue_identity_v2: issueIdentityV2Schema.optional(),
+  legacy_check_fingerprints: z.array(z.string().regex(/^[a-f0-9]{64}$/u)).default([]),
   checked_at: z.string().default('')
 })
 

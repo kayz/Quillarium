@@ -14,8 +14,7 @@ import {
 } from 'lucide-react'
 import type { StoryTimeImportPlanV1, TimelineCatalogV1, TimelineDeterministicIssueV1 } from '@quillarium/core'
 import type { DocEntry, LanguageName, TargetSelection } from '../../app/types.js'
-import { documentTypeLabel, enumChoiceLabel, fieldLabel } from '../metadata/field-presentation.js'
-import { PlanningCardSelector } from './PlanningCardSelector.js'
+import { documentTypeLabel, enumChoiceLabel } from '../metadata/field-presentation.js'
 import { TimelineRailBoard } from './TimelineRailBoard.js'
 import { buildTimelineBoard, inferTimelineTracks } from './timeline-board-model.js'
 import {
@@ -25,6 +24,7 @@ import {
   personPointerAction,
   resolveEgoCharacterId
 } from './character-relation-graph.js'
+import { SETTING_IMAGE_TYPES, SettingThumbnail } from './SettingThumbnail.js'
 
 export interface TimelineLane {
   node: DocEntry
@@ -46,6 +46,12 @@ export interface CharacterRelationCreateRequest {
   toCharacterId?: string
   relationType?: string
   startsAt?: string
+}
+
+export interface ActiveFactionMembership {
+  membership: DocEntry
+  faction: DocEntry
+  untimed: boolean
 }
 
 export type CharacterOutsideReason =
@@ -212,6 +218,47 @@ export function characterRelationSnapshot(
     hiddenCharacters: outsideCharacters.length,
     hiddenRelations: outsideRelations.length
   }
+}
+
+export function activeFactionMembershipsAtNode(
+  docs: DocEntry[],
+  timelineNodes: DocEntry[],
+  selectedNodeId: string | null
+): Map<string, ActiveFactionMembership[]> {
+  const nodes = timelineNodes
+    .filter((item) => item.data.type === 'timeline_node')
+    .slice()
+    .sort(compareTimelineEntries)
+  const node = nodes.find((item) => item.data.id === selectedNodeId) ?? nodes.at(-1) ?? null
+  const index = new Map(nodes.map((item, position) => [item.data.id, position] as const))
+  const current = node ? (index.get(node.data.id) ?? -1) : -1
+  const factions = new Map(
+    docs.filter((item) => item.data.type === 'faction').map((item) => [item.data.id, item] as const)
+  )
+  const result = new Map<string, ActiveFactionMembership[]>()
+  for (const membership of docs.filter((item) => item.data.type === 'faction_membership')) {
+    const faction = factions.get(String(membership.data.faction_id))
+    const characterId = String(membership.data.character_id ?? '')
+    if (!faction || !characterId) continue
+    const starts = timelinePosition(index, membership.data.starts_at)
+    const ends = timelinePosition(index, membership.data.ends_at)
+    const untimed = starts === null && ends === null
+    if (
+      !untimed &&
+      (current < 0 || (starts !== null && starts > current) || (ends !== null && ends <= current))
+    ) {
+      continue
+    }
+    result.set(characterId, [...(result.get(characterId) ?? []), { membership, faction, untimed }])
+  }
+  for (const memberships of result.values()) {
+    memberships.sort(
+      (left, right) =>
+        Number(Boolean(right.membership.data.primary)) - Number(Boolean(left.membership.data.primary)) ||
+        left.faction.data.title.localeCompare(right.faction.data.title)
+    )
+  }
+  return result
 }
 
 export function locationExplorerModel(items: DocEntry[], selectedId: string | null): LocationExplorerModel {
@@ -935,6 +982,8 @@ function moveIdentifier(ids: string[], sourceId: string, targetId: string): stri
 
 export function CharacterRelationView({
   items,
+  allDocs = items,
+  projectRoot,
   timelineNodes,
   selectedTarget,
   onSelect,
@@ -943,6 +992,8 @@ export function CharacterRelationView({
   language
 }: {
   items: DocEntry[]
+  allDocs?: DocEntry[]
+  projectRoot?: string
   timelineNodes: DocEntry[]
   selectedTarget: TargetSelection | null
   onSelect: (target: TargetSelection) => void
@@ -969,6 +1020,9 @@ export function CharacterRelationView({
     )
   )
   const [size, setSize] = useState({ width: 640, height: 400 })
+  const [settingImages, setSettingImages] = useState<
+    Awaited<ReturnType<Window['quillarium']['getSettingImageBatch']>>
+  >({})
   const paneRef = useRef<HTMLDivElement>(null)
   const pendingPersonClick = useRef<{ id: string; at: number } | null>(null)
   const lastPersonId = useRef<string | null>(null)
@@ -1001,6 +1055,10 @@ export function CharacterRelationView({
     nodes.findIndex((node) => node.data.id === nodeId)
   )
   const snapshot = useMemo(() => characterRelationSnapshot(items, nodes, nodeId), [items, nodeId, nodes])
+  const factionMemberships = useMemo(
+    () => activeFactionMembershipsAtNode(allDocs, nodes, nodeId),
+    [allDocs, nodeId, nodes]
+  )
   const timeIndex = useMemo(
     () => new Map(nodes.map((node, index) => [node.data.id, index] as const)),
     [nodes]
@@ -1028,6 +1086,36 @@ export function CharacterRelationView({
       ),
     [items]
   )
+  const settingImageKey = useMemo(() => {
+    const ids = new Set<string>()
+    for (const item of items.filter((candidate) => SETTING_IMAGE_TYPES.has(candidate.data.type))) {
+      ids.add(item.data.id)
+    }
+    for (const memberships of factionMemberships.values()) {
+      for (const membership of memberships) ids.add(membership.faction.data.id)
+    }
+    return [...ids].sort().join('\n')
+  }, [factionMemberships, items])
+  useEffect(() => {
+    let active = true
+    if (!projectRoot || !settingImageKey) {
+      setSettingImages({})
+      return () => {
+        active = false
+      }
+    }
+    void window.quillarium
+      .getSettingImageBatch(projectRoot, settingImageKey.split('\n'))
+      .then((result) => {
+        if (active) setSettingImages(result)
+      })
+      .catch(() => {
+        if (active) setSettingImages({})
+      })
+    return () => {
+      active = false
+    }
+  }, [projectRoot, settingImageKey])
   const selectCharacter = (id: string) => onSelect({ type: 'character', id })
   const recenter = (id: string) => {
     setEgoId(id)
@@ -1163,6 +1251,7 @@ export function CharacterRelationView({
                 if (!person) return null
                 const role = String(person.character.data.role || (zh ? '人物' : 'Character'))
                 const absent = person.layer === 'ego' && !person.present
+                const memberships = factionMemberships.get(node.id) ?? []
                 return (
                   <button
                     type="button"
@@ -1186,8 +1275,34 @@ export function CharacterRelationView({
                       }
                     }}
                   >
-                    <strong>{person.character.data.title}</strong>
+                    <span className="relationship-person-main">
+                      <SettingThumbnail
+                        preview={settingImages[node.id]}
+                        title={person.character.data.title}
+                        type="character"
+                        compact
+                      />
+                      <strong>{person.character.data.title}</strong>
+                    </span>
                     <small>{absent ? (zh ? '此时未在场' : 'Not present at this time') : role}</small>
+                    {!!memberships.length && (
+                      <span className="relationship-faction-badges" aria-label={zh ? '所属势力' : 'Factions'}>
+                        {memberships.map(({ membership, faction, untimed }) => (
+                          <span
+                            key={membership.data.id}
+                            className={`relationship-faction-badge ${untimed ? 'untimed' : ''}`}
+                            title={`${faction.data.title} · ${String(membership.data.role || '')}${untimed ? (zh ? ' · 未绑定时间' : ' · no time bound') : ''}`}
+                          >
+                            <SettingThumbnail
+                              preview={settingImages[faction.data.id]}
+                              title={faction.data.title}
+                              type="faction"
+                              compact
+                            />
+                          </span>
+                        ))}
+                      </span>
+                    )}
                   </button>
                 )
               })}
@@ -1208,6 +1323,12 @@ export function CharacterRelationView({
                   className={`relationship-edge-card ${selectedTarget?.id === edge.relation.data.id ? 'active' : ''}`}
                   onClick={() => onSelect({ type: 'character_relation', id: edge.relation.data.id })}
                 >
+                  <SettingThumbnail
+                    preview={settingImages[edge.relation.data.id]}
+                    title={edge.relation.data.title}
+                    type="character_relation"
+                    compact
+                  />
                   <Link2 size={13} />
                   <span>{edge.relation.data.title}</span>
                   <small>{String(edge.relation.data.relation_type)}</small>

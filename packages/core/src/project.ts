@@ -13,6 +13,9 @@ export const PROJECT_DIRS = [
   '.obsidian',
   'canon',
   'characters',
+  'factions',
+  'factions/relations',
+  'factions/memberships',
   'timeline',
   'locations',
   'foreshadowing',
@@ -36,6 +39,7 @@ export const PROJECT_DIRS = [
   'imports/archive',
   'assets',
   'assets/cover',
+  'assets/settings',
   'reviews',
   'style',
   'exports',
@@ -56,6 +60,7 @@ export interface ProjectConfigInput {
   current_timeline_node?: string | null
   writing_preset?: string | null
   default_theme?: ProjectConfig['default_theme']
+  story_structure?: ProjectConfig['story_structure']
   cover?: ProjectConfig['cover']
   schema_version?: 2
 }

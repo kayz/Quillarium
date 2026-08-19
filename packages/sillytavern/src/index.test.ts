@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { deflateSync } from 'node:zlib'
@@ -6,6 +6,9 @@ import {
   createCanon,
   createCharacter,
   createCharacterRelation,
+  createFaction,
+  createFactionMembership,
+  createFactionRelation,
   createLocation,
   createProjectAt,
   createWorldEntry,
@@ -91,6 +94,27 @@ function v3Card(name = 'Vesper') {
       nickname: 'The Witness'
     }
   }
+}
+
+function v3BookCard(entries: Array<{ id: string; title: string; content?: string }>, name = 'Imported Book') {
+  const card = v3Card(name)
+  card.data.character_book = {
+    name: `${name} setting`,
+    entries: entries.map((entry, index) => ({
+      id: index + 1,
+      keys: [entry.title],
+      name: entry.title,
+      content: entry.content ?? `Content for ${entry.title}`,
+      extensions: {
+        quillarium: {
+          stable_id: entry.id,
+          type: 'world_entry',
+          fields: {}
+        }
+      }
+    }))
+  }
+  return card
 }
 
 describe('Character Card JSON import and V2 export', () => {
@@ -386,7 +410,24 @@ describe('CCv3 novel setting card boundary', () => {
       { id: 'world-glass-tide', entry_status: 'active', status: 'active', triggers: ['glass tide'] },
       'The tide carries visible memories.'
     )
-    await createCharacter(root, 'Mira', { id: 'char-mira', status: 'active', aliases: ['Map keeper'] })
+    await createCharacter(root, 'Mira', {
+      id: 'char-mira',
+      status: 'active',
+      aliases: ['Map keeper'],
+      image: {
+        schema_version: 1,
+        original_path: 'assets/settings/character/char-mira/original-fixture.png',
+        thumbnail_path: 'assets/settings/character/char-mira/thumbnail-fixture.png',
+        mime_type: 'image/png',
+        sha256: 'a'.repeat(64),
+        width: 1200,
+        height: 1800,
+        palette: ['#102030'],
+        focus_x: 0.5,
+        focus_y: 0.5,
+        alt_text: 'Mira portrait'
+      }
+    })
     await createCharacter(root, 'Vesper', { id: 'char-vesper', status: 'active' })
     await createCharacterRelation(
       root,
@@ -406,6 +447,21 @@ describe('CCv3 novel setting card boundary', () => {
       { id: 'loc-glass-harbor', status: 'confirmed', scale: 'city' },
       'The harbor is built around a memory well.'
     )
+    await createFaction(root, 'Lantern Guild', { id: 'faction-lantern', status: 'active' })
+    await createFaction(root, 'Harbor Council', { id: 'faction-council', status: 'active' })
+    await createFactionRelation(root, 'Lantern Guild allies with Harbor Council', {
+      id: 'frel-lantern-council',
+      from_faction: 'faction-lantern',
+      to_faction: 'faction-council',
+      relation_type: 'alliance',
+      direction: 'mutual'
+    })
+    await createFactionMembership(root, 'Mira serves the Lantern Guild', {
+      id: 'member-mira-lantern',
+      faction_id: 'faction-lantern',
+      character_id: 'char-mira',
+      role: 'cartographer'
+    })
     const cover = makeCardPng([])
     await ensureDir(path.join(root, 'assets', 'cover'))
     await writeFile(path.join(root, 'assets', 'cover', 'original.png'), cover)
@@ -436,10 +492,10 @@ describe('CCv3 novel setting card boundary', () => {
     expect(inspection).toMatchObject({
       name: 'Card Project',
       hasPngCover: true,
-      worldBookEntryCount: 6
+      worldBookEntryCount: 10
     })
     const worldBook = parsed.card.data.character_book as { entries: Array<Record<string, unknown>> }
-    expect(worldBook.entries).toHaveLength(6)
+    expect(worldBook.entries).toHaveLength(10)
     expect(
       worldBook.entries.map(
         (entry) => (entry.extensions as { quillarium: { stable_id: string } }).quillarium.stable_id
@@ -451,6 +507,10 @@ describe('CCv3 novel setting card boundary', () => {
         'char-mira',
         'char-vesper',
         'rel-mira-vesper',
+        'faction-lantern',
+        'faction-council',
+        'frel-lantern-council',
+        'member-mira-lantern',
         'loc-glass-harbor'
       ])
     )
@@ -461,6 +521,7 @@ describe('CCv3 novel setting card boundary', () => {
     expect(serialized).not.toContain('C:\\Users\\author')
     expect(serialized).not.toContain('sk-testcredential12345')
     expect(serialized).not.toContain('fixture-secret')
+    expect(serialized).not.toContain('assets/settings')
     expect(serialized).toContain('[LOCAL_PATH_REDACTED]')
     expect(serialized).toContain('[REDACTED_CREDENTIAL]')
 
@@ -472,7 +533,7 @@ describe('CCv3 novel setting card boundary', () => {
     ).root
     const imported = await importBookCharacterCardIntoProject(importedRoot, written.outputPath)
     expect(await readFile(imported.archivePath)).toEqual(png)
-    expect(imported.candidateDocumentIds).toHaveLength(6)
+    expect(imported.candidateDocumentIds).toHaveLength(10)
     const importedProject = await loadProject(importedRoot)
     expect(importedProject).toMatchObject({
       title: 'Card Project',
@@ -480,7 +541,7 @@ describe('CCv3 novel setting card boundary', () => {
       cover: { original_path: 'assets/cover/imported-card.png' }
     })
     const importedDocs = await listDocs(importedRoot)
-    expect(importedDocs).toHaveLength(6)
+    expect(importedDocs).toHaveLength(10)
     expect(
       importedDocs.every((doc) =>
         ['draft', 'candidate'].includes(String((doc.data as typeof doc.data & { status?: string }).status))
@@ -489,6 +550,99 @@ describe('CCv3 novel setting card boundary', () => {
     expect(await listDocs(importedRoot, 'outline')).toHaveLength(0)
     expect(await listDocs(importedRoot, 'scene')).toHaveLength(0)
     expect(await listDocs(importedRoot, 'chapter_prose')).toHaveLength(0)
+  })
+
+  it.each([
+    ['same title', 'Existing title'],
+    ['different title', 'Changed title']
+  ])('rejects an existing stable ID with %s before writing anything', async (_label, importedTitle) => {
+    const { vault, root } = await project()
+    await createWorldEntry(
+      root,
+      'Existing title',
+      { id: 'world-conflict', status: 'active', entry_status: 'active' },
+      'Existing content'
+    )
+    const sourcePath = path.join(vault, 'conflict.card.json')
+    await writeFile(
+      sourcePath,
+      JSON.stringify(v3BookCard([{ id: 'world-conflict', title: importedTitle }])),
+      'utf8'
+    )
+    const projectBefore = await readFile(path.join(root, 'project.yaml'), 'utf8')
+
+    await expect(importBookCharacterCardIntoProject(root, sourcePath)).rejects.toThrow(
+      'CCV3_IMPORT_STABLE_ID_CONFLICT: world-conflict'
+    )
+    expect(await readFile(path.join(root, 'project.yaml'), 'utf8')).toBe(projectBefore)
+    expect((await listDocs(root)).map((document) => document.data.id)).toEqual(['world-conflict'])
+    expect(await readdir(path.join(root, 'imports', 'archive'))).toEqual([])
+  })
+
+  it('rejects duplicate stable IDs inside one card during preflight', async () => {
+    const { vault, root } = await project()
+    const sourcePath = path.join(vault, 'duplicate.card.json')
+    await writeFile(
+      sourcePath,
+      JSON.stringify(
+        v3BookCard([
+          { id: 'world-duplicate', title: 'First title' },
+          { id: 'world-duplicate', title: 'Second title' }
+        ])
+      ),
+      'utf8'
+    )
+
+    await expect(importBookCharacterCardIntoProject(root, sourcePath)).rejects.toThrow(
+      'CCV3_IMPORT_DUPLICATE_STABLE_ID: world-duplicate'
+    )
+    expect(await listDocs(root)).toEqual([])
+    expect(await readdir(path.join(root, 'imports', 'archive'))).toEqual([])
+  })
+
+  it('rolls back archive, documents, cover/config writes after an injected mid-transaction failure', async () => {
+    const { vault, root } = await project()
+    const sourcePath = path.join(vault, 'rollback.card.json')
+    await writeFile(
+      sourcePath,
+      JSON.stringify(
+        v3BookCard([
+          { id: 'world-first', title: 'First' },
+          { id: 'world-second', title: 'Second' }
+        ])
+      ),
+      'utf8'
+    )
+    const projectBefore = await readFile(path.join(root, 'project.yaml'), 'utf8')
+
+    await expect(
+      importBookCharacterCardIntoProject(
+        root,
+        sourcePath,
+        { title: 'Author override' },
+        {
+          afterStep(step) {
+            if (step === 'document:world-first') throw new Error('INJECTED_IMPORT_FAILURE')
+          }
+        }
+      )
+    ).rejects.toThrow('INJECTED_IMPORT_FAILURE')
+    expect(await readFile(path.join(root, 'project.yaml'), 'utf8')).toBe(projectBefore)
+    expect(await listDocs(root)).toEqual([])
+    expect(await readdir(path.join(root, 'imports', 'archive'))).toEqual([])
+  })
+
+  it('applies the author title override inside the successful import transaction', async () => {
+    const { vault, root } = await project()
+    const sourcePath = path.join(vault, 'override.card.json')
+    await writeFile(
+      sourcePath,
+      JSON.stringify(v3BookCard([{ id: 'world-imported', title: 'Imported setting' }], 'Card title')),
+      'utf8'
+    )
+
+    await importBookCharacterCardIntoProject(root, sourcePath, { title: 'Author title' })
+    expect((await loadProject(root)).title).toBe('Author title')
   })
 })
 

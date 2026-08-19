@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import { CheckCircle2, LayoutGrid, List, Plus, Save, Search, Trash2, Upload } from 'lucide-react'
+import type { StoryStructureConfigV1 } from '@quillarium/core'
 import type {
   ContextPacketSummary,
   DocEntry,
@@ -26,6 +27,7 @@ import { EditableDocumentTitle } from '../outline/EditableDocumentTitle.js'
 export function WritingWorkspace({
   docs,
   level,
+  storyStructure,
   viewMode,
   search,
   selectedOutline,
@@ -53,6 +55,7 @@ export function WritingWorkspace({
 }: {
   docs: DocEntry[]
   level: WorkLevel
+  storyStructure: StoryStructureConfigV1
   viewMode: ViewMode
   search: string
   selectedOutline: DocEntry | null
@@ -82,7 +85,16 @@ export function WritingWorkspace({
   const [overviewWidth, setOverviewWidth] = useState(48)
   const selected = selectedScene ?? selectedOutline
   const items = leftMode === 'read' ? finalizedScenes : visibleItems
-  const childLabels = childWorkLevels(level).map(outlineLevelLabel).join('或')
+  const childrenLevels = childWorkLevels(level, storyStructure)
+  const childLabels = childrenLevels.map(outlineLevelLabel).join('或')
+  const visibleLevels = (
+    ['overview', 'book', 'volume', 'part', 'act', 'chapter', 'ai'] as WorkLevel[]
+  ).filter(
+    (item) =>
+      (item !== 'part' || storyStructure.part_enabled) &&
+      (item !== 'act' || storyStructure.act_enabled) &&
+      (item !== 'ai' || storyStructure.scene_enabled)
+  )
   const selectedLevel = String(selectedOutline?.data.level ?? '')
   const canDelete =
     selected?.data.type === 'scene' ||
@@ -91,7 +103,7 @@ export function WritingWorkspace({
   return (
     <section className="writing-workspace">
       <div className="level-tabs">
-        {(['overview', 'book', 'volume', 'part', 'act', 'chapter', 'ai'] as WorkLevel[]).map((item) => (
+        {visibleLevels.map((item) => (
           <button key={item} className={level === item ? 'active' : ''} onClick={() => onLevel(item)}>
             {outlineLevelLabel(item)}
           </button>
@@ -124,7 +136,7 @@ export function WritingWorkspace({
                   <Plus size={17} /> <span>新建{outlineLevelLabel(level)}</span>
                 </button>
               )}
-              {childWorkLevels(level).map((child) => (
+              {childrenLevels.map((child) => (
                 <button
                   key={child}
                   className="icon-button"
@@ -168,15 +180,16 @@ export function WritingWorkspace({
             level={level}
             selected={selectedOutline}
             contextPacket={contextPacket}
+            storyStructure={storyStructure}
           />
-          {leftMode === 'write' && !items.length && childWorkLevels(level).length > 0 && (
+          {leftMode === 'write' && !items.length && childrenLevels.length > 0 && (
             <button
               className="outline-child-empty"
-              onClick={() => onCreate(childWorkLevels(level)[0], selectedOutline?.data.id ?? null)}
+              onClick={() => onCreate(childrenLevels[0], selectedOutline?.data.id ?? null)}
               disabled={!selectedOutline}
             >
               <Plus size={18} />
-              <strong>规划第一个{outlineLevelLabel(childWorkLevels(level)[0])}</strong>
+              <strong>规划第一个{outlineLevelLabel(childrenLevels[0])}</strong>
               <span>它将作为“{selectedOutline?.data.title ?? outlineLevelLabel(level)}”的直属下一级。</span>
             </button>
           )}
@@ -312,16 +325,18 @@ export function OutlineSummary({
   docs,
   level,
   selected,
-  contextPacket
+  contextPacket,
+  storyStructure
 }: {
   docs: DocEntry[]
   level: WorkLevel
   selected: DocEntry | null
   contextPacket: ContextPacketSummary | null
+  storyStructure: StoryStructureConfigV1
 }) {
   const tasks = levelTasks(level)
-  const children = childWorkLevels(level)
-  const hierarchy = buildOutlineHierarchy(docs)
+  const children = childWorkLevels(level, storyStructure)
+  const hierarchy = buildOutlineHierarchy(docs, storyStructure)
   const childCount = children.length
     ? (hierarchy.children.get(selected?.data.id ?? '') ?? []).filter((item) =>
         children.includes((item.data.level === 'arc' ? 'part' : item.data.level) as WorkLevel)

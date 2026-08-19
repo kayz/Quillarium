@@ -408,7 +408,7 @@ async function persistSelectedIssues(
     const priority =
       proposal.severity === 'error' ? 'high' : proposal.severity === 'warning' ? 'medium' : 'low'
     const existing = existingIssues.find(
-      (issue) => issue.data.check_fingerprint === proposal.fingerprint && issue.data.state !== 'resolved'
+      (issue) => proposalMatchesIssue(proposal, issue.data) && issue.data.state !== 'resolved'
     )
     if (existing) {
       rollback.push({ path: existing.path, before: await readText(existing.path) })
@@ -425,6 +425,8 @@ async function persistSelectedIssues(
         rule_id: proposal.code,
         evidence: proposal.evidence,
         check_fingerprint: proposal.fingerprint,
+        ...(proposal.identity_v2 ? { issue_identity_v2: proposal.identity_v2 } : {}),
+        legacy_check_fingerprints: proposal.legacy_fingerprints ?? [],
         checked_at: checkedAt
       })
       await writeMarkdown(existing.path, data as unknown as Record<string, unknown>, existing.content)
@@ -450,6 +452,8 @@ async function persistSelectedIssues(
         rule_id: proposal.code,
         evidence: proposal.evidence,
         check_fingerprint: proposal.fingerprint,
+        ...(proposal.identity_v2 ? { issue_identity_v2: proposal.identity_v2 } : {}),
+        legacy_check_fingerprints: proposal.legacy_fingerprints ?? [],
         checked_at: checkedAt
       },
       [`## ${proposal.title}`, '', proposal.message, proposal.evidence ? `\n> ${proposal.evidence}` : '']
@@ -489,7 +493,7 @@ async function buildDecisionTargets(
       })
     }
     const existing = issues.find(
-      (issue) => issue.data.check_fingerprint === proposal.fingerprint && issue.data.state !== 'resolved'
+      (issue) => proposalMatchesIssue(proposal, issue.data) && issue.data.state !== 'resolved'
     )
     const issueId = existing?.data.id ?? issueIdForOccurrence(proposal, issues)
     const issuePath = existing?.path ?? path.join(projectRoot, 'issues', `${issueId}.md`)
@@ -624,9 +628,16 @@ function issueIdFor(proposal: PlanningIssueProposalV1): string {
 }
 
 function issueIdForOccurrence(proposal: PlanningIssueProposalV1, issues: Array<{ data: IssueDoc }>): string {
-  const priorCount = issues.filter((issue) => issue.data.check_fingerprint === proposal.fingerprint).length
+  const priorCount = issues.filter((issue) => proposalMatchesIssue(proposal, issue.data)).length
   const base = issueIdFor(proposal)
   return priorCount ? `${base}-${priorCount + 1}` : base
+}
+
+function proposalMatchesIssue(proposal: PlanningIssueProposalV1, issue: IssueDoc): boolean {
+  const proposalFingerprints = new Set([proposal.fingerprint, ...(proposal.legacy_fingerprints ?? [])])
+  return [issue.check_fingerprint, ...(issue.legacy_check_fingerprints ?? [])].some((fingerprint) =>
+    proposalFingerprints.has(fingerprint)
+  )
 }
 
 function resolveTarget(projectRoot: string, relativePath: string): string {

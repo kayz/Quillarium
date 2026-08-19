@@ -107,6 +107,11 @@ export interface BookCharacterCardInspection {
   worldBookEntryCount: number
 }
 
+export interface BookCharacterCardImportOptions {
+  /** Optional author-selected title applied in the same import transaction. */
+  title?: string
+}
+
 export interface BookCharacterCardImportResult {
   format: 'v3'
   projectRoot: string

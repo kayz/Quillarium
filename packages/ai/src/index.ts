@@ -29,6 +29,7 @@ import {
   type SharedGuidanceContent,
   type WritingPresetSnapshot
 } from '@quillarium/core'
+import { assertSensitiveSourcesSafe, sanitizeSensitiveValue } from '@quillarium/core/sensitive-data'
 import { randomUUID } from 'node:crypto'
 import type { ZodType } from 'zod'
 import { DEEPSEEK_DEFAULT_MODEL, getOfficialModelCapabilities } from './model-capabilities.js'
@@ -360,27 +361,7 @@ export function buildGenerationSystemMessage(header: string, preset: WritingPres
 }
 
 export function sanitizeProviderVisibleValue(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(sanitizeProviderVisibleValue)
-  if (value && typeof value === 'object') {
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>).map(([key, child]) => [
-        key,
-        /^(?:authorization|api[_-]?key|access[_-]?token|secret|credential|endpoint|base[_-]?url)$/iu.test(key)
-          ? '[REDACTED]'
-          : sanitizeProviderVisibleValue(child)
-      ])
-    )
-  }
-  if (typeof value !== 'string') return value
-  return value
-    .replace(/Bearer\s+[A-Za-z0-9._~+/-]+/giu, 'Bearer [REDACTED]')
-    .replace(/\b(?:sk|rk|pk|ghp)-[A-Za-z0-9_-]{12,}\b/giu, '[REDACTED_CREDENTIAL]')
-    .replace(
-      /\b(api[_ -]?key|authorization|access[_ -]?token|credential)\s*[:=]\s*["']?[^\s"',;]+/giu,
-      '$1: [REDACTED]'
-    )
-    .replace(/[A-Za-z]:\\(?:[^\\\s\r\n]+\\)*[^\\\s\r\n]*/gu, '[LOCAL_PATH_REDACTED]')
-    .replace(/\/(?:Users|home|private|tmp|var|opt|mnt)\/[^\s"'<>]+/gu, '[LOCAL_PATH_REDACTED]')
+  return sanitizeSensitiveValue(value)
 }
 
 export function contextCompileOptions(
@@ -497,6 +478,12 @@ export async function generateMessages(
   config: AIConfig,
   options: AIRequestOptions = {}
 ): Promise<string> {
+  assertSensitiveSourcesSafe(
+    messages.map((message, index) => ({
+      source: `provider-message:${index}:${message.role}`,
+      text: message.content
+    }))
+  )
   if (!config.apiKey && !config.baseUrl.includes('localhost')) {
     throw new AIRequestError('Missing QUILL_AI_API_KEY.', {
       provider: config.provider,
@@ -1230,6 +1217,32 @@ export async function createGenerationRun(
   ) {
     throw new Error('ContextTrace and WritingPreset snapshot do not describe the same generation input.')
   }
+  const header = await loadBookGenerationHeader(projectRoot)
+  const compiledPrompt = compilation?.compiled_prompt?.trim() || context
+  const prompt = promptOverride?.trim() ? promptOverride : compiledPrompt
+  const systemMessage = buildGenerationSystemMessage(header.text, writingPreset)
+  assertSensitiveSourcesSafe([
+    { source: 'book-generation-header', text: header.text },
+    { source: 'writing-preset:system', text: writingPreset.prompt_stack.system_prompt },
+    ...writingPreset.prompt_stack.user_instructions.map((text, index) => ({
+      source: `writing-preset:user-instruction:${index}`,
+      text
+    })),
+    ...(compilation?.prompt_blocks.length
+      ? compilation.prompt_blocks.map((block) => ({
+          source: `prompt-block:${block.id}`,
+          text: block.content
+        }))
+      : [{ source: 'compiled-context', text: context }]),
+    {
+      source: promptOverride?.trim() ? 'author-prompt-override' : 'compiled-prompt',
+      text: prompt
+    }
+  ])
+  assertSensitiveSourcesSafe([
+    { source: 'compiled-envelope:system', text: systemMessage },
+    { source: 'compiled-envelope:user', text: prompt }
+  ])
   const run = await createRun(projectRoot, sceneId, {
     ...metadata,
     provider: config.provider,
@@ -1239,7 +1252,6 @@ export async function createGenerationRun(
     preset_sha256: writingPreset.snapshot_sha256,
     status: 'created'
   })
-  const header = await loadBookGenerationHeader(projectRoot)
   const tokenCounter = header.configured
     ? await createContextTokenCounter({
         provider: writingPreset.model.provider,
@@ -1247,10 +1259,8 @@ export async function createGenerationRun(
         ...(writingPreset.model.tokenizer_id ? { tokenizer_id: writingPreset.model.tokenizer_id } : {})
       })
     : null
-  const compiledPrompt = compilation?.compiled_prompt?.trim() || context
-  const prompt = promptOverride?.trim() ? promptOverride : compiledPrompt
   const promptEnvelope = createAgentPromptEnvelope({
-    systemMessage: buildGenerationSystemMessage(header.text, writingPreset),
+    systemMessage,
     userInstructions: [],
     contextMarkdown: context,
     conversation: [],

@@ -15,6 +15,9 @@ import {
   createCharacterState,
   createChapterProse,
   createForeshadowing,
+  createFaction,
+  createFactionMembership,
+  createFactionRelation,
   createIssue,
   createLocation,
   createNarrative,
@@ -40,8 +43,9 @@ import {
   parseKnownDocument,
   parseStoryTime,
   readMarkdown,
-  rebuildLocalDocumentLinkIndex,
   resolveDocumentOrigin,
+  storyStructureConfigV1Schema,
+  updateProjectConfig,
   writeMarkdown,
   type CanonDoc,
   type CharacterDoc,
@@ -49,6 +53,9 @@ import {
   type CharacterStateDoc,
   type DocumentIdentity,
   type ForeshadowingDoc,
+  type FactionDoc,
+  type FactionMembershipDoc,
+  type FactionRelationDoc,
   type IssueDoc,
   type LocationDoc,
   type NarrativeDoc,
@@ -114,9 +121,6 @@ export function registerProjectHandlers(): void {
     const project = await loadProject(root)
     const docs = (await listDocs<DocumentIdentity>(root)).filter((entry) => hasDocumentIdentity(entry.data))
     const runs = await listRuns(root)
-    await rebuildLocalDocumentLinkIndex(root).catch((error) =>
-      console.warn('Could not rebuild the derived document-link cache.', error)
-    )
     return {
       project,
       docs: docs.map((entry): DesktopDocEntry => ({
@@ -126,6 +130,14 @@ export function registerProjectHandlers(): void {
       })),
       runs
     }
+  })
+
+  typedHandle('project:updateStoryStructure', async (_event, root, structure) => {
+    const normalized = storyStructureConfigV1Schema.parse({
+      ...structure,
+      act_enabled: structure.part_enabled ? structure.act_enabled : false
+    })
+    return updateProjectConfig(root, { story_structure: normalized })
   })
 
   typedHandle('doc:read', async (_event, filePath) => readDesktopDocument(filePath))
@@ -210,9 +222,6 @@ export async function saveDesktopDocument(
   }
   const parsed = parseKnownDocument(nextData, filePath)
   await writeMarkdown(filePath, parsed, body)
-  await rebuildLocalDocumentLinkIndex(projectRoot).catch((error) =>
-    console.warn('Could not rebuild the derived document-link cache.', error)
-  )
   return true
 }
 
@@ -248,6 +257,40 @@ export async function createProjectDocument(
           from_character: requiredString(input.from_character, 'from_character'),
           to_character: requiredString(input.to_character, 'to_character'),
           relation_type: requiredString(input.relation_type, 'relation_type')
+        },
+        optionalString(input.content)
+      )
+    }
+    case 'faction':
+      return createFaction(
+        root,
+        requiredString(input.title, 'title'),
+        input as Partial<FactionDoc>,
+        optionalString(input.content)
+      )
+    case 'faction_relation': {
+      const relation = input as Partial<FactionRelationDoc>
+      return createFactionRelation(
+        root,
+        requiredString(input.title, 'title'),
+        {
+          ...relation,
+          from_faction: requiredString(input.from_faction, 'from_faction'),
+          to_faction: requiredString(input.to_faction, 'to_faction'),
+          relation_type: requiredString(input.relation_type, 'relation_type')
+        },
+        optionalString(input.content)
+      )
+    }
+    case 'faction_membership': {
+      const membership = input as Partial<FactionMembershipDoc>
+      return createFactionMembership(
+        root,
+        requiredString(input.title, 'title'),
+        {
+          ...membership,
+          faction_id: requiredString(input.faction_id, 'faction_id'),
+          character_id: requiredString(input.character_id, 'character_id')
         },
         optionalString(input.content)
       )

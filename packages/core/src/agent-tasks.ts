@@ -26,7 +26,8 @@ export const agentTaskIdSchema = z.enum([
   'finalization-review',
   'organize-setting',
   'character-rehearsal',
-  'continuity-review'
+  'continuity-review',
+  'setting-card-design'
 ])
 
 export type AgentOperation = z.infer<typeof agentOperationSchema>
@@ -157,6 +158,18 @@ const definitions = [
     context_scopes: ['current-target', 'outline-ancestors', 'timeline', 'accepted-prose', 'canon'],
     capability_ceiling: ['converse', 'append_exploration', 'propose_issue', 'propose_configuration_change'],
     allowed_result_types: ['exploration', 'issue_proposal']
+  },
+  {
+    schema_version: 1,
+    id: 'setting-card-design',
+    version: '1.0.0',
+    title: '设定卡设计',
+    description: '根据设定正文、结构字段和图片摘要生成受限 HTML 设定卡候选，不读取图片像素。',
+    input_schema_id: 'quillarium.agent.setting-card-design.v1',
+    output_schema_id: 'quillarium.agent.setting-card-template.v1',
+    context_scopes: ['current-target'],
+    capability_ceiling: ['generate_candidate'],
+    allowed_result_types: ['candidate']
   }
 ] as const
 

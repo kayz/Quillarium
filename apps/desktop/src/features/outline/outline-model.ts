@@ -4,6 +4,7 @@ import {
   Circle,
   Clock3,
   FileText,
+  Flag,
   Library,
   MapPin,
   Sparkles,
@@ -103,6 +104,16 @@ export const OUTLINE_HOME_SECTIONS: Array<OutlineSectionDefinition<OutlineHomeSe
     enShort: 'H',
     enHeading: 'Character records',
     icon: UserRound
+  },
+  {
+    id: 'factions',
+    title: '势力',
+    short: '势',
+    heading: '势力、关系与成员',
+    enTitle: 'Factions',
+    enShort: 'F',
+    enHeading: 'Factions, relations, and memberships',
+    icon: Flag
   },
   {
     id: 'timeline',
@@ -208,6 +219,16 @@ export const VOLUME_SECTIONS: Array<OutlineSectionDefinition<VolumeSection>> = [
     icon: UserRound
   },
   {
+    id: 'factions',
+    title: '势力',
+    short: '势',
+    heading: '本卷势力',
+    enTitle: 'Factions',
+    enShort: 'F',
+    enHeading: 'Volume factions',
+    icon: Flag
+  },
+  {
     id: 'timeline',
     title: '时间线',
     short: '时',
@@ -283,6 +304,7 @@ export function outlineSectionDocs(docs: DocEntry[], section: OutlineHomeSection
     canon: 'canon',
     world: 'world_entry',
     characters: 'character',
+    factions: 'faction',
     timeline: 'timeline_event',
     locations: 'location',
     foreshadowing: 'foreshadowing',
@@ -312,6 +334,11 @@ export function outlineSectionDocs(docs: DocEntry[], section: OutlineHomeSection
   }
   if (section === 'characters') {
     return docs.filter((doc) => doc.data.type === 'character' || doc.data.type === 'character_relation')
+  }
+  if (section === 'factions') {
+    return docs.filter((doc) =>
+      ['faction', 'faction_relation', 'faction_membership'].includes(String(doc.data.type))
+    )
   }
   const type = typeMap[section]
   return docs.filter((doc) => doc.data.type === type)
@@ -450,6 +477,7 @@ export function createInputForOutlineSection(
     return { kind: 'canon', data: { title, content, status: 'confirmed', strength: 'hard' } }
   if (section === 'world') return { kind: 'world_entry', data: { title, content, entry_status: 'candidate' } }
   if (section === 'characters') return { kind: 'character', data: { title, content } }
+  if (section === 'factions') return { kind: 'faction', data: { title, content } }
   if (section === 'timeline') return { kind: 'timeline_event', data: { title, content } }
   if (section === 'locations') return { kind: 'location', data: { title, content } }
   if (section === 'foreshadowing') return { kind: 'foreshadowing', data: { title, content } }
@@ -475,6 +503,9 @@ export function structuredLineForSection(doc: DocEntry, language: LanguageName =
     world_entry: ['triggers', 'role', 'valid_from', 'importance'],
     character: ['role', 'desire', 'fear'],
     character_relation: ['relation_type', 'starts_at', 'ends_at'],
+    faction: ['faction_kind', 'motto', 'headquarters', 'visibility'],
+    faction_relation: ['from_faction', 'relation_type', 'to_faction', 'starts_at', 'ends_at'],
+    faction_membership: ['character_id', 'role', 'faction_id', 'rank'],
     timeline_node: ['display_time', 'precision', 'fuzzy'],
     timeline_event: ['date', 'location', 'characters'],
     location: ['kind', 'scale', 'parent_location'],

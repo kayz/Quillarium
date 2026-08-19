@@ -29,13 +29,26 @@ const api = {
   createProject: (input) => ipcRenderer.invoke('project:create', input),
   chooseProject: () => ipcRenderer.invoke('project:choose'),
   loadProject: (root) => ipcRenderer.invoke('project:load', root),
+  updateProjectStoryStructure: (root, structure) =>
+    ipcRenderer.invoke('project:updateStoryStructure', root, structure),
   chooseProjectCover: (root) => ipcRenderer.invoke('cover:choose', root),
   getProjectCover: (root) => ipcRenderer.invoke('cover:get', root),
   updateProjectCoverFocus: (root, focusX, focusY) => ipcRenderer.invoke('cover:focus', root, focusX, focusY),
+  chooseSettingImage: (root, documentPath, altText) =>
+    ipcRenderer.invoke('settingImage:choose', root, documentPath, altText),
+  getSettingImage: (root, documentId) => ipcRenderer.invoke('settingImage:get', root, documentId),
+  getSettingImageBatch: (root, documentIds) => ipcRenderer.invoke('settingImage:batch', root, documentIds),
+  removeSettingImage: (root, documentPath) => ipcRenderer.invoke('settingImage:remove', root, documentPath),
+  listSettingCardStyles: (root, documentType) => ipcRenderer.invoke('settingCard:styles', root, documentType),
+  designSettingCard: (root, input) => ipcRenderer.invoke('settingCard:design', root, input),
+  renderSettingCardStyle: (root, input) => ipcRenderer.invoke('settingCard:renderStyle', root, input),
+  saveSettingCardStyle: (root, input) => ipcRenderer.invoke('settingCard:saveStyle', root, input),
+  exportSettingCard: (root, input) => ipcRenderer.invoke('settingCard:export', root, input),
   initializeAssistants: (root) => ipcRenderer.invoke('assistant:initialize', root),
   listAssistantPromptVersions: (root, assistantId) =>
     ipcRenderer.invoke('assistant:listPrompts', root, assistantId),
   saveAssistantPromptVersion: (root, input) => ipcRenderer.invoke('assistant:savePrompt', root, input),
+  recoverAssistantPromptBinding: (root, input) => ipcRenderer.invoke('assistant:recoverPrompt', root, input),
   startAssistantSession: (root, roleId, target, title, workflowInput) =>
     ipcRenderer.invoke('assistant:start', root, roleId, target, title, workflowInput),
   loadAssistantSession: (root, sessionId) => ipcRenderer.invoke('assistant:session', root, sessionId),
@@ -97,6 +110,7 @@ const api = {
   createDoc: (root, kind, input) => ipcRenderer.invoke('doc:create', root, kind, input),
   reorderStorySiblings: (root, input) => ipcRenderer.invoke('story:reorder', root, input),
   rebuildDocumentLinkIndex: (root) => ipcRenderer.invoke('references:index', root),
+  uploadReferenceDocuments: (root) => ipcRenderer.invoke('references:upload', root),
   formatDocumentLink: (root, documentId, displayText) =>
     ipcRenderer.invoke('references:format', root, documentId, displayText),
   planDocumentReferenceMigration: (root) => ipcRenderer.invoke('references:migrationPlan', root),

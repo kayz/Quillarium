@@ -1,4 +1,5 @@
 import { listDocs } from './documents.js'
+import { loadProject } from './project.js'
 import {
   allowedParentLevels,
   assertOutlinePlacementAgainst,
@@ -22,11 +23,15 @@ export async function assertOutlinePlacement(
   parentId: string | null,
   currentId?: string
 ): Promise<void> {
-  const outlines = await listDocs<OutlineDoc>(projectRoot, 'outline')
+  const [outlines, project] = await Promise.all([
+    listDocs<OutlineDoc>(projectRoot, 'outline'),
+    loadProject(projectRoot)
+  ])
   assertOutlinePlacementAgainst(
     outlines.map((item) => item.data),
     levelInput,
     parentId,
-    currentId
+    currentId,
+    project.story_structure
   )
 }

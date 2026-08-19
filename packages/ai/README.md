@@ -59,6 +59,11 @@ selected WritingPreset (or its exact resolved snapshot). Every generation run re
 ID/version/hash and immutable `writing-preset.json`; `generateIntoRun` verifies run, snapshot, and AI
 configuration identity before calling the provider.
 
+Before a new Run or PromptEnvelope is persisted, and again before provider I/O, the actual source
+blocks and messages pass the shared sensitive-data scanner. Credentials, credential-bearing headers,
+endpoints, and machine-local paths fail closed as `SENSITIVE_PROMPT_CONTENT`; the package does not
+redact and continue sending. The failure identifies only the offending source, not the matched value.
+
 ## Boundaries and Tests
 
 `generateText`, `generateCanonText`, and `generateIntoRun` can make network requests. The transport

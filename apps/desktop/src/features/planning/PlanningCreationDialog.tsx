@@ -13,7 +13,13 @@ import { formatDesktopError } from '../../shared/errors.js'
 import { MarkdownBodyEditor } from '../markdown/MarkdownBodyEditor.js'
 import { fieldPresentation } from '../metadata/field-presentation.js'
 import { MetadataEditor } from '../outline/OutlineShared.js'
-import { PLANNING_KIND_LABELS, planningKindForContext, planningKindsForContext } from './planning-model.js'
+import {
+  PLANNING_KIND_LABELS,
+  confirmAllPlanningProposals,
+  planningKindForContext,
+  planningKindsForContext,
+  planningProposalDependencies
+} from './planning-model.js'
 
 export function PlanningCreationDialog({
   root,
@@ -46,11 +52,21 @@ export function PlanningCreationDialog({
   const proposalRecord = proposals.find((item) => item.id === selectedProposalId) ?? proposals[0] ?? null
   const proposal = proposalRecord?.draft ?? null
   const editing = proposalRecord?.operation === 'update'
+  const extractingReference = Boolean(session?.source_document)
   const originalKind = proposalRecord?.target?.type
   const allowedKinds = planningKindsForContext(session?.module ?? module, originalKind)
   const proposalKindOptions =
     proposal && !allowedKinds.includes(proposal.kind) ? [proposal.kind, ...allowedKinds] : allowedKinds
   const changingType = Boolean(originalKind && proposal && originalKind !== proposal.kind)
+  const reviewableProposals = proposals.filter((item) => item.status !== 'applied')
+  const confirmedCount = proposals.filter((item) => item.status === 'confirmed').length
+  const allReviewableConfirmed =
+    reviewableProposals.length > 0 && reviewableProposals.every((item) => item.status === 'confirmed')
+  const pendingDependencies = proposalRecord
+    ? planningProposalDependencies(proposalRecord, proposals).filter(
+        (item) => item.operation === 'create' && item.status === 'draft'
+      )
+    : []
 
   const close = useCallback(async () => {
     if (session) {
@@ -177,6 +193,27 @@ export function PlanningCreationDialog({
     )
   }
 
+  const toggleAllConfirmations = () => {
+    setProposals((current) => {
+      const pending = current.filter((item) => item.status !== 'applied')
+      const allConfirmed = pending.length > 0 && pending.every((item) => item.status === 'confirmed')
+      return allConfirmed
+        ? current.map((item) => (item.status === 'confirmed' ? { ...item, status: 'draft' as const } : item))
+        : confirmAllPlanningProposals(current)
+    })
+  }
+
+  const confirmPendingDependencies = () => {
+    const dependencyIds = new Set(pendingDependencies.map((item) => item.id))
+    setProposals((current) =>
+      current.map((item) =>
+        dependencyIds.has(item.id) && item.status !== 'applied'
+          ? { ...item, status: 'confirmed' as const }
+          : item
+      )
+    )
+  }
+
   return (
     <div
       className="modal-backdrop planning-dialog-backdrop"
@@ -188,29 +225,41 @@ export function PlanningCreationDialog({
         <header className="planning-dialog-head">
           <div>
             <span className="planning-kicker">
-              {editing
+              {extractingReference
                 ? zh
-                  ? '恢复 AI 对话'
-                  : 'Restored AI conversation'
-                : zh
-                  ? 'AI 对话式建档'
-                  : 'AI guided record'}
+                  ? '参考原文 · 只读生卡'
+                  : 'Reference source · read-only extraction'
+                : editing
+                  ? zh
+                    ? '恢复 AI 对话'
+                    : 'Restored AI conversation'
+                  : zh
+                    ? 'AI 对话式建档'
+                    : 'AI guided record'}
             </span>
             <h2 id={titleId}>
-              {editing
+              {extractingReference
                 ? zh
-                  ? '继续讨论并编辑这张卡片'
-                  : 'Continue the conversation and edit this card'
-                : zh
-                  ? '把想法整理成规划资料'
-                  : 'Shape an idea into a planning record'}
+                  ? `与 AI 讨论“${session?.source_document?.title ?? ''}”并生成设定卡`
+                  : `Discuss “${session?.source_document?.title ?? ''}” and create setting cards`
+                : editing
+                  ? zh
+                    ? '继续讨论并编辑这张卡片'
+                    : 'Continue the conversation and edit this card'
+                  : zh
+                    ? '把想法整理成规划资料'
+                    : 'Shape an idea into a planning record'}
             </h2>
             <p>
               {zh
-                ? editing
-                  ? '已恢复这张卡片的完整对话与上次草案。继续讨论或直接修改，确认后原位更新。'
-                  : `使用背景 AI。它会参考当前项目和“${module}”栏目，多轮确认后提出可修改草案。`
-                : `Uses the background AI profile with project and “${module}” context.`}
+                ? extractingReference
+                  ? `参考文档 ${session?.source_document?.id ?? ''} 不会成为可编辑提案。AI 只能生成待审阅的新卡，确认后才写入项目。`
+                  : editing
+                    ? '已恢复这张卡片的完整对话与上次草案。继续讨论或直接修改，确认后原位更新。'
+                    : `使用背景 AI。它会参考当前项目和“${module}”栏目，多轮确认后提出可修改草案。`
+                : extractingReference
+                  ? `Reference ${session?.source_document?.id ?? ''} remains immutable. AI may only propose new reviewable cards, which are written after explicit confirmation.`
+                  : `Uses the background AI profile with project and “${module}” context.`}
             </p>
           </div>
           <button
@@ -231,8 +280,12 @@ export function PlanningCreationDialog({
                 <Bot size={16} />
                 <p>
                   {zh
-                    ? `请描述你要补充的资料。可以只给一个模糊想法，我会在当前栏目允许的类型内追问和整理${suggestedKind ? `（当前栏目：${PLANNING_KIND_LABELS[suggestedKind].zh}）` : ''}。`
-                    : 'Describe the record you need. I will ask questions and stay within the current module’s allowed document types.'}
+                    ? extractingReference
+                      ? '请说明想从这份参考中整理哪些设定。我可以同时提出人物、势力、关系、世界书、时间线、地点等多张候选卡，但不会改动参考原文。'
+                      : `请描述你要补充的资料。可以只给一个模糊想法，我会在当前栏目允许的类型内追问和整理${suggestedKind ? `（当前栏目：${PLANNING_KIND_LABELS[suggestedKind].zh}）` : ''}。`
+                    : extractingReference
+                      ? 'Describe what should be extracted. I can propose multiple setting cards, but the uploaded reference remains unchanged.'
+                      : 'Describe the record you need. I will ask questions and stay within the current module’s allowed document types.'}
                 </p>
               </article>
               {messages.map((item, index) => (
@@ -281,35 +334,64 @@ export function PlanningCreationDialog({
 
           <section className="planning-proposal" aria-label={zh ? '建档提案' : 'Record proposal'}>
             {proposals.length > 0 && (
-              <div
-                className="planning-proposal-rail"
-                role="tablist"
-                aria-label={zh ? '会话卡片' : 'Session cards'}
-              >
-                {proposals.map((item, index) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    role="tab"
-                    aria-selected={item.id === proposalRecord?.id}
-                    className={item.id === proposalRecord?.id ? 'active' : ''}
-                    onClick={() => setSelectedProposalId(item.id)}
-                  >
-                    <span className={`proposal-operation ${item.operation}`}>
-                      {item.operation === 'update' ? (zh ? '更新' : 'UPDATE') : zh ? '新卡' : 'NEW'}
-                    </span>
+              <div className="planning-proposal-collection">
+                <div className="planning-proposal-collection-head">
+                  <span>
                     <strong>
-                      {index + 1}. {item.draft.title}
+                      {zh ? `本会话 ${proposals.length} 张卡片` : `${proposals.length} session cards`}
                     </strong>
                     <small>
-                      {item.source === 'anchor' ? (zh ? '锚定卡片 · ' : 'Anchor · ') : ''}
-                      {PLANNING_KIND_LABELS[item.draft.kind]?.[language] ?? item.draft.kind} · {item.id}
+                      {zh
+                        ? `${confirmedCount} 张已确认；点击任一卡片切换编辑。`
+                        : `${confirmedCount} confirmed; select any card to edit it.`}
                     </small>
-                    <span className={`proposal-state ${item.status}`}>
-                      {proposalStatusCopy(item.status, language)}
-                    </span>
+                  </span>
+                  <button
+                    className="secondary"
+                    type="button"
+                    onClick={toggleAllConfirmations}
+                    disabled={Boolean(busy) || reviewableProposals.length === 0}
+                  >
+                    <Check size={14} />
+                    {allReviewableConfirmed
+                      ? zh
+                        ? '撤回全部确认'
+                        : 'Undo all confirmations'
+                      : zh
+                        ? `确认全部 ${reviewableProposals.length} 张`
+                        : `Confirm all ${reviewableProposals.length}`}
                   </button>
-                ))}
+                </div>
+                <div
+                  className="planning-proposal-rail"
+                  role="tablist"
+                  aria-label={zh ? '会话卡片' : 'Session cards'}
+                >
+                  {proposals.map((item, index) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={item.id === proposalRecord?.id}
+                      className={item.id === proposalRecord?.id ? 'active' : ''}
+                      onClick={() => setSelectedProposalId(item.id)}
+                    >
+                      <span className={`proposal-operation ${item.operation}`}>
+                        {item.operation === 'update' ? (zh ? '更新' : 'UPDATE') : zh ? '新卡' : 'NEW'}
+                      </span>
+                      <strong>
+                        {index + 1}. {item.draft.title}
+                      </strong>
+                      <small>
+                        {item.source === 'anchor' ? (zh ? '锚定卡片 · ' : 'Anchor · ') : ''}
+                        {PLANNING_KIND_LABELS[item.draft.kind]?.[language] ?? item.draft.kind} · {item.id}
+                      </small>
+                      <span className={`proposal-state ${item.status}`}>
+                        {proposalStatusCopy(item.status, language)}
+                      </span>
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
             {proposal ? (
@@ -336,6 +418,29 @@ export function PlanningCreationDialog({
                   <p className="proposal-validation-error" role="status">
                     {proposalRecord.validation_error}
                   </p>
+                )}
+                {pendingDependencies.length > 0 && (
+                  <div className="proposal-dependency-warning" role="status">
+                    <span>
+                      <strong>
+                        {zh ? '这张卡依赖尚未确认的新卡' : 'This card needs unconfirmed new cards'}
+                      </strong>
+                      <small>
+                        {pendingDependencies.map((item) => item.draft.title).join('、')}
+                        {zh
+                          ? '。应用前必须显式确认这些依赖，避免写入悬空引用。'
+                          : '. Confirm these dependencies before applying to avoid dangling references.'}
+                      </small>
+                    </span>
+                    <button
+                      className="secondary"
+                      type="button"
+                      onClick={confirmPendingDependencies}
+                      disabled={Boolean(busy)}
+                    >
+                      <Check size={14} /> {zh ? '确认所需依赖' : 'Confirm dependencies'}
+                    </button>
+                  </div>
                 )}
                 <label>
                   <PlanningFieldCopy name="title" language={language} />
@@ -419,8 +524,8 @@ export function PlanningCreationDialog({
           </button>
           <span>
             {zh
-              ? `关闭会保留全部草案；已确认 ${proposals.filter((item) => item.status === 'confirmed').length} 张。`
-              : `Closing keeps every draft; ${proposals.filter((item) => item.status === 'confirmed').length} confirmed.`}
+              ? `关闭会保留全部 ${proposals.length} 张卡片；已确认 ${confirmedCount} 张。`
+              : `Closing keeps all ${proposals.length} cards; ${confirmedCount} confirmed.`}
           </span>
           <button
             className="secondary"

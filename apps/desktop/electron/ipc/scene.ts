@@ -35,6 +35,7 @@ import {
   type SceneDoc,
   type TimelineEventDoc
 } from '@quillarium/core'
+import { assertSensitiveSourcesSafe } from '@quillarium/core/sensitive-data'
 import {
   SEMANTIC_CHECK_TIMEOUT_MS,
   checkScene,
@@ -125,6 +126,15 @@ export function registerSceneHandlers(): void {
     const header = await loadBookGenerationHeader(root)
     const compiled = overlay.prompt.trim()
     const sent = prompt.trim() ? prompt : compiled
+    assertSensitiveSourcesSafe([
+      { source: 'book-generation-header', text: header.text },
+      { source: 'writing-preset:system', text: resolved.snapshot.prompt_stack.system_prompt },
+      ...overlay.prompt_blocks.map((block) => ({
+        source: `prompt-block:${block.id}`,
+        text: block.content
+      })),
+      { source: prompt.trim() ? 'author-prompt-override' : 'compiled-prompt', text: sent }
+    ])
     const promptEnvelope = createAgentPromptEnvelope({
       systemMessage: buildGenerationSystemMessage(header.text, resolved.snapshot),
       userInstructions: [],

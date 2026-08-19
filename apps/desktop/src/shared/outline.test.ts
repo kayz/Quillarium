@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import type { DocEntry } from '../app/types.js'
-import { buildOutlineHierarchy, compareStoryEntries, nextWorkLevel, outlineLevelLabel } from './outline.js'
+import {
+  buildOutlineHierarchy,
+  childWorkLevels,
+  compareStoryEntries,
+  nextWorkLevel,
+  outlineItemsForLevel,
+  outlineLevelLabel,
+  parentLevelsForWorkLevel
+} from './outline.js'
 
 function outline(id: string, level: string, parent: string | null, title = id): DocEntry {
   return {
@@ -35,6 +43,50 @@ describe('writing hierarchy', () => {
     expect(nextWorkLevel('act')).toBe('chapter')
     expect(nextWorkLevel('chapter')).toBe('ai')
     expect(outlineLevelLabel('ai')).toBe('AI 编写')
+  })
+
+  it('flattens disabled part and act levels in memory while preserving their documents', () => {
+    const docs = [
+      outline('book', 'book', null),
+      outline('volume', 'volume', 'book'),
+      outline('part', 'part', 'volume'),
+      outline('act', 'act', 'part'),
+      outline('chapter', 'chapter', 'act')
+    ]
+    const flat = buildOutlineHierarchy(docs, {
+      part_enabled: false,
+      act_enabled: false,
+      scene_enabled: false
+    })
+
+    expect(flat.children.get('volume')?.map((item) => item.data.id)).toEqual(['chapter'])
+    expect(flat.disabledOutlines.map((item) => item.data.id).sort()).toEqual(['act', 'part'])
+    expect(docs.find((item) => item.data.id === 'chapter')?.data.parent).toBe('act')
+    expect(nextWorkLevel('volume', { part_enabled: false, act_enabled: false, scene_enabled: false })).toBe(
+      'chapter'
+    )
+    expect(
+      nextWorkLevel('chapter', { part_enabled: false, act_enabled: false, scene_enabled: false })
+    ).toBeNull()
+    expect(
+      childWorkLevels('volume', { part_enabled: false, act_enabled: false, scene_enabled: false })
+    ).toEqual(['chapter'])
+    expect(
+      parentLevelsForWorkLevel('chapter', {
+        part_enabled: false,
+        act_enabled: false,
+        scene_enabled: false
+      })
+    ).toEqual(['volume'])
+    expect(
+      outlineItemsForLevel(
+        docs,
+        'chapter',
+        docs.find((item) => item.data.id === 'volume') ?? null,
+        { type: 'outline', id: 'volume' },
+        { part_enabled: false, act_enabled: false, scene_enabled: false }
+      ).map((item) => item.data.id)
+    ).toEqual(['chapter'])
   })
 
   it('uses story-node names without appending the outline suffix', () => {

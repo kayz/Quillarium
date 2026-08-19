@@ -18,7 +18,11 @@ const project: ProjectListItem = {
   section_words: 1_000
 }
 
-function renderOutlineHome(docs: DocEntry[], activeSection: 'issues' | 'world', search = ''): string {
+function renderOutlineHome(
+  docs: DocEntry[],
+  activeSection: 'issues' | 'world' | 'factions' | 'references',
+  search = ''
+): string {
   return renderToStaticMarkup(
     <OutlineHome
       docs={docs}
@@ -44,6 +48,8 @@ function renderOutlineHome(docs: DocEntry[], activeSection: 'issues' | 'world', 
       onCreate={noopAsync}
       onAIPlanningCreate={noop}
       onAIEditCard={noop}
+      onUploadReferences={noopAsync}
+      onAIExtractReference={noop}
       onPlanningCheck={noopAsync}
       onDelete={noopAsync}
       onOpenExternal={noopAsync}
@@ -59,6 +65,48 @@ function renderOutlineHome(docs: DocEntry[], activeSection: 'issues' | 'world', 
 }
 
 describe('OutlineHome issue workflow', () => {
+  it('keeps faction records, faction relations, and memberships in one dedicated workspace', () => {
+    const docs: DocEntry[] = [
+      {
+        path: 'factions/faction-a.md',
+        data: { id: 'faction-a', type: 'faction', title: '海灯会', faction_kind: 'guild' },
+        content: ''
+      },
+      {
+        path: 'factions/relations/relation-a.md',
+        data: {
+          id: 'relation-a',
+          type: 'faction_relation',
+          title: '海灯会与北港议会',
+          from_faction: 'faction-a',
+          to_faction: 'faction-b',
+          relation_type: 'alliance'
+        },
+        content: ''
+      },
+      {
+        path: 'factions/memberships/member-a.md',
+        data: {
+          id: 'member-a',
+          type: 'faction_membership',
+          title: '林澜属于海灯会',
+          faction_id: 'faction-a',
+          character_id: 'character-a',
+          role: 'observer'
+        },
+        content: ''
+      }
+    ]
+
+    const html = renderOutlineHome(docs, 'factions')
+    expect(html).toContain('势力、关系与成员')
+    expect(html).toContain('新增势力')
+    expect(html).toContain('势力关系')
+    expect(html).toContain('人物所属')
+    expect(html.match(/class="outline-item/g)).toHaveLength(3)
+    expect(html).toContain('setting-thumbnail-fallback')
+  })
+
   it('renders the dedicated selection and batch actions in the planning issue section', () => {
     const issue: DocEntry = {
       path: 'issues/issue-one.md',
@@ -126,5 +174,13 @@ describe('OutlineHome issue workflow', () => {
     expect(html).toContain('1–50 / 721')
     expect(html).toContain('全选')
     expect(html).toContain('反选')
+  })
+
+  it('uses deterministic upload as the only reference creation action', () => {
+    const html = renderOutlineHome([], 'references')
+
+    expect(html).toContain('上传参考文档')
+    expect(html).not.toContain('>新增<')
+    expect(html).not.toContain('与 AI 对话新增')
   })
 })

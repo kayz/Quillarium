@@ -23,11 +23,13 @@ import type {
   LoadedContextBundle,
   LoadedCreatorRole,
   ResolvedContextBundle,
-  CreatorAssistantId
+  CreatorAssistantId,
+  AssistantPromptVersionV1
 } from '@quillarium/core'
 import type { CreatorAssistantWorkflowInputV1 } from '@quillarium/core/assistant-workflows'
 import {
   continuityRangeCandidatesFromDocuments,
+  selectCharacterTimePointContext,
   validateContinuityReviewRange
 } from '@quillarium/core/assistant-workflows'
 import { bridge } from '../../app/bridge.js'
@@ -42,6 +44,17 @@ interface AssistantState {
   bundles: LoadedContextBundle[]
   sessions: LoadedAgentSession[]
   prompts: LoadedAssistantPromptVersion[]
+  prompt_binding_issues: Array<{
+    role_id: string
+    assistant_id: CreatorAssistantId
+    missing_prompt_id: string
+    recovery_snapshots: Array<{
+      session_id: string
+      prompt: AssistantPromptVersionV1
+      prompt_sha256: string
+    }>
+    available_prompt_ids: string[]
+  }>
 }
 type SessionDetail = LoadedAgentSessionDetail
 interface RunPreview {
@@ -61,6 +74,7 @@ interface RunPreview {
   }>
   can_do: string[]
   result_destination: string
+  temporal_context?: ReturnType<typeof selectCharacterTimePointContext>
 }
 
 export function CreatorAssistantWorkspace({
@@ -102,6 +116,7 @@ export function CreatorAssistantWorkspace({
   const [promptName, setPromptName] = useState('')
   const [promptVersion, setPromptVersion] = useState('')
   const [rehearsalEventId, setRehearsalEventId] = useState('')
+  const [rehearsalTimelineId, setRehearsalTimelineId] = useState('')
   const [rehearsalLocationId, setRehearsalLocationId] = useState('')
   const [continuityRangeIds, setContinuityRangeIds] = useState<string[]>([])
 
@@ -139,17 +154,19 @@ export function CreatorAssistantWorkspace({
   }, [initialMessage])
 
   const activeRole = state?.roles.find((item) => item.value.id === roleId) ?? null
+  const activePromptBindingIssue =
+    state?.prompt_binding_issues.find((issue) => issue.role_id === roleId) ?? null
   const activeBundle = state?.bundles.find((item) => item.value.id === activeRole?.value.context_bundle_id)
   const activeAssistantId = activeRole?.value.task_id as CreatorAssistantId | undefined
-  const rolePrompts = useMemo(
-    () =>
-      activeAssistantId
-        ? (state?.prompts ?? [])
-            .filter((prompt) => prompt.value.assistant_id === activeAssistantId)
-            .slice(0, 5)
-        : [],
-    [activeAssistantId, state?.prompts]
-  )
+  const rolePrompts = useMemo(() => {
+    if (!activeAssistantId) return []
+    const prompts = (state?.prompts ?? []).filter((prompt) => prompt.value.assistant_id === activeAssistantId)
+    const boundPromptId = activeRole?.value.assistant_prompt_id
+    const recent = prompts.slice(0, 5)
+    if (!boundPromptId || recent.some((prompt) => prompt.value.id === boundPromptId)) return recent
+    const pinned = prompts.find((prompt) => prompt.value.id === boundPromptId)
+    return pinned ? [pinned, ...recent.slice(0, 4)] : recent
+  }, [activeAssistantId, activeRole?.value.assistant_prompt_id, state?.prompts])
   const selectedPrompt =
     rolePrompts.find((prompt) => prompt.value.id === activeRole?.value.assistant_prompt_id) ?? rolePrompts[0]
   const targetDocs = useMemo(() => assistantTargetDocumentsForRole(docs, roleId), [docs, roleId])
@@ -185,6 +202,36 @@ export function CreatorAssistantWorkspace({
     () => docs.filter((document) => ['location', 'scene'].includes(document.data.type)),
     [docs]
   )
+  const rehearsalTimelineOptions = useMemo(() => {
+    const event = docs.find(
+      (document) => document.data.type === 'timeline_event' && document.data.id === rehearsalEventId
+    )
+    if (!event) return []
+    const placements = Array.isArray(event.data.placements) ? event.data.placements : []
+    if (!placements.length && typeof event.data.timeline_node === 'string' && event.data.timeline_node) {
+      return ['main']
+    }
+    return [
+      ...new Set(
+        placements
+          .map((placement) =>
+            placement && typeof placement === 'object'
+              ? String((placement as Record<string, unknown>)['timeline_id'] ?? '')
+              : ''
+          )
+          .filter(Boolean)
+      )
+    ].sort((left, right) => left.localeCompare(right, 'en'))
+  }, [docs, rehearsalEventId])
+
+  useEffect(() => {
+    setRehearsalTimelineId((current) => {
+      if (rehearsalTimelineOptions.includes(current)) return current
+      if (rehearsalTimelineOptions.length === 1) return rehearsalTimelineOptions[0]!
+      if (rehearsalTimelineOptions.includes('main')) return 'main'
+      return ''
+    })
+  }, [rehearsalTimelineOptions.join('\0')])
   const continuityCandidates = useMemo(() => continuityRangeCandidatesFromDocuments(docs), [docs])
   const continuityValidation = validateContinuityReviewRange(continuityCandidates, continuityRangeIds)
 
@@ -216,6 +263,7 @@ export function CreatorAssistantWorkspace({
           task_id: 'character-rehearsal',
           character_id: target.document_id,
           timeline_event_id: rehearsalEventId,
+          ...(rehearsalTimelineId ? { timeline_id: rehearsalTimelineId } : {}),
           location_id: rehearsalLocationId,
           workflow_step: 'propose'
         }
@@ -364,23 +412,33 @@ export function CreatorAssistantWorkspace({
   const savePrompt = () =>
     run(async () => {
       if (!activeRole || !activeAssistantId || !promptText.trim()) return
-      const saved = await bridge.saveAssistantPromptVersion(root, {
-        assistant_id: activeAssistantId,
-        base_version: selectedPrompt?.value.version,
-        version: promptVersion,
-        name: promptName || undefined,
-        instructions: promptText
+      await bridge.saveAssistantPromptVersion(root, {
+        role_id: activeRole.value.id,
+        expected_role_sha256: activeRole.source_sha256,
+        prompt: {
+          assistant_id: activeAssistantId,
+          base_version: selectedPrompt?.value.version,
+          version: promptVersion,
+          name: promptName || undefined,
+          instructions: promptText
+        }
       })
-      await bridge.updateCreatorRole(
-        root,
-        {
-          ...activeRole.value,
-          version: nextPatchVersion(activeRole.value.version),
-          assistant_prompt_id: saved.value.id
-        },
-        activeRole.source_sha256
-      )
       setPromptEditorOpen(false)
+      await refresh()
+    })
+
+  const recoverPromptBinding = (
+    selection:
+      | { kind: 'existing'; prompt_id: string }
+      | { kind: 'session_snapshot'; session_id: string; prompt_sha256: string }
+  ) =>
+    run(async () => {
+      if (!activeRole) return
+      await bridge.recoverAssistantPromptBinding(root, {
+        role_id: activeRole.value.id,
+        expected_role_sha256: activeRole.source_sha256,
+        selection
+      })
       await refresh()
     })
 
@@ -600,11 +658,30 @@ export function CreatorAssistantWorkspace({
                   <PlanningCardSelector
                     docs={rehearsalEvents}
                     value={rehearsalEventId}
-                    onChange={setRehearsalEventId}
+                    onChange={(id) => {
+                      setRehearsalEventId(id)
+                      setRehearsalTimelineId('')
+                    }}
                     language={language}
                     ariaLabel={zh ? '选择试戏时间事件' : 'Choose rehearsal timeline event'}
                   />
                 </label>
+                {rehearsalTimelineOptions.length > 1 && (
+                  <label>
+                    <span>{zh ? '2b. 选择事件所在时间线' : '2b. Choose event timeline'}</span>
+                    <select
+                      value={rehearsalTimelineId}
+                      onChange={(event) => setRehearsalTimelineId(event.target.value)}
+                    >
+                      <option value="">{zh ? '请选择时间线' : 'Choose a timeline'}</option>
+                      {rehearsalTimelineOptions.map((timelineId) => (
+                        <option key={timelineId} value={timelineId}>
+                          {timelineId}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                )}
                 <label>
                   <span>3. {zh ? '选择地点 / 场景' : 'Choose location / scene'}</span>
                   <PlanningCardSelector
@@ -622,6 +699,7 @@ export function CreatorAssistantWorkspace({
                       docs,
                       parseTargetKey(targetKey, projectId).document_id,
                       rehearsalEventId,
+                      rehearsalTimelineId,
                       rehearsalLocationId,
                       language
                     )}
@@ -675,13 +753,60 @@ export function CreatorAssistantWorkspace({
                 </small>
               </div>
             )}
+            {activePromptBindingIssue && (
+              <div className="proposal-validation-error" role="alert">
+                <strong>{zh ? '助手提示词绑定已悬空' : 'Assistant prompt binding is missing'}</strong>
+                <p>
+                  {zh
+                    ? `缺少版本 ${activePromptBindingIssue.missing_prompt_id}。恢复或改绑后才能开始新会话。`
+                    : `Version ${activePromptBindingIssue.missing_prompt_id} is missing. Recover or rebind it before starting a session.`}
+                </p>
+                <div className="assistant-inline-actions">
+                  {activePromptBindingIssue.recovery_snapshots.map((snapshot) => (
+                    <button
+                      key={`${snapshot.session_id}:${snapshot.prompt_sha256}`}
+                      type="button"
+                      onClick={() =>
+                        void recoverPromptBinding({
+                          kind: 'session_snapshot',
+                          session_id: snapshot.session_id,
+                          prompt_sha256: snapshot.prompt_sha256
+                        })
+                      }
+                      disabled={busy}
+                    >
+                      {zh
+                        ? `从会话恢复 ${snapshot.prompt.name}`
+                        : `Recover ${snapshot.prompt.name} from session`}
+                    </button>
+                  ))}
+                  {activePromptBindingIssue.available_prompt_ids.map((promptId) => (
+                    <button
+                      key={promptId}
+                      type="button"
+                      onClick={() => void recoverPromptBinding({ kind: 'existing', prompt_id: promptId })}
+                      disabled={busy}
+                    >
+                      {zh ? `改绑 ${promptId}` : `Rebind ${promptId}`}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
             <button
               className="primary"
               onClick={() => void start()}
               disabled={
                 busy ||
                 !roleId ||
+                Boolean(activePromptBindingIssue) ||
                 (roleId === 'character-rehearsal' && (!rehearsalEventId || !rehearsalLocationId)) ||
+                (roleId === 'character-rehearsal' &&
+                  Boolean(rehearsalEventId) &&
+                  rehearsalTimelineOptions.length === 0) ||
+                (roleId === 'character-rehearsal' &&
+                  rehearsalTimelineOptions.length > 1 &&
+                  !rehearsalTimelineId) ||
                 (roleId === 'continuity-review' && !continuityValidation.valid)
               }
             >
@@ -983,6 +1108,29 @@ export function CreatorAssistantWorkspace({
         <AuditSection title={zh ? '知道什么' : 'What it knows'}>
           {detailPreview ? (
             <div className="assistant-source-folios">
+              {detailPreview.temporal_context?.status === 'resolved' && (
+                <article data-outcome="included">
+                  <span>{zh ? '试戏时间点' : 'REHEARSAL TIME POINT'}</span>
+                  <strong>
+                    {titleForDocument(docs, detailPreview.temporal_context.timeline_node_id ?? '')} ·{' '}
+                    {detailPreview.temporal_context.timeline_id}
+                  </strong>
+                  <small>
+                    {zh ? '人物状态来源' : 'Character state source'} ·{' '}
+                    {characterStateSourceLabel(detailPreview.temporal_context.state_source, language)}
+                  </small>
+                  <p>
+                    {zh ? '有效关系' : 'Active relationships'}:{' '}
+                    {detailPreview.temporal_context.active_relation_ids.length
+                      ? detailPreview.temporal_context.active_relation_ids
+                          .map((id) => titleForDocument(docs, id))
+                          .join(' · ')
+                      : zh
+                        ? '无'
+                        : 'None'}
+                  </p>
+                </article>
+              )}
               {detailPreview.knows.map((source) => (
                 <article key={`${source.source_type}:${source.source_id}`} data-outcome={source.outcome}>
                   <span>{source.required ? (zh ? '必需' : 'REQUIRED') : zh ? '优选' : 'PREFERRED'}</span>
@@ -1006,7 +1154,10 @@ export function CreatorAssistantWorkspace({
                       : selectorLabel(warning.selector ?? '', language)}
                   </strong>
                   <small>{zh ? '优选资料 · 0 令牌' : 'Preferred source · 0 tokens'}</small>
-                  <p>{contextWarningLabel(warning.code, language)}</p>
+                  <p>
+                    {contextWarningLabel(warning.code, language)}
+                    {warning.code === 'CHARACTER_TIME_CONTEXT_WARNING' ? ` ${warning.message}` : ''}
+                  </p>
                 </article>
               ))}
             </div>
@@ -1181,13 +1332,61 @@ function assistantWorkflowPreview(
   docs: DocEntry[],
   characterId: string,
   eventId: string,
+  timelineId: string,
   locationId: string,
   language: LanguageName
 ): string {
-  const title = (id: string) => docs.find((document) => document.data.id === id)?.data.title ?? (id || '—')
-  return language === 'zh'
-    ? `人物：${title(characterId)}；时间：${title(eventId)}；地点：${title(locationId)}。发送前预览会继续列出入选的人物状态、时段关系和正设来源。`
-    : `Character: ${title(characterId)}; time: ${title(eventId)}; location: ${title(locationId)}. The pre-run preview will list selected character state, period relationships, and Canon sources.`
+  const title = (id: string) => titleForDocument(docs, id)
+  if (!characterId || !eventId) {
+    return language === 'zh'
+      ? `人物：${title(characterId)}；请选择时间事件和地点。`
+      : `Character: ${title(characterId)}; choose a timeline event and location.`
+  }
+  try {
+    const context = selectCharacterTimePointContext(docs, {
+      character_id: characterId,
+      timeline_event_id: eventId,
+      ...(timelineId ? { timeline_id: timelineId } : {})
+    })
+    if (context.status === 'ambiguous') {
+      return language === 'zh'
+        ? `人物：${title(characterId)}；事件：${title(eventId)}。该事件同时位于 ${context.timeline_options.join(' / ')}，请显式选择时间线。`
+        : `Character: ${title(characterId)}; event: ${title(eventId)}. This event is placed on ${context.timeline_options.join(' / ')}; choose a timeline explicitly.`
+    }
+    const relations =
+      context.active_relation_ids.map(title).join(' · ') || (language === 'zh' ? '无' : 'none')
+    const untimed = context.untimed_relation_ids.map(title).join(' · ')
+    const base =
+      language === 'zh'
+        ? `人物：${title(characterId)}；事件：${title(eventId)}；时间线：${context.timeline_id}；时间节点：${title(context.timeline_node_id ?? '')}；人物状态：${title(context.selected_state_id ?? '')}（${characterStateSourceLabel(context.state_source, language)}）；有效关系：${relations}；地点：${title(locationId)}。`
+        : `Character: ${title(characterId)}; event: ${title(eventId)}; timeline: ${context.timeline_id}; node: ${title(context.timeline_node_id ?? '')}; character state: ${title(context.selected_state_id ?? '')} (${characterStateSourceLabel(context.state_source, language)}); active relationships: ${relations}; location: ${title(locationId)}.`
+    if (!untimed) return base
+    return language === 'zh'
+      ? `${base} 待确认的无时间关系：${untimed}。`
+      : `${base} Untimed relationships requiring confirmation: ${untimed}.`
+  } catch (cause) {
+    const code = cause instanceof Error ? cause.message.split(':', 1)[0] : 'CHARACTER_TIME_CONTEXT_INVALID'
+    return language === 'zh'
+      ? `无法解析试戏时间点（${code}），请检查事件的时间线定位。`
+      : `The rehearsal time point cannot be resolved (${code}); check the event timeline placement.`
+  }
+}
+
+function titleForDocument(docs: DocEntry[], id: string): string {
+  return docs.find((document) => document.data.id === id)?.data.title ?? (id || '—')
+}
+
+function characterStateSourceLabel(
+  value: ReturnType<typeof selectCharacterTimePointContext>['state_source'],
+  language: LanguageName
+): string {
+  const labels = {
+    'event-exact': { zh: '事件精确状态', en: 'exact event state' },
+    'node-exact': { zh: '同节点状态', en: 'same-node state' },
+    'nearest-prior': { zh: '最近历史状态', en: 'nearest prior state' },
+    none: { zh: '未找到历史状态', en: 'no historical state found' }
+  } as const
+  return labels[value][language]
 }
 
 function targetFromSelection(
@@ -1367,12 +1566,19 @@ function contextWarningLabel(value: string, language: LanguageName): string {
     CONTEXT_SOURCE_EXCLUDED: {
       zh: '一项资料被资料包的显式排除规则移除。',
       en: 'A source was removed by an explicit ContextBundle exclusion.'
+    },
+    CHARACTER_TIME_CONTEXT_WARNING: {
+      zh: '试戏时间点存在需要作者确认的状态或关系歧义；具体原因已保存在本轮审计中。',
+      en: 'The rehearsal time point has a state or relationship ambiguity that requires author confirmation; the exact reason is retained in this turn audit.'
     }
   }
   return labels[value]?.[language] ?? value
 }
 
 function warningStatusLabel(value: string, language: LanguageName): string {
+  if (value === 'CHARACTER_TIME_CONTEXT_WARNING') {
+    return language === 'zh' ? '待确认' : 'CONFIRM'
+  }
   if (value === 'CONTEXT_SOURCE_EXCLUDED') return language === 'zh' ? '已排除' : 'EXCLUDED'
   if (value === 'CONTEXT_PREFERRED_SOURCE_DUPLICATE') {
     return language === 'zh' ? '重复，未采用' : 'DUPLICATE'

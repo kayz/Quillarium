@@ -128,6 +128,27 @@ existing Runs remain readable and are never silently rewritten. The complete inv
 migration boundary are defined in
 [ADR-unified-ai-agent-runtime.md](adr/ADR-unified-ai-agent-runtime.md).
 
+The `setting-card-design` task is the first visual-layout task on this runtime, but it is deliberately
+text-only. It may read exactly one author-selected world entry, character, location, or character-
+relationship card and may invoke the configured background model to produce a candidate HTML/CSS
+template. The source compiler removes image paths, hashes, and pixels; it exposes only dimensions,
+aspect ratio, orientation, a small palette, and alt text. The task can neither write the source card
+nor save a workspace style. Saving a sanitized candidate as a new versioned workspace style and
+exporting the rendered HTML are separate explicit author actions in trusted code. The preview iframe
+has no sandbox capabilities, and both saved templates and exports pass the code-owned active-content
+and sensitive-data boundaries. Built-in and previously saved styles bypass this task and render in
+trusted code. Only the explicit Random style calls the task; every successful call creates a distinct
+navigable candidate. For Random style, trusted code rotates a mandatory primary composition by the
+candidate index and derives independent typography, image treatment, density, palette, and ornament
+axes from the execution ID. This exact variation brief is saved in the PromptEnvelope, making a Run
+reproducible without making consecutive Rolls visually synonymous. Required placeholder and CSS safety
+checks are part of its output schema. The template may place one core property with
+`{{fields.<field_key>}}`; trusted rendering escapes its value, does not interpret replacement text as
+more template syntax, and rejects nested or unknown paths with the exact offending token. This gives
+the runtime's single bounded repair actionable evidence before decode instead of misclassifying local
+validation as a provider transport failure. HTML export remains a separate author action: the native
+Save As dialog chooses the only destination, and cancellation performs no write.
+
 The unified runtime adds executable handlers to the code-owned registry; serialized project files
 contain neither functions nor permission decisions. Desktop and CLI call one `executeAgentTask()`
 entry. A handler may prepare context, invoke the configured provider, validate output, and write Run
@@ -163,6 +184,11 @@ is available; the assistant prompt versions how that assistant performs its work
 cannot modify the product-owned permission ceiling. Assistant prompt versions are namespaced by the
 three assistant IDs, project configuration retains the newest five ordinary versions per assistant,
 and every historical session keeps its exact prompt text, version, and hash even after pruning.
+Saving a prompt and binding its creator role is one expected-hash transaction. Versions referenced by
+any current role are pinned outside the five ordinary-version quota. If a role points to a missing
+version, initialization reports the binding issue without failing the whole workspace; that role
+cannot start a new session until the author explicitly rebinds an existing version or chooses one
+exact historical session snapshot to restore. No recovery occurs implicitly.
 
 Character rehearsal is a seven-stage task: select character, time event, and place/scene; preview the
 resolved state and Canon; generate trial prose; diagnose missing, contradictory, or implausible
@@ -172,6 +198,13 @@ contiguous ordered range, includes adjacent accepted prose and resolved time/per
 and emits evidence-backed issue proposals without changing prose. These selections are typed stable-ID
 workflow inputs, frozen into the session/execution snapshot and independently checked by the trusted
 process before they can contribute required or preferred context sources.
+
+For rehearsal, story time is code-owned context rather than prompt interpretation. An event-exact
+character state wins; otherwise the nearest state at or before the chosen node is selected and future
+states are excluded. Relationship constraints use an inclusive start and exclusive end. An untimed
+relationship is advisory evidence with an audit warning. Multi-placement events resolve through their
+only placement or the main timeline; otherwise the author must choose a `timeline_id`, and the chosen
+node, state source, active relationships, and ambiguity are visible before execution.
 
 The story-production responsibilities remain domain operations: overview and book planning organize
 the purpose and worldline; volume, part, optional act, and chapter planning define delivery
@@ -205,13 +238,24 @@ confirmation states, and revisions. A discussion opened from an existing card pi
 as the first anchor and records its source path and expected SHA-256. Regeneration and recovery cannot
 reorder it. Apply is a separate author action: every update hash is checked before any write, then the
 project-scoped lock, atomic replacement, verification, and whole-transaction rollback protect mixed
-create/update sets.
+create/update sets. New cards may use another card's stable proposal ID as a transaction-local
+structured reference. The trusted apply path requires that dependency to be explicitly confirmed,
+orders confirmed creates before their dependents, and replaces the temporary reference with the
+created document's real stable ID. Missing confirmation and dependency cycles fail before writes.
 
 The active planning module is a trusted read/output boundary, not a prompt hint. The main process
 filters the catalog and proposal collection to that module's allowed document kinds, rejects an AI
 proposal outside the allowlist, and repeats the check before any confirmed proposal is applied.
 Timeline collaboration is therefore limited to timeline nodes and events; it cannot create location,
 world-book, or foreshadowing proposals.
+
+Reference ingestion is outside this Agent boundary: uploading UTF-8 Markdown or text directly creates
+a project-local reference record and never calls a model. Only a subsequent author action starts a
+`reference-extraction` conversation. That session stores the selected reference's stable ID, real file,
+title, and expected SHA-256 as a read-only source, not as the first update proposal. Its code-owned
+allowlist contains only derived setting-card kinds, every returned card is forced to cite the source
+through `source_refs`, and the source hash is checked before discussion and again under the project
+write lock before apply. A changed source stops the operation with zero setting-card writes.
 
 Planning integrity review has a separate code-owned scope carried in the task input and Run result.
 Project review and every page-scoped review exclude `world_entry` content because world books hold
@@ -224,6 +268,11 @@ issue state machine is code-owned: `ignored` writes a stable checker/code/target
 fingerprint, `resolved` closes only one occurrence and remains eligible for later redetection, and
 `open` remains actionable. Provider aliases such as `received` and `closed` are repaired only through
 a bounded mapping; other invalid values remain localized structured errors.
+
+New issue identities use verified V2 evidence anchors rather than localized display text. Deterministic
+checks anchor real field values before localization; AI checks must cite a prompt-visible field or an
+exact source-body fragment. V1 ledgers and issue cards are read without mutation and match computable
+language aliases; the next explicit author state action lazily upgrades only reconstructable entries.
 
 ## Permission and Write Rules
 
@@ -253,6 +302,10 @@ Every agent operation has an explicit scope and produces reviewable artifacts.
   A partial apply is a failure and is rolled back before the review may become `applied`.
 - Credentials, local indexes, UI state, and regenerable exports are never written into a project or
   workspace manifest.
+- New AI work fails closed before Run persistence and before provider I/O when the actual prompt
+  contains a credential, endpoint, or local path. The error identifies the source block without
+  echoing the sensitive value. Existing Runs remain byte-for-byte unchanged; viewers and copy actions
+  sanitize them at the presentation boundary.
 - The optional book-generation header applies only to prose-generation tasks and is inserted before
   the immutable task boundary, WritingPreset instructions, compiled project blocks, and current scene
   goal. Each Run snapshots its full text, relative path, SHA-256, tokenizer, actual token count,

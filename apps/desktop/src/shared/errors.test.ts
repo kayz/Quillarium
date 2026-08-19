@@ -42,6 +42,12 @@ describe('formatDesktopError', () => {
     )
   })
 
+  it('explains setting-image format, conflict, and path failures', () => {
+    expect(formatDesktopError('SETTING_IMAGE_TYPE_MISMATCH', 'zh')).toContain('PNG、JPEG 或 WebP')
+    expect(formatDesktopError('SETTING_IMAGE_DOCUMENT_HASH_CONFLICT', 'en')).toContain('Nothing was written')
+    expect(formatDesktopError('SETTING_IMAGE_SYMLINK_FORBIDDEN', 'zh')).toContain('安全资产目录')
+  })
+
   it('shows provider truncation details verbatim even in the Chinese interface', () => {
     const message = 'AI_OUTPUT_TRUNCATED: deepseek stopped with finish_reason=length at max_tokens=2000.'
     expect(formatDesktopError(message, 'zh')).toBe(message)
@@ -108,6 +114,9 @@ describe('formatDesktopError', () => {
 
   it('localizes creator-assistant context, permission, and structured-output errors', () => {
     expect(formatDesktopError('Error: AGENT_AI_NOT_CONFIGURED', 'zh')).toContain('AI 配置')
+    expect(formatDesktopError('SENSITIVE_PROMPT_CONTENT: author-input:credential', 'zh')).toContain(
+      '落盘和调用 AI 前停止'
+    )
     expect(
       formatDesktopError('Required context source is missing or unreadable: canon:rule', 'zh')
     ).toContain('缺少必需资料')
@@ -116,5 +125,12 @@ describe('formatDesktopError', () => {
       formatDesktopError('Structured AI response still failed validation after one repair attempt.', 'zh')
     ).toContain('一次修复')
     expect(formatDesktopError('AGENT_EXECUTION_SNAPSHOT_CONFIGURATION_MISMATCH', 'zh')).toContain('运行快照')
+  })
+
+  it('localizes typed Agent provider failures without hiding the actionable cause', () => {
+    expect(formatDesktopError('AGENT_PROVIDER_AUTH_FAILED: unauthorized', 'zh')).toContain('API Key')
+    expect(formatDesktopError('AGENT_PROVIDER_RATE_LIMITED: 429', 'zh')).toContain('限流')
+    expect(formatDesktopError('AGENT_PROVIDER_TIMEOUT: request timed out', 'en')).toContain('timed out')
+    expect(formatDesktopError('AGENT_PROVIDER_TRANSPORT_FAILED: socket closed', 'zh')).toContain('模型服务')
   })
 })

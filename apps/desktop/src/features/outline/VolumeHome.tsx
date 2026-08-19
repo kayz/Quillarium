@@ -23,7 +23,13 @@ import type {
   VolumeSection
 } from '../../app/types.js'
 import { t } from '../../app/i18n.js'
-import { compareStoryEntries, filterDocs } from '../../shared/outline.js'
+import { bridge } from '../../app/bridge.js'
+import {
+  buildOutlineHierarchy,
+  compareStoryEntries,
+  filterDocs,
+  normalizeStoryStructure
+} from '../../shared/outline.js'
 import {
   applyVolumeScope,
   countVolumeSection,
@@ -48,6 +54,7 @@ import { OutlineCreateDialog } from './OutlineCreateDialog.js'
 import { EditableDocumentTitle } from './EditableDocumentTitle.js'
 import { enumChoiceLabel } from '../metadata/field-presentation.js'
 import { CharacterRelationView, LocationExplorerView, TimelineChainView } from '../planning/PlanningViews.js'
+import { SETTING_IMAGE_TYPES, SettingCardMediaPanel, SettingThumbnail } from '../planning/SettingCardMedia.js'
 
 export function VolumeHome({
   docs,
@@ -76,6 +83,8 @@ export function VolumeHome({
   onCreate,
   onAIPlanningCreate,
   onAIEditCard,
+  onUploadReferences,
+  onAIExtractReference,
   onPlanningCheck,
   onDelete,
   onOpenExternal,
@@ -113,6 +122,8 @@ export function VolumeHome({
   onCreate: (kind: string, input: Record<string, unknown>) => Promise<void>
   onAIPlanningCreate: (section: VolumeSection) => void
   onAIEditCard: (doc: DocEntry) => void
+  onUploadReferences: () => Promise<void>
+  onAIExtractReference: (doc: DocEntry) => void
   onPlanningCheck: (scope: PlanningCheckScope) => Promise<void>
   onDelete: () => Promise<void>
   onOpenExternal: () => Promise<void>
@@ -132,15 +143,26 @@ export function VolumeHome({
   const [createSection, setCreateSection] = React.useState<VolumeSection | null>(null)
   const [creating, setCreating] = React.useState(false)
   const [collectionPage, setCollectionPage] = React.useState(0)
+  const [settingImages, setSettingImages] = React.useState<
+    Awaited<ReturnType<typeof bridge.getSettingImageBatch>>
+  >({})
   const zh = language === 'zh'
+  const storyStructure = normalizeStoryStructure(project.story_structure)
   const section = VOLUME_SECTIONS.find((item) => item.id === activeSection) ?? VOLUME_SECTIONS[0]
-  const sectionHeading = zh ? section.heading : section.enHeading
-  const parts = docs
-    .filter(
-      (item) =>
-        item.data.type === 'outline' &&
-        (item.data.level === 'part' || item.data.level === 'arc') &&
-        item.data.parent === volume.data.id
+  const sectionHeading =
+    activeSection === 'parts' && !storyStructure.part_enabled
+      ? zh
+        ? '本卷章节'
+        : 'Volume chapters'
+      : zh
+        ? section.heading
+        : section.enHeading
+  const outlineHierarchy = buildOutlineHierarchy(docs, storyStructure)
+  const volumeChildren = (outlineHierarchy.children.get(volume.data.id) ?? [])
+    .filter((item) =>
+      storyStructure.part_enabled
+        ? item.data.level === 'part' || item.data.level === 'arc'
+        : item.data.level === 'chapter'
     )
     .sort(compareStoryEntries)
   const deferredSearch = React.useDeferredValue(search)
@@ -151,6 +173,14 @@ export function VolumeHome({
   const items = React.useMemo(() => filterDocs(sectionItems, deferredSearch), [deferredSearch, sectionItems])
   const timelineNodes = React.useMemo(() => docs.filter((item) => item.data.type === 'timeline_node'), [docs])
   const itemPage = boundedPage(items, collectionPage, listPageSize)
+  const settingImageKey = React.useMemo(
+    () =>
+      itemPage.items
+        .filter((item) => SETTING_IMAGE_TYPES.has(item.data.type))
+        .map((item) => item.data.id)
+        .join('\n'),
+    [itemPage.items]
+  )
   const selected = selectedTarget
     ? docs.find((item) => item.data.id === selectedTarget.id && item.data.type === selectedTarget.type)
     : null
@@ -163,6 +193,27 @@ export function VolumeHome({
       : -1
     setCollectionPage(selectedIndex >= 0 ? Math.floor(selectedIndex / listPageSize) : 0)
   }, [activeSection, items, listPageSize, selectedTarget?.id, selectedTarget?.type, volume.data.id])
+
+  React.useEffect(() => {
+    let active = true
+    if (!settingImageKey) {
+      setSettingImages({})
+      return () => {
+        active = false
+      }
+    }
+    void bridge
+      .getSettingImageBatch(project.root, settingImageKey.split('\n'))
+      .then((result) => {
+        if (active) setSettingImages(result)
+      })
+      .catch(() => {
+        if (active) setSettingImages({})
+      })
+    return () => {
+      active = false
+    }
+  }, [project.root, settingImageKey])
 
   const createCurrent = (requestedSection: VolumeSection = activeSection) => {
     if (isAIPlanningContext(requestedSection)) {
@@ -235,8 +286,18 @@ export function VolumeHome({
               <item.icon size={17} />
               {leftOpen ? (
                 <>
-                  <span>{zh ? item.title : item.enTitle}</span>
-                  <small>{countVolumeSection(docs, volume, item.id)}</small>
+                  <span>
+                    {item.id === 'parts' && !storyStructure.part_enabled
+                      ? zh
+                        ? '章'
+                        : 'Chapters'
+                      : zh
+                        ? item.title
+                        : item.enTitle}
+                  </span>
+                  <small>
+                    {item.id === 'parts' ? volumeChildren.length : countVolumeSection(docs, volume, item.id)}
+                  </small>
                 </>
               ) : (
                 <span className="one-char">{zh ? item.short : item.enShort}</span>
@@ -246,8 +307,8 @@ export function VolumeHome({
         </div>
         {leftOpen && (
           <div className="volume-quick-list">
-            <strong>{zh ? '篇' : 'Parts'}</strong>
-            {parts.map((arc) => (
+            <strong>{storyStructure.part_enabled ? (zh ? '篇' : 'Parts') : zh ? '章' : 'Chapters'}</strong>
+            {volumeChildren.map((arc) => (
               <button
                 key={arc.data.id}
                 className={selectedTarget?.id === arc.data.id ? 'active' : ''}
@@ -257,7 +318,8 @@ export function VolumeHome({
               </button>
             ))}
             <button className="sidebar-create" onClick={() => createCurrent('parts')}>
-              <Plus size={14} /> {zh ? '新增篇' : 'New part'}
+              <Plus size={14} />{' '}
+              {storyStructure.part_enabled ? (zh ? '新增篇' : 'New part') : zh ? '新增章' : 'New chapter'}
             </button>
           </div>
         )}
@@ -296,9 +358,15 @@ export function VolumeHome({
               <h2>{sectionHeading}</h2>
             </div>
             <div className="outline-actions">
-              <button onClick={() => createCurrent()} disabled={busy}>
-                <Plus size={15} /> {zh ? '新增' : 'New'}
-              </button>
+              {activeSection === 'references' ? (
+                <button onClick={() => void onUploadReferences()} disabled={busy}>
+                  <Upload size={15} /> {zh ? '上传参考文档' : 'Upload references'}
+                </button>
+              ) : (
+                <button onClick={() => createCurrent()} disabled={busy}>
+                  <Plus size={15} /> {zh ? '新增' : 'New'}
+                </button>
+              )}
               <button onClick={onDelete} disabled={!doc || busy}>
                 <Trash2 size={15} /> {zh ? '删除' : 'Delete'}
               </button>
@@ -345,6 +413,8 @@ export function VolumeHome({
           ) : activeSection === 'characters' ? (
             <CharacterRelationView
               items={items}
+              allDocs={docs}
+              projectRoot={project.root}
               timelineNodes={timelineNodes}
               selectedTarget={selectedTarget}
               onSelect={onSelect}
@@ -371,9 +441,15 @@ export function VolumeHome({
                 {itemPage.items.map((item) => (
                   <button
                     key={item.data.id}
-                    className={`outline-item ${item.data.enabled === false ? 'disabled-card' : ''} ${selectedTarget?.id === item.data.id ? 'active' : ''}`}
+                    className={`outline-item ${settingImages[item.data.id] || item.data.type === 'faction' ? 'has-setting-image' : ''} ${item.data.enabled === false ? 'disabled-card' : ''} ${selectedTarget?.id === item.data.id ? 'active' : ''}`}
                     onClick={() => onSelect({ type: item.data.type, id: item.data.id })}
                   >
+                    <SettingThumbnail
+                      preview={settingImages[item.data.id]}
+                      title={item.data.title}
+                      type={item.data.type}
+                      compact={viewMode === 'list'}
+                    />
                     <span>
                       <b>{item.data.title}</b>
                       <small>
@@ -450,6 +526,19 @@ export function VolumeHome({
                   style={{ gridTemplateRows: `${detailMetadataPct}% 10px minmax(0, 1fr)` }}
                 >
                   <div className="detail-metadata-pane">
+                    <SettingCardMediaPanel
+                      root={project.root}
+                      document={{
+                        path: doc.path,
+                        data: doc.data as DocEntry['data'],
+                        content: doc.content
+                      }}
+                      dirty={dirty}
+                      onSave={onSave}
+                      onReloadDocument={onReloadDoc}
+                      onReloadProject={onReloadProject}
+                      language={language}
+                    />
                     <PlanningCardSupportPanel
                       doc={{ path: doc.path, data: doc.data as DocEntry['data'], content: doc.content }}
                       docs={docs}
@@ -490,7 +579,19 @@ export function VolumeHome({
                   </div>
                 </div>
                 <div className="detail-actions">
-                  {AI_EDITABLE_CARD_TYPES.has(String(doc.data.type)) && (
+                  {doc.data.type === 'reference' ? (
+                    <button
+                      onClick={() =>
+                        onAIExtractReference({
+                          path: doc.path,
+                          data: doc.data as DocEntry['data'],
+                          content: doc.content
+                        })
+                      }
+                    >
+                      <Bot size={15} /> {zh ? 'AI 讨论生卡' : 'Discuss and create cards'}
+                    </button>
+                  ) : AI_EDITABLE_CARD_TYPES.has(String(doc.data.type)) ? (
                     <button
                       onClick={() =>
                         onAIEditCard({
@@ -502,7 +603,7 @@ export function VolumeHome({
                     >
                       <Bot size={15} /> {zh ? 'AI 协助调整' : 'Edit with AI'}
                     </button>
-                  )}
+                  ) : null}
                   <button onClick={onOpenExternal}>
                     <FileText size={15} /> {zh ? '编辑' : 'Edit'}
                   </button>
@@ -538,9 +639,13 @@ export function VolumeHome({
       {createSection && (
         <OutlineCreateDialog
           label={
-            zh
-              ? (VOLUME_SECTIONS.find((item) => item.id === createSection)?.title ?? section.title)
-              : (VOLUME_SECTIONS.find((item) => item.id === createSection)?.enTitle ?? section.enTitle)
+            createSection === 'parts' && !storyStructure.part_enabled
+              ? zh
+                ? '章'
+                : 'Chapter'
+              : zh
+                ? (VOLUME_SECTIONS.find((item) => item.id === createSection)?.title ?? section.title)
+                : (VOLUME_SECTIONS.find((item) => item.id === createSection)?.enTitle ?? section.enTitle)
           }
           parentTitle={createSection === 'parts' ? volume.data.title : null}
           language={language}
@@ -552,9 +657,11 @@ export function VolumeHome({
               if (createSection === 'parts') {
                 await onCreate('outline', {
                   title,
-                  level: 'part',
+                  level: storyStructure.part_enabled ? 'part' : 'chapter',
                   parent: volume.data.id,
-                  target_words: Math.max(project.chapter_words * 10, 1),
+                  target_words: storyStructure.part_enabled
+                    ? Math.max(project.chapter_words * 10, 1)
+                    : project.chapter_words,
                   content: `## ${title}\n`
                 })
               } else {

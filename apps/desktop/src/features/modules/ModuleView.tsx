@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Plus } from 'lucide-react'
+import { Bot, Plus, Upload } from 'lucide-react'
 import type { DocEntry, LanguageName, ModuleName, RunSummary, TargetSelection } from '../../app/types.js'
 import { I18N, t } from '../../app/i18n.js'
+import { bridge } from '../../app/bridge.js'
 import { docTitle } from '../../shared/outline.js'
 import { enumChoiceLabel, fieldLabel } from '../metadata/field-presentation.js'
 import { docTypeLabel } from '../outline/outline-model.js'
@@ -9,12 +10,14 @@ import { CanonWorkspace } from './CanonWorkspace.js'
 import { IssueWorkspace } from './IssueWorkspace.js'
 import { BoundedPager } from '../layout/BoundedPager.js'
 import { boundedPage } from '../layout/bounded-page.js'
+import { SETTING_IMAGE_TYPES, SettingThumbnail } from '../planning/SettingCardMedia.js'
 
 const MODULE_PAGE_SIZE = 30
 const MODULE_TYPE_MAP: Record<string, string> = {
   canon: 'canon',
   world: 'world_entry',
   characters: 'character',
+  factions: 'faction',
   timeline: 'timeline_event',
   foreshadowing: 'foreshadowing',
   issues: 'issue',
@@ -33,6 +36,8 @@ export function ModuleView({
   runs,
   onCreate,
   onAIPlanningCreate,
+  onUploadReferences,
+  onAIExtractReference,
   selectedTarget,
   onSelect,
   onOpenCard,
@@ -46,6 +51,8 @@ export function ModuleView({
   runs: RunSummary[]
   onCreate: (kind: string, input: Record<string, unknown>) => Promise<unknown>
   onAIPlanningCreate: (module: ModuleName) => void
+  onUploadReferences: () => Promise<void>
+  onAIExtractReference: (doc: DocEntry) => void
   selectedTarget: TargetSelection | null
   onSelect: (target: TargetSelection) => void
   onOpenCard?: (doc: DocEntry) => void
@@ -64,7 +71,22 @@ export function ModuleView({
     [docs, module]
   )
   const docPage = boundedPage(filtered, pageIndex, MODULE_PAGE_SIZE)
+  const selectedReference =
+    module === 'references' && selectedTarget?.type === 'reference'
+      ? (filtered.find((document) => document.data.id === selectedTarget.id) ?? null)
+      : null
   const runPage = boundedPage(runs, pageIndex, MODULE_PAGE_SIZE)
+  const [settingImages, setSettingImages] = useState<Awaited<ReturnType<typeof bridge.getSettingImageBatch>>>(
+    {}
+  )
+  const settingImageKey = useMemo(
+    () =>
+      docPage.items
+        .filter((item) => SETTING_IMAGE_TYPES.has(item.data.type))
+        .map((item) => item.data.id)
+        .join('\n'),
+    [docPage.items]
+  )
   useEffect(() => {
     const selectedIndex =
       module !== 'runs' && selectedTarget
@@ -74,6 +96,26 @@ export function ModuleView({
         : -1
     setPageIndex(selectedIndex >= 0 ? Math.floor(selectedIndex / MODULE_PAGE_SIZE) : 0)
   }, [filtered, module, selectedTarget?.id, selectedTarget?.type])
+  useEffect(() => {
+    let active = true
+    if (!settingImageKey) {
+      setSettingImages({})
+      return () => {
+        active = false
+      }
+    }
+    void bridge
+      .getSettingImageBatch(root, settingImageKey.split('\n'))
+      .then((result) => {
+        if (active) setSettingImages(result)
+      })
+      .catch(() => {
+        if (active) setSettingImages({})
+      })
+    return () => {
+      active = false
+    }
+  }, [root, settingImageKey])
   if (module === 'runs') {
     return (
       <section className="module-view">
@@ -136,8 +178,25 @@ export function ModuleView({
   }
   return (
     <section className="module-view module-view-full">
-      <ModuleCreateForm module={module} onCreate={onAIPlanningCreate} language={language} />
+      <ModuleCreateForm
+        module={module}
+        onCreate={onAIPlanningCreate}
+        onUploadReferences={onUploadReferences}
+        language={language}
+      />
       <ModuleFilters module={module} docs={docs} language={language} />
+      {selectedReference && (
+        <div className="assistant-card-shortcut">
+          <span>
+            {language === 'zh'
+              ? '以当前参考原文为只读来源，讨论并生成多张待审阅设定卡。'
+              : 'Use this reference as a read-only source for reviewable setting-card proposals.'}
+          </span>
+          <button className="primary" type="button" onClick={() => onAIExtractReference(selectedReference)}>
+            <Bot size={15} /> {language === 'zh' ? 'AI 讨论生卡' : 'Discuss and create cards'}
+          </button>
+        </div>
+      )}
       {module === 'characters' && selectedTarget?.type === 'character' && (
         <div className="assistant-card-shortcut">
           <span>
@@ -173,6 +232,11 @@ export function ModuleView({
               onOpenCard?.(doc)
             }}
           >
+            <SettingThumbnail
+              preview={settingImages[doc.data.id]}
+              title={doc.data.title}
+              type={doc.data.type}
+            />
             <strong>{doc.data.title}</strong>
             {doc.data.type === 'reference' ? (
               <small>
@@ -310,21 +374,27 @@ export function RouteTable({
 export function ModuleCreateForm({
   module,
   onCreate,
+  onUploadReferences,
   language
 }: {
   module: ModuleName
   onCreate: (module: ModuleName) => void
+  onUploadReferences: () => Promise<void>
   language: LanguageName
 }) {
   const enabled = !['write', 'canon', 'runs', 'assistants'].includes(module)
   return (
     <div className="module-head">
       <h2>{moduleTitle(module, language)}</h2>
-      {enabled && (
+      {module === 'references' ? (
+        <button className="primary" type="button" onClick={() => void onUploadReferences()}>
+          <Upload size={15} /> {language === 'zh' ? '上传参考文档' : 'Upload references'}
+        </button>
+      ) : enabled ? (
         <button className="primary" type="button" onClick={() => onCreate(module)}>
           <Plus size={15} /> {language === 'zh' ? '与 AI 对话新增' : 'Create with AI'}
         </button>
-      )}
+      ) : null}
     </div>
   )
 }
@@ -335,6 +405,7 @@ export function moduleTitle(module: ModuleName, language: LanguageName): string 
     canon: 'canon',
     world: 'worldBook',
     characters: 'characters',
+    factions: 'factions',
     timeline: 'timeline',
     foreshadowing: 'foreshadowing',
     issues: 'issues',

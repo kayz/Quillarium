@@ -3,7 +3,7 @@ import os from 'node:os'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { AIRequestError, type AIConfig } from '@quillarium/ai'
-import { createForeshadowing, createProjectAt, listDocs, type IssueDoc } from '@quillarium/core'
+import { createForeshadowing, createProjectAt, listDocs, pathExists, type IssueDoc } from '@quillarium/core'
 import { executeAgentTask } from './executor.js'
 import { openAgentArtifactStore } from './artifacts.js'
 import type { AgentProvider, AgentRuntimeDependencies } from './contracts.js'
@@ -47,6 +47,7 @@ describe('executeAgentTask', () => {
             title: '通行规则缺少边界',
             message: '卡片没有说明夜间例外。',
             evidence: '规则仅描述白天。',
+            evidence_refs: [{ document_id: 'foreshadow-permit', kind: 'body', quote: 'Day use only.' }],
             related_ids: ['foreshadow-permit']
           }
         ]
@@ -62,6 +63,106 @@ describe('executeAgentTask', () => {
     expect(outcome.result.deterministic_findings.length).toBeGreaterThan(0)
     expect(await listDocs<IssueDoc>(root, 'issue')).toHaveLength(0)
     expect(provider).toHaveBeenCalledTimes(1)
+  })
+
+  it('blocks sensitive prompt content before creating Agent Run artifacts or invoking the provider', async () => {
+    const root = await projectWithCheckCard('agent-sensitive-preflight')
+    await createForeshadowing(
+      root,
+      'Sensitive fixture',
+      { id: 'foreshadow-sensitive', enabled: true, trigger_conditions: [] },
+      'Synthetic source path C:\\Users\\writer\\private-notes.md'
+    )
+    const provider = vi.fn(async () => JSON.stringify({ issues: [] }))
+    const executionId = 'agent-sensitive-preflight-parent'
+
+    const outcome = await executeAgentTask<PlanningIntegrityReviewResult>(
+      request(root),
+      dependencies(provider, [executionId])
+    )
+
+    expect(outcome.status).toBe('failed')
+    if (outcome.status === 'failed') {
+      expect(outcome.error.code).toBe('SENSITIVE_PROMPT_CONTENT')
+      expect(outcome.error.technical_detail).not.toContain('private-notes')
+    }
+    expect(provider).not.toHaveBeenCalled()
+    expect(await pathExists(path.join(root, 'runs', 'agents', executionId))).toBe(false)
+  })
+
+  it('keeps AI identity stable when explanation changes but the verified evidence reference does not', async () => {
+    const root = await projectWithCheckCard('agent-evidence-identity')
+    const response = (title: string, message: string, evidence: string) =>
+      JSON.stringify({
+        issues: [
+          {
+            category: 'foreshadowing',
+            severity: 'warning',
+            title,
+            message,
+            evidence,
+            evidence_refs: [{ document_id: 'foreshadow-permit', kind: 'body', quote: 'Day use only.' }],
+            related_ids: ['foreshadow-permit']
+          }
+        ]
+      })
+    const first = await executeAgentTask<PlanningIntegrityReviewResult>(
+      request(root),
+      dependencies(
+        vi.fn(async () => response('First wording', 'First explanation.', 'First display evidence.')),
+        ['agent-evidence-first']
+      )
+    )
+    const second = await executeAgentTask<PlanningIntegrityReviewResult>(
+      { ...request(root), language: 'en' },
+      dependencies(
+        vi.fn(async () =>
+          response('Rewritten title', 'Rewritten explanation.', 'Rewritten display evidence.')
+        ),
+        ['agent-evidence-second']
+      )
+    )
+
+    expect(first.status).toBe('completed')
+    expect(second.status).toBe('completed')
+    if (first.status !== 'completed' || second.status !== 'completed') return
+    expect(first.result.semantic_proposals[0]?.fingerprint).toBe(
+      second.result.semantic_proposals[0]?.fingerprint
+    )
+  })
+
+  it('contains an unverifiable evidence reference as one failed structured batch', async () => {
+    const root = await projectWithCheckCard('agent-invalid-evidence')
+    const provider = vi.fn(async () =>
+      JSON.stringify({
+        issues: [
+          {
+            category: 'foreshadowing',
+            severity: 'warning',
+            title: 'Unverified title evidence',
+            message: 'Do not trust display titles as evidence.',
+            evidence: 'Permit rule',
+            evidence_refs: [{ document_id: 'foreshadow-permit', kind: 'field', field_path: 'title' }],
+            related_ids: ['foreshadow-permit']
+          }
+        ]
+      })
+    )
+
+    const outcome = await executeAgentTask<PlanningIntegrityReviewResult>(
+      request(root),
+      dependencies(provider, ['agent-invalid-evidence-parent'])
+    )
+
+    expect(outcome.status).toBe('completed')
+    if (outcome.status !== 'completed') return
+    expect(outcome.result.semantic_proposals).toEqual([])
+    expect(outcome.result.batches).toEqual([
+      expect.objectContaining({
+        status: 'failed',
+        error: expect.objectContaining({ code: 'AGENT_SCHEMA_MISMATCH' })
+      })
+    ])
   })
 
   it('returns AGENT_AUDIT_WRITE_FAILED and performs zero provider calls when write-ahead flush fails', async () => {

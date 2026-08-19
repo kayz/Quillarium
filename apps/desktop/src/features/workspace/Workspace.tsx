@@ -27,12 +27,15 @@ import {
   buildOutlinePath,
   buildOutlineHierarchy,
   buildScenePath,
+  childWorkLevels,
   compareStoryEntries,
   filterDocs,
   findAncestor,
   firstSelectableForLevel,
   isWorkLevel,
   nextWorkLevel,
+  normalizeStoryStructure,
+  parentForNewLevel,
   outlineItemsForLevel
 } from '../../shared/outline.js'
 import { WorkspaceView } from './WorkspaceView.js'
@@ -152,6 +155,29 @@ export function Workspace({
       ) ?? null,
     [data, selectedTarget?.type, selectedTarget?.id]
   )
+  const storyStructure = normalizeStoryStructure(data?.project.story_structure)
+
+  useEffect(() => {
+    if (!data) return
+    const partHidden = !storyStructure.part_enabled && (workLevel === 'part' || workLevel === 'act')
+    const actHidden = !storyStructure.act_enabled && workLevel === 'act'
+    const sceneHidden = !storyStructure.scene_enabled && workLevel === 'ai'
+    if (!partHidden && !actHidden && !sceneHidden) return
+
+    const nextLevel: WorkLevel = sceneHidden || partHidden || actHidden ? 'chapter' : workLevel
+    const currentOutline =
+      data.docs.find((item) => item.data.type === 'outline' && item.data.id === selectedTarget?.id) ?? null
+    const next = firstSelectableForLevel(data.docs, nextLevel, currentOutline, storyStructure)
+    setWorkLevel(nextLevel)
+    setSelectedTarget(next ? { type: 'outline', id: next.data.id } : null)
+  }, [
+    data,
+    selectedTarget?.id,
+    storyStructure.act_enabled,
+    storyStructure.part_enabled,
+    storyStructure.scene_enabled,
+    workLevel
+  ])
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -162,7 +188,9 @@ export function Workspace({
       }
       if (event.key.toLowerCase() === 'g') {
         event.preventDefault()
-        if (workLevel === 'ai' && assembledPrompt.trim()) void generateFromPrompt(assembledPrompt)
+        if (storyStructure.scene_enabled && workLevel === 'ai' && assembledPrompt.trim()) {
+          void generateFromPrompt(assembledPrompt)
+        }
       }
       if (event.key.toLowerCase() === 'k') {
         event.preventDefault()
@@ -171,7 +199,14 @@ export function Workspace({
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [doc, selectedScene?.data.id, selectedOutline?.data.id, workLevel, assembledPrompt])
+  }, [
+    doc,
+    selectedScene?.data.id,
+    selectedOutline?.data.id,
+    workLevel,
+    assembledPrompt,
+    storyStructure.scene_enabled
+  ])
 
   useEffect(() => {
     async function openTarget() {
@@ -238,20 +273,19 @@ export function Workspace({
         ) ?? null)
       : null) ??
     proseChapter
-  const hierarchy = buildOutlineHierarchy(docs)
-  const childLevel = nextWorkLevel(workLevel)
+  const hierarchy = buildOutlineHierarchy(docs, storyStructure)
+  const childLevel = nextWorkLevel(workLevel, storyStructure)
+  const visibleChildLevels = childWorkLevels(workLevel, storyStructure)
   const visibleItems =
-    selectedOutline && workLevel === 'part'
-      ? (hierarchy.children.get(selectedOutline.data.id) ?? []).filter((item) =>
-          ['act', 'chapter'].includes(String(item.data.level))
+    selectedOutline && childLevel && childLevel !== 'ai'
+      ? (hierarchy.children.get(selectedOutline.data.id) ?? []).filter(
+          (item) =>
+            visibleChildLevels.includes(String(item.data.level) as WorkLevel) ||
+            (visibleChildLevels.includes('part') && item.data.level === 'arc')
         )
-      : selectedOutline && childLevel && childLevel !== 'ai'
-        ? (hierarchy.children.get(selectedOutline.data.id) ?? []).filter(
-            (item) => item.data.level === childLevel || (childLevel === 'part' && item.data.level === 'arc')
-          )
-        : (workLevel === 'overview' || workLevel === 'book') && !selectedOutline
-          ? outlineItemsForLevel(docs, workLevel, null, null)
-          : []
+      : (workLevel === 'overview' || workLevel === 'book') && !selectedOutline
+        ? outlineItemsForLevel(docs, workLevel, null, null, storyStructure)
+        : []
   const filteredItems = filterDocs(visibleItems, search)
   const finalizedScenes = docs.filter((item) => item.data.type === 'scene' && item.data.status === 'final')
 
@@ -420,7 +454,13 @@ export function Workspace({
     parentRunId?: string,
     promptSources?: PromptSourceSelection[]
   ) => {
-    if (!writingOutline || writingOutline.data.level !== 'chapter' || !prompt.trim()) return
+    if (
+      !storyStructure.scene_enabled ||
+      !writingOutline ||
+      writingOutline.data.level !== 'chapter' ||
+      !prompt.trim()
+    )
+      return
     await runWorkspaceAction(async () => {
       try {
         await bridge.generateOutlineCandidates(
@@ -474,9 +514,20 @@ export function Workspace({
   }
 
   const selectWorkLevel = (level: WorkLevel) => {
+    if (
+      (level === 'part' && !storyStructure.part_enabled) ||
+      (level === 'act' && !storyStructure.act_enabled) ||
+      (level === 'ai' && !storyStructure.scene_enabled)
+    )
+      return
     setWorkLevel(level)
     setLeftMode('write')
-    const next = firstSelectableForLevel(docs, level === 'ai' ? 'chapter' : level, selectedOutline)
+    const next = firstSelectableForLevel(
+      docs,
+      level === 'ai' ? 'chapter' : level,
+      selectedOutline,
+      storyStructure
+    )
     if (next) setSelectedTarget({ type: 'outline', id: next.data.id })
     else setSelectedTarget(null)
   }
@@ -515,6 +566,16 @@ export function Workspace({
       })()
       return
     }
+    if (!storyStructure.scene_enabled && (target.view === 'ai' || target.type === 'scene')) {
+      const selected = docs.find((item) => item.data.id === target.id)
+      const chapterId =
+        target.type === 'scene'
+          ? String(selected?.data.chapter_id ?? selected?.data.section ?? '')
+          : target.id
+      if (chapterId) setSelectedTarget({ type: 'outline', id: chapterId })
+      setWorkLevel('chapter')
+      return
+    }
     setSelectedTarget(target)
     if (target.view === 'ai' || target.type === 'scene') {
       setWorkLevel('ai')
@@ -528,11 +589,24 @@ export function Workspace({
   }
 
   const createOutlineAtLevel = async (level: WorkLevel, title: string, parent?: string | null) => {
-    if (level === 'ai' || !title.trim()) return
+    if (
+      level === 'ai' ||
+      !title.trim() ||
+      (level === 'part' && !storyStructure.part_enabled) ||
+      (level === 'act' && !storyStructure.act_enabled)
+    )
+      return
+    const requestedParent = parent
+      ? (docs.find((item) => item.data.type === 'outline' && item.data.id === parent) ?? null)
+      : selectedOutline
+    const effectiveParent =
+      level === 'overview' || level === 'book'
+        ? null
+        : parentForNewLevel(docs, level, requestedParent, storyStructure)
     const created = await createDoc('outline', {
       title: title.trim(),
       level,
-      parent: parent ?? null,
+      parent: effectiveParent,
       target_words: level === 'chapter' ? data.project.chapter_words : undefined,
       content: `## ${title.trim()}\n`
     })

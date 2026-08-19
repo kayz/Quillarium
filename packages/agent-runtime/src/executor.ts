@@ -21,6 +21,7 @@ import {
   type LoadedWritingPreset,
   type WritingPresetSnapshot
 } from '@quillarium/core'
+import { assertSensitiveSourcesSafe } from '@quillarium/core/sensitive-data'
 import { z } from 'zod'
 import { AgentArtifactStore, openAgentArtifactStore } from './artifacts.js'
 import {
@@ -32,6 +33,7 @@ import {
   type AgentRuntimeDependencies,
   type AgentRuntimeExecutionRequest,
   type AgentTaskHandler,
+  type PreparedAgentTask,
   type PreparedAgentModelCall
 } from './contracts.js'
 import {
@@ -46,10 +48,14 @@ import {
   createPlanningIntegrityReviewHandler,
   PLANNING_INTEGRITY_REVIEW_DEFINITION
 } from './tasks/planning-integrity-review.js'
+import {
+  createSettingCardDesignHandler,
+  SETTING_CARD_DESIGN_DEFINITION
+} from './tasks/setting-card-design.js'
 
 const runtimeRegistry = new AgentTaskRegistry(
-  [PLANNING_INTEGRITY_REVIEW_DEFINITION],
-  [createPlanningIntegrityReviewHandler()]
+  [PLANNING_INTEGRITY_REVIEW_DEFINITION, SETTING_CARD_DESIGN_DEFINITION],
+  [createPlanningIntegrityReviewHandler(), createSettingCardDesignHandler()]
 )
 
 const defaultDependencies: AgentRuntimeDependencies = {
@@ -93,6 +99,47 @@ export async function executeAgentTask<Result = unknown>(
     return failureOutcome(executionId, rawRequest.task_id, rawRequest.retry_of, error)
   }
 
+  let preparation: PreparedAgentTask
+  let configResolution: { config: AIConfig | null; warning?: string }
+  let writingPreset: WritingPresetSnapshot | null
+  const preparedMaterials = new Map<string, PreparedCallMaterial>()
+  try {
+    const retryOutput = parsedRequest.retry_of
+      ? await loadRetryOutput(rawRequest.projectRoot, parsedRequest.retry_of, parsedRequest.task_id)
+      : undefined
+    configResolution = await resolveCheckConfig(handler, dependencies)
+    writingPreset = configResolution.config
+      ? await resolveTaskWritingPreset(rawRequest.projectRoot, configResolution.config)
+      : null
+    const input = handler.inputSchema.parse(parsedRequest.input)
+    preparation = await handler.prepare(input, {
+      projectRoot: rawRequest.projectRoot,
+      request: parsedRequest,
+      executionId,
+      definition: handler.definition,
+      config: configResolution.config,
+      writingPreset,
+      retryOutput,
+      now
+    })
+    if (configResolution.warning) preparation.warnings.push(configResolution.warning)
+    if (configResolution.config && writingPreset) {
+      for (const call of preparation.modelCalls) {
+        preparedMaterials.set(
+          call.key,
+          await prepareCallMaterial(configResolution.config, writingPreset, call, now)
+        )
+      }
+    }
+  } catch (cause) {
+    const error = normalizeAgentRuntimeError(cause, {
+      taskId: parsedRequest.task_id,
+      executionId,
+      phase: 'preflight'
+    })
+    return failureOutcome(executionId, parsedRequest.task_id, parsedRequest.retry_of, error)
+  }
+
   let parentStore: AgentArtifactStore
   try {
     parentStore = await AgentArtifactStore.create({
@@ -127,26 +174,6 @@ export async function executeAgentTask<Result = unknown>(
   }
 
   try {
-    const retryOutput = parsedRequest.retry_of
-      ? await loadRetryOutput(rawRequest.projectRoot, parsedRequest.retry_of, parsedRequest.task_id)
-      : undefined
-    const configResolution = await resolveCheckConfig(handler, dependencies)
-    const writingPreset = configResolution.config
-      ? await resolveTaskWritingPreset(rawRequest.projectRoot, configResolution.config)
-      : null
-    const input = handler.inputSchema.parse(parsedRequest.input)
-    const preparation = await handler.prepare(input, {
-      projectRoot: rawRequest.projectRoot,
-      request: parsedRequest,
-      executionId,
-      definition: handler.definition,
-      config: configResolution.config,
-      writingPreset,
-      retryOutput,
-      now
-    })
-    if (configResolution.warning) preparation.warnings.push(configResolution.warning)
-
     const plan = {
       schema_version: 1,
       execution_id: executionId,
@@ -207,6 +234,7 @@ export async function executeAgentTask<Result = unknown>(
           request: parsedRequest,
           handler,
           call,
+          material: preparedMaterials.get(call.key)!,
           config: configResolution.config,
           writingPreset,
           validDocumentIds,
@@ -282,6 +310,7 @@ interface PreparedCallInput {
   request: AgentExecutionRequestV1
   handler: AgentTaskHandler
   call: PreparedAgentModelCall
+  material: PreparedCallMaterial
   config: AIConfig
   writingPreset: WritingPresetSnapshot
   validDocumentIds: ReadonlySet<string>
@@ -289,6 +318,49 @@ interface PreparedCallInput {
   onStreamEvent?: AgentRuntimeExecutionRequest['onStreamEvent']
   dependencies: AgentRuntimeDependencies
   now: () => Date
+}
+
+interface PreparedCallMaterial {
+  compiled: Awaited<ReturnType<typeof compileContextBlocks>>
+  envelope: ReturnType<typeof createAgentPromptEnvelope>
+}
+
+async function prepareCallMaterial(
+  config: AIConfig,
+  writingPreset: WritingPresetSnapshot,
+  call: PreparedAgentModelCall,
+  now: () => Date
+): Promise<PreparedCallMaterial> {
+  const options = compileOptions(config, writingPreset, call)
+  const compiled = await compileContextBlocks(call.target, call.candidates, options)
+  const envelope = createAgentPromptEnvelope({
+    systemMessage:
+      config.provider === 'openai'
+        ? call.systemMessage
+        : `${call.systemMessage}\n\n${structuredOutputContract(call)}`,
+    userInstructions: call.userInstructions,
+    contextMarkdown: compiled.markdown,
+    conversation: [],
+    currentInput: call.currentInput,
+    createdAt: now().toISOString()
+  })
+  assertSensitiveSourcesSafe([
+    { source: 'assistant-prompt', text: call.systemMessage },
+    ...call.userInstructions.map((text, index) => ({
+      source: `assistant-user-instruction:${index}`,
+      text
+    })),
+    ...compiled.blocks.map((block) => ({
+      source: `prompt-block:${block.id}`,
+      text: block.content
+    })),
+    { source: 'author-input', text: call.currentInput },
+    ...envelope.messages.map((message, index) => ({
+      source: `compiled-envelope:${index}:${message.role}`,
+      text: message.content
+    }))
+  ])
+  return { compiled, envelope }
 }
 
 async function executePreparedCall(
@@ -317,7 +389,7 @@ async function executePreparedCall(
     return failureOutcome(input.childExecutionId, input.request.task_id, undefined, error)
   }
 
-  let phase: 'audit' | 'context' | 'provider' | 'response' | 'repair' = 'audit'
+  let phase: 'audit' | 'provider' | 'response' | 'repair' = 'audit'
   try {
     const requestRef = await store.writeJson('request.json', {
       schema_version: 1,
@@ -337,20 +409,7 @@ async function executePreparedCall(
       }
     )
 
-    phase = 'context'
-    const options = compileOptions(input.config, input.writingPreset, input.call)
-    const compiled = await compileContextBlocks(input.call.target, input.call.candidates, options)
-    const envelope = createAgentPromptEnvelope({
-      systemMessage:
-        input.config.provider === 'openai'
-          ? input.call.systemMessage
-          : `${input.call.systemMessage}\n\n${structuredOutputContract(input.call)}`,
-      userInstructions: input.call.userInstructions,
-      contextMarkdown: compiled.markdown,
-      conversation: [],
-      currentInput: input.call.currentInput,
-      createdAt: input.now().toISOString()
-    })
+    const { compiled, envelope } = input.material
     const responseFormat = structuredResponseFormat(input.config, input.call)
     const plan = {
       schema_version: 1,
@@ -478,6 +537,12 @@ async function executePreparedCall(
         recorded_at: input.now().toISOString()
       })
       const repairEnvelope = createRepairEnvelope(envelope.messages, raw, parsed.error, input.call, input.now)
+      assertSensitiveSourcesSafe(
+        repairEnvelope.messages.map((message, index) => ({
+          source: `repair-envelope:${index}:${message.role}`,
+          text: message.content
+        }))
+      )
       const repairEnvelopeRef = await store.writeJson('prompt-envelope-repair.json', repairEnvelope)
       await store.appendEvent(
         'request.prepared',
@@ -554,7 +619,8 @@ async function executePreparedCall(
     const decoded = await input.handler.decode(value, {
       request: input.request,
       call: input.call,
-      validDocumentIds: input.validDocumentIds
+      validDocumentIds: input.validDocumentIds,
+      promptBlocks: compiled.blocks
     })
     phase = 'audit'
     const outputRef = await store.writeJson('output.json', decoded)
@@ -580,23 +646,12 @@ async function executePreparedCall(
             },
             errorMessage(cause)
           )
-        : phase === 'context'
-          ? createAgentRuntimeError(
-              'AGENT_CONTEXT_LIMIT_EXCEEDED',
-              {
-                taskId: input.request.task_id,
-                executionId: input.childExecutionId,
-                failedChildExecutionId: input.childExecutionId,
-                phase: 'context'
-              },
-              errorMessage(cause)
-            )
-          : normalizeAgentRuntimeError(cause, {
-              taskId: input.request.task_id,
-              executionId: input.childExecutionId,
-              failedChildExecutionId: input.childExecutionId,
-              phase
-            })
+        : normalizeAgentRuntimeError(cause, {
+            taskId: input.request.task_id,
+            executionId: input.childExecutionId,
+            failedChildExecutionId: input.childExecutionId,
+            phase
+          })
     await persistExecutionFailure(store, error, cause, input.now)
     return failureOutcome(input.childExecutionId, input.request.task_id, undefined, error, store)
   }

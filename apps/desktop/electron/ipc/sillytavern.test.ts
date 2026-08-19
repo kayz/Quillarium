@@ -1,4 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createHash } from 'node:crypto'
+import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises'
+import os from 'node:os'
+import path from 'node:path'
+import {
+  createWorldEntry,
+  ensureWorkspaceAt,
+  loadWorkspace,
+  objectToYaml,
+  pathExists,
+  writeBinary,
+  writeText
+} from '@quillarium/core'
 import type {
   CharacterCardImportResult,
   CharacterCardWriteResult,
@@ -13,6 +26,7 @@ vi.mock('electron', () => ({
 import {
   exportSillyTavernCard,
   exportSillyTavernLorebook,
+  importBookProjectFromCard,
   importSillyTavernCard,
   type CharacterCardImporter,
   type CharacterCardWriter,
@@ -21,6 +35,7 @@ import {
 } from './sillytavern.js'
 
 const fetchMock = vi.fn()
+const temporaryRoots: string[] = []
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -30,6 +45,7 @@ beforeEach(() => {
 afterEach(() => {
   expect(fetchMock).not.toHaveBeenCalled()
   vi.unstubAllGlobals()
+  return Promise.all(temporaryRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })))
 })
 
 describe('desktop SillyTavern IPC helpers', () => {
@@ -115,5 +131,61 @@ describe('desktop SillyTavern IPC helpers', () => {
 
     expect(writer).toHaveBeenCalledWith('C:\\novel')
     expect(result).toBe(written)
+  })
+
+  it('removes the transaction-owned final directory and leaves the manifest unchanged if registration fails', async () => {
+    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), 'quillarium-book-project-rollback-'))
+    temporaryRoots.push(workspaceRoot)
+    const workspace = await ensureWorkspaceAt(workspaceRoot)
+    const manifestBefore = await readFile(workspace.manifest_path, 'utf8')
+    const sourceBytes = Buffer.from('synthetic archived card')
+    const sourceSha256 = createHash('sha256').update(sourceBytes).digest('hex')
+
+    await expect(
+      importBookProjectFromCard(workspaceRoot, 'synthetic.card.json', 'Imported Novel', {
+        inspect: async () => ({
+          format: 'v3',
+          sourcePath: 'synthetic.card.json',
+          name: 'Card title',
+          description: 'Synopsis',
+          hasPngCover: false,
+          worldBookEntryCount: 1
+        }),
+        importCard: async (root, _source, options) => {
+          await createWorldEntry(
+            root,
+            'Imported setting',
+            { id: 'world-imported', status: 'candidate', entry_status: 'candidate', enabled: false },
+            'Review me.'
+          )
+          const archivePath = path.join(root, 'imports', 'archive', 'synthetic.json')
+          await writeBinary(archivePath, sourceBytes)
+          expect(options.title).toBe('Imported Novel')
+          return {
+            format: 'v3',
+            projectRoot: root,
+            archivePath,
+            sourceSha256,
+            candidateDocumentIds: ['world-imported']
+          }
+        },
+        registerProject: async (root, ref) => {
+          const current = await loadWorkspace(root)
+          await writeText(
+            current.manifest_path,
+            `${objectToYaml({
+              ...current.manifest,
+              projects: [...current.manifest.projects, ref]
+            } as unknown as Record<string, unknown>)}\n`
+          )
+          throw new Error('INJECTED_MANIFEST_REGISTRATION_FAILURE')
+        }
+      })
+    ).rejects.toThrow('INJECTED_MANIFEST_REGISTRATION_FAILURE')
+
+    expect(await readFile(workspace.manifest_path, 'utf8')).toBe(manifestBefore)
+    expect((await loadWorkspace(workspaceRoot)).manifest.projects).toEqual([])
+    expect(await pathExists(path.join(workspaceRoot, 'projects', 'imported-novel'))).toBe(false)
+    expect(await readdir(path.join(workspaceRoot, 'projects'))).toEqual([])
   })
 })

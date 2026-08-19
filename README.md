@@ -14,7 +14,7 @@ Quillarium is the sole product runtime. Obsidian is its durable manual-editing s
 workspace may register multiple projects and shared guidance, while each project directory is both
 an independent Obsidian vault and a Quillarium project root.
 
-This document describes the `0.2.2` code line as of 2026-08-18. “Works now” means the
+This document describes the `0.3.0` code line as of 2026-08-19. “Works now” means the
 behavior is present in the repository and covered by local tests. Strongly typed lifecycle events
 remain in the [roadmap](ROADMAP.md); atomic continuity apply is implemented as a reviewed,
 recoverable operation.
@@ -63,9 +63,37 @@ recoverable operation.
 - A seven-level workflow: overview and book outline at the top, then volume, part, optional act,
   chapter, and scene. Scenes generate plain-text candidates; accepted scenes append to chapter prose.
   Chapter prose progresses from draft to final to immutable published state.
+- Project settings can hide part, act, or scene levels without deleting their Markdown. Chapters are
+  presented under the nearest enabled parent, disabled files remain available through an inspector,
+  and disabling scenes also removes the scene-bound AI writing entry. Older projects default to all
+  levels enabled in memory and are not rewritten merely by opening them.
+- World entries, characters, locations, character relationships, and factions can carry one primary
+  project-local image. Originals and PNG thumbnails live under `assets/settings/`; cards and graphs
+  prefer the thumbnail while Markdown stores only validated relative paths, dimensions, hash, focus,
+  alt text, and a small color palette.
+- World entries, characters, locations, and character relationships can be rendered as self-contained
+  sandboxed HTML setting cards. Built-in and saved workspace styles render immediately without a model
+  call; choosing Random style invokes the bounded `setting-card-design` Agent with text plus image
+  dimensions/aspect/palette/alt text—never pixels or local paths. Each Roll receives a different
+  code-owned composition and visual-axis brief; Rolls remain navigable candidates, and an approved
+  candidate can be named and saved into the same style selector for reuse across novels. HTML export
+  opens the native Save As dialog and writes only the author-selected destination.
+  Core attributes receive structured treatment, layouts may safely feature one named core field, and
+  common Markdown in longer biographies renders as headings, tables, lists, quotations, emphasis, and
+  paragraphs.
+- Factions are first-class organization cards with separate faction-relationship and character-
+  membership documents. All links use stable IDs and optional start-inclusive/end-exclusive timeline
+  bounds. Faction emblems appear beside people in the time-filtered character graph; a deterministic
+  circle-and-initials mark is used when no emblem exists, and multiple active memberships remain visible.
 - A searchable, keyboard-accessible, virtualized planning-card selector stores stable IDs across
   relations and time-aware foreshadowing controls. Planning AI conversations retain multiple
-  independently editable proposals and keep an existing source card anchored first through restore.
+  independently editable proposals in a bounded visible grid and keep an existing source card anchored
+  first through restore. Explicit bulk confirmation and dependency-aware atomic apply resolve
+  session-local proposal references to the created cards' stable project IDs without silent writes.
+- Reference creation is a deterministic, rollback-safe UTF-8 Markdown/text upload with no AI call and
+  no retained external absolute path. A selected saved reference can later start an explicit multi-card
+  AI discussion as a hash-checked read-only source; derived cards automatically retain its stable ID in
+  `source_refs`, while the reference itself is never edited by that session.
 - A dedicated issue workspace supports batch ignore/resolve/reopen. Stable suppression fingerprints
   prevent ignored findings from recurring without incorrectly suppressing later resolved occurrences.
 - A book-generation header, exact PromptEnvelope/provider-request snapshots, and a read-only
@@ -73,6 +101,12 @@ recoverable operation.
 - Independent public CCv3 interchange can create a new empty-story project from a JSON/PNG character
   card and export selected novel settings into one cover-backed CCv3 PNG. It never transfers prose,
   story plans, prompts, presets, API configuration, credentials, or runtime state.
+- The 0.2.3 reliability boundary makes CCv3 book import transactional, upgrades issue suppression to
+  evidence-anchored V2 identities, binds assistant prompts atomically, rebuilds the reference index
+  on demand, resolves rehearsal state at an explicit story-time point, and blocks sensitive prompt
+  content before a new Run or provider request is created.
+- The 0.3.0 setting-card boundary adds project-local imagery, a text-only HTML design Agent,
+  workspace-level reusable card styles, reversible story-tree visibility, and typed faction networks.
 
 AI is optional for project management, import, context assembly, deterministic checks, and export.
 Generation and `check --semantic` require an OpenAI-compatible endpoint or configured provider.
@@ -260,6 +294,12 @@ CLI/vault MVP. It is retained for provenance and is not a current usage guide.
   Neither flow is live synchronization or a compatibility roadmap commitment.
 - The PNG reader extracts `ccv3` or `chara` text metadata; it is not a general PNG asset or CRC
   validation library.
+- Issue V1 ledgers, old issue cards, assistant sessions, Runs, PromptEnvelopes, and CCv3 adapter data
+  remain read-compatible and are not rewritten merely by opening them. A V1 suppression entry is
+  upgraded only after an author issue-state action; an unresolved assistant-prompt binding requires
+  an explicit snapshot recovery or rebind.
+- The reference index is derived cache data. Project loading and ordinary saves do not wait for it;
+  reference views validate a current document-set hash and rebuild it atomically when needed.
 
 ## License
 

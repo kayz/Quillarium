@@ -2,6 +2,9 @@ export type DocType =
   | 'canon'
   | 'character'
   | 'character_relation'
+  | 'faction'
+  | 'faction_relation'
+  | 'faction_membership'
   | 'timeline_node'
   | 'timeline_event'
   | 'location'
@@ -68,10 +71,32 @@ export interface CardRelation {
   note: string
 }
 
+export interface SettingImageAssetV1 {
+  schema_version: 1
+  original_path: string
+  thumbnail_path: string
+  mime_type: 'image/png' | 'image/jpeg' | 'image/webp'
+  sha256: string
+  width: number
+  height: number
+  /** Small code-owned palette summary used by text-only layout Agents. */
+  palette: string[]
+  focus_x: number
+  focus_y: number
+  alt_text: string
+}
+
 export interface PlanningCardDoc extends BaseDoc {
   enabled: boolean
   source_refs: string[]
   relations: CardRelation[]
+  image?: SettingImageAssetV1 | null
+}
+
+export interface StoryStructureConfigV1 {
+  part_enabled: boolean
+  act_enabled: boolean
+  scene_enabled: boolean
 }
 
 export interface ProjectConfig {
@@ -87,6 +112,7 @@ export interface ProjectConfig {
   current_timeline_node: string | null
   writing_preset: string | null
   default_theme: 'paper' | 'ink' | 'mist' | 'bamboo'
+  story_structure: StoryStructureConfigV1
   cover: {
     original_path: string
     thumbnail_path: string
@@ -408,6 +434,43 @@ export interface CharacterRelationDoc extends PlanningCardDoc {
   visibility: 'public' | 'private' | 'secret'
 }
 
+export interface FactionDoc extends PlanningCardDoc {
+  type: 'faction'
+  aliases: string[]
+  faction_kind: 'organization' | 'government' | 'guild' | 'religion' | 'military' | 'family' | 'other'
+  summary: string
+  motto: string
+  goals: string[]
+  methods: string[]
+  headquarters: string | null
+  founded_at: string | null
+  dissolved_at: string | null
+  visibility: 'public' | 'private' | 'secret'
+}
+
+export interface FactionRelationDoc extends PlanningCardDoc {
+  type: 'faction_relation'
+  from_faction: string
+  to_faction: string
+  relation_type: string
+  direction: 'directed' | 'mutual'
+  starts_at: string | null
+  ends_at: string | null
+  visibility: 'public' | 'private' | 'secret'
+}
+
+export interface FactionMembershipDoc extends PlanningCardDoc {
+  type: 'faction_membership'
+  faction_id: string
+  character_id: string
+  role: string
+  rank: string
+  primary: boolean
+  starts_at: string | null
+  ends_at: string | null
+  visibility: 'public' | 'private' | 'secret'
+}
+
 export interface ForeshadowingTriggerCondition {
   kind: 'timeline_reached' | 'outline_reached' | 'keyword' | 'card_enabled'
   target_id: string
@@ -485,7 +548,26 @@ export interface IssueDoc extends PlanningCardDoc {
   rule_id: string
   evidence: string
   check_fingerprint: string
+  issue_identity_v2?: IssueIdentityV2
+  legacy_check_fingerprints?: string[]
   checked_at: string
+}
+
+export interface IssueEvidenceAnchorV2 {
+  document_id: string
+  kind: 'field' | 'body'
+  field_path?: string
+  start?: number
+  end?: number
+  evidence_sha256: string
+}
+
+export interface IssueIdentityV2 {
+  schema_version: 2
+  checker: string
+  issue_code: string
+  target_ids: string[]
+  evidence_anchors: IssueEvidenceAnchorV2[]
 }
 
 export interface StrategyDoc extends PlanningCardDoc {

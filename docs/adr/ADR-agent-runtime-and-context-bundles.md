@@ -39,6 +39,14 @@ The first creator-assistant tasks are `organize-setting`, `character-rehearsal`,
 scene-generation, continuity-check, and finalization-review flows so those flows can adopt the same
 execution snapshot progressively without changing their existing screens.
 
+`setting-card-design` is a separate product task rather than a creator role. It reads one selected
+setting card and may produce one candidate HTML/CSS template. Its compiler removes image paths,
+hashes, and pixels, exposing only dimensions, aspect, palette, and alt text. Saving a sanitized
+candidate as a versioned workspace style or exporting it is a later explicit author action. Built-in
+and saved styles are deterministic local render paths; the Agent is entered only through Random style.
+Each successful Roll remains a separate UI candidate, and template safety participates in structured
+output validation so the runtime can perform its one bounded repair.
+
 ### Persistent objects and paths
 
 All new objects are versioned pure data. Stable document references use `document_type` and
@@ -88,6 +96,7 @@ accepted prose / confirmed hard Canon
 | Setting organizer   | exploration and planning-card proposals | write a planning card before author approval; write Canon             |
 | Character rehearsal | exploration and prose candidates        | change character state, relationship phases, Canon, or accepted prose |
 | Continuity reviewer | exploration and issue proposals         | rewrite the checked chapter/scene or apply continuity changes         |
+| Setting-card design | candidate sanitized HTML/CSS template   | see image pixels/paths; write the source card; save its own style     |
 | Scene generation    | candidate prose                         | accept, finalize, or publish prose                                    |
 | Finalization review | typed finalization proposals            | confirm or apply its own impacts                                      |
 
@@ -138,6 +147,18 @@ Projects without ContextBundles or creator roles retain their previous behavior.
 remain application-owned and are copied into the project only on first use. Existing Run readers
 remain compatible; no load operation silently migrates or rewrites an old Run.
 
+Assistant-prompt version creation and creator-role binding are one expected-hash transaction. The
+retention rule keeps five newest unpinned ordinary versions per assistant and keeps every role-bound
+older version as a pinned item outside that quota. A dangling binding is an explicit recoverable
+configuration issue: other assistants still initialize, but that role cannot start a session until
+the author selects an existing version or one exact historical session snapshot. Initialization does
+not silently choose or restore a prompt.
+
+New Agent work also applies the shared sensitive-data boundary twice: before writing a Run or
+PromptEnvelope and immediately before provider I/O. A credential, endpoint, or machine-local path in
+an actual model-visible source fails closed with a source-scoped `SENSITIVE_PROMPT_CONTENT` error.
+Existing Run files remain unchanged and are sanitized only when viewed or copied.
+
 ## Consequences
 
 - The user can answer, before execution, what the assistant knows, why a source was selected, what
@@ -156,7 +177,7 @@ remain compatible; no load operation silently migrates or rewrites an old Run.
 - cross-project live ContextBundles;
 - domain recipes that compose approved operations; and
 - any plugin, arbitrary script, generic trigger, MCP marketplace, mobile bridge, or generated HTML
-  workbench.
+  application workbench outside the sandboxed setting-card renderer.
 
 ## Rejected
 

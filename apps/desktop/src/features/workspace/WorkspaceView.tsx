@@ -41,8 +41,9 @@ import { CardOriginDialog } from '../import/CardOriginDialog.js'
 import { AIImportDialog } from '../import/AIImportDialog.js'
 import { TagIndexDrawer } from '../metadata/TagIndexDrawer.js'
 import { clampPaneSize, SplitHandle } from '../layout/SplitHandle.js'
-import { outlineLevelLabel } from '../../shared/outline.js'
+import { normalizeStoryStructure, outlineLevelLabel } from '../../shared/outline.js'
 import { ToastNotice } from '../feedback/ToastNotice.js'
+import { formatDesktopError } from '../../shared/errors.js'
 import { CreatorAssistantWorkspace } from '../assistants/CreatorAssistantWorkspace.js'
 import {
   PlanningCheckPanel,
@@ -168,6 +169,7 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
   const [writingSidebarWidth, setWritingSidebarWidth] = useState(380)
   const [assistantRoleHint, setAssistantRoleHint] = useState<string | undefined>()
   const [assistantInitialMessage, setAssistantInitialMessage] = useState<string | undefined>()
+  const [referenceUploadError, setReferenceUploadError] = useState('')
   const { root, theme, density, language, aiStatus, onTheme, onDensity, onLanguage, onAIStatus, onBack } = app
   const {
     data,
@@ -260,6 +262,28 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
     }
     setPlanningDialog({ module, documentId: card.data.id })
   }
+  const uploadReferences = async () => {
+    setReferenceUploadError('')
+    try {
+      const result = await bridge.uploadReferenceDocuments(root)
+      const latest = result.items.at(-1)
+      if (!latest) return
+      await load()
+      setDoc({ ...latest.document, path: latest.path })
+      setSelectedTarget({
+        type: String(latest.document.data.type),
+        id: String(latest.document.data.id)
+      })
+      setRightOpen(true)
+      setDirty(false)
+    } catch (cause) {
+      setReferenceUploadError(formatDesktopError(cause, language))
+    }
+  }
+  const extractCardsFromReference = (card: DocEntry) => {
+    setPlanningDialog({ module: 'reference-extraction', documentId: card.data.id })
+  }
+  const storyStructure = normalizeStoryStructure(data.project.story_structure)
 
   return (
     <div
@@ -308,6 +332,7 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
           setWorkspaceMode(mode)
           if (mode === 'writing') setActiveModule('write')
         }}
+        onProjectChanged={load}
       />
       {workspaceMode === 'writing' ? (
         <>
@@ -319,6 +344,7 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
               </div>
               <StructureTree
                 docs={docs}
+                storyStructure={storyStructure}
                 selectedTarget={selectedTarget}
                 onSelect={selectWritingTarget}
                 onReorder={reorderStory}
@@ -382,7 +408,7 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
                     onContinuityApplied={load}
                     language={language}
                   />
-                ) : workLevel === 'ai' ? (
+                ) : workLevel === 'ai' && storyStructure.scene_enabled ? (
                   <AIWritingWorkspace
                     root={root}
                     docs={docs}
@@ -422,7 +448,8 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
                 ) : (
                   <WritingWorkspace
                     docs={docs}
-                    level={workLevel}
+                    level={workLevel === 'ai' ? 'chapter' : workLevel}
+                    storyStructure={storyStructure}
                     viewMode={viewMode}
                     search={search}
                     selectedOutline={writingOutline}
@@ -473,9 +500,12 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
                   runs={data.runs}
                   onCreate={createDoc}
                   onAIPlanningCreate={(module) => setPlanningDialog({ module })}
+                  onUploadReferences={uploadReferences}
+                  onAIExtractReference={extractCardsFromReference}
                   selectedTarget={selectedTarget}
                   onSelect={setSelectedTarget}
                   onOpenCard={(card) => {
+                    if (card.data.type === 'reference') return
                     const origin = card.data.quillarium_origin
                     if (!origin || typeof origin !== 'object') {
                       void bridge
@@ -561,6 +591,8 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
           }}
           onAIPlanningCreate={(module) => setPlanningDialog({ module })}
           onAIEditCard={(card) => void openPlanningCardEditor(card, volumeSection)}
+          onUploadReferences={uploadReferences}
+          onAIExtractReference={extractCardsFromReference}
           onPlanningCheck={runProjectPlanningCheck}
           onDelete={deleteSelectedDoc}
           onOpenExternal={async () => {
@@ -637,6 +669,8 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
           }}
           onAIPlanningCreate={(module) => setPlanningDialog({ module })}
           onAIEditCard={(card) => void openPlanningCardEditor(card, outlineSection)}
+          onUploadReferences={uploadReferences}
+          onAIExtractReference={extractCardsFromReference}
           onPlanningCheck={runProjectPlanningCheck}
           onDelete={deleteSelectedDoc}
           onOpenExternal={async () => {
@@ -764,12 +798,15 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
           onInspect={inspectPlanningCheck}
         />
       )}
-      {(actionError || gitMessage) && (
+      {(referenceUploadError || actionError || gitMessage) && (
         <ToastNotice
-          message={actionError || gitMessage}
-          kind={actionError ? 'error' : 'status'}
+          message={referenceUploadError || actionError || gitMessage}
+          kind={referenceUploadError || actionError ? 'error' : 'status'}
           language={language}
-          onDismiss={clearNotice}
+          onDismiss={() => {
+            setReferenceUploadError('')
+            clearNotice()
+          }}
         />
       )}
     </div>
@@ -788,6 +825,10 @@ function outlineSectionForDocument(doc: DocEntry): OutlineHomeSection | null {
     canon: 'canon',
     world_entry: 'world',
     character: 'characters',
+    character_relation: 'characters',
+    faction: 'factions',
+    faction_relation: 'factions',
+    faction_membership: 'factions',
     timeline_node: 'timeline',
     timeline_event: 'timeline',
     location: 'locations',

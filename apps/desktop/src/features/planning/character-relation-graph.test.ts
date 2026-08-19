@@ -8,7 +8,11 @@ import {
   nextGraphPaneSize,
   resolveEgoCharacterId
 } from './character-relation-graph.js'
-import { characterRelationSnapshot, compareTimelineEntries } from './PlanningViews.js'
+import {
+  activeFactionMembershipsAtNode,
+  characterRelationSnapshot,
+  compareTimelineEntries
+} from './PlanningViews.js'
 
 function doc(type: string, id: string, title: string, data: Record<string, unknown> = {}): DocEntry {
   return {
@@ -90,7 +94,7 @@ function winterCourt() {
 
 describe('character relation ego graph', () => {
   it('keeps two hops around the ego and drops layer-2 cross links', () => {
-    const { items, nodes, wang, yu, zhu, shi, cao, wife, ally, l1l1, l1l2, l1l2b, l2l2 } = winterCourt()
+    const { items, nodes, wang, wife, ally, l1l1, l1l2, l1l2b, l2l2 } = winterCourt()
     const snapshot = characterRelationSnapshot(items, nodes, 'time-2')
     const graph = buildCharacterRelationEgoGraph({
       snapshot,
@@ -252,6 +256,49 @@ describe('character relation ego graph', () => {
     expect(resolveEgoCharacterId(selected, null, snapshot, items)).toBe('yu')
     expect(resolveEgoCharacterId(null, wang.data.id, snapshot, items)).toBe('wang')
     expect(resolveEgoCharacterId(null, 'missing', snapshot, items)).toBe('cao')
+  })
+})
+
+describe('faction badges at a relationship-graph time point', () => {
+  it('uses start-inclusive and end-exclusive membership intervals and keeps untimed memberships visible', () => {
+    const t1 = doc('timeline_node', 't1', '一月', { year: 1450, month: 1 })
+    const t2 = doc('timeline_node', 't2', '二月', { year: 1450, month: 2 })
+    const factionA = doc('faction', 'fa', '海灯会')
+    const factionB = doc('faction', 'fb', '北港议会')
+    const active = doc('faction_membership', 'm-active', '阶段所属', {
+      faction_id: 'fa',
+      character_id: 'char',
+      starts_at: 't1',
+      ends_at: 't2',
+      primary: true
+    })
+    const future = doc('faction_membership', 'm-future', '未来所属', {
+      faction_id: 'fb',
+      character_id: 'char',
+      starts_at: 't2',
+      ends_at: null
+    })
+    const untimed = doc('faction_membership', 'm-untimed', '待确认所属', {
+      faction_id: 'fb',
+      character_id: 'char',
+      starts_at: null,
+      ends_at: null
+    })
+    const docs = [t1, t2, factionA, factionB, active, future, untimed]
+
+    expect(
+      activeFactionMembershipsAtNode(docs, [t1, t2], 't1')
+        .get('char')
+        ?.map((item) => [item.membership.data.id, item.untimed])
+    ).toEqual([
+      ['m-active', false],
+      ['m-untimed', true]
+    ])
+    expect(
+      activeFactionMembershipsAtNode(docs, [t1, t2], 't2')
+        .get('char')
+        ?.map((item) => item.membership.data.id)
+    ).toEqual(['m-future', 'm-untimed'])
   })
 })
 

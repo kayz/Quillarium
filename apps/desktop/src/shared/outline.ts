@@ -1,4 +1,5 @@
 import type { DocEntry, LanguageName, TargetSelection, WorkLevel } from '../app/types.js'
+import type { StoryStructureConfigV1 } from '@quillarium/core'
 import { t } from '../app/i18n.js'
 
 export function levelTasks(level: string): {
@@ -119,17 +120,61 @@ export function relatedDocs(docs: DocEntry[], ids: unknown): DocEntry[] {
 export interface OutlineHierarchy {
   outlines: DocEntry[]
   children: Map<string | null, DocEntry[]>
+  disabledOutlines: DocEntry[]
 }
 
-export function buildOutlineHierarchy(docs: DocEntry[]): OutlineHierarchy {
-  const outlines = docs.filter((item) => item.data.type === 'outline').sort(compareStoryEntries)
+export const DEFAULT_STORY_STRUCTURE: StoryStructureConfigV1 = {
+  part_enabled: true,
+  act_enabled: true,
+  scene_enabled: true
+}
+
+export function normalizeStoryStructure(
+  value: Partial<StoryStructureConfigV1> | null | undefined
+): StoryStructureConfigV1 {
+  const partEnabled = value?.part_enabled ?? true
+  return {
+    part_enabled: partEnabled,
+    act_enabled: partEnabled && (value?.act_enabled ?? true),
+    scene_enabled: value?.scene_enabled ?? true
+  }
+}
+
+export function buildOutlineHierarchy(
+  docs: DocEntry[],
+  structureInput: Partial<StoryStructureConfigV1> = DEFAULT_STORY_STRUCTURE
+): OutlineHierarchy {
+  const structure = normalizeStoryStructure(structureInput)
+  const allOutlines = docs.filter((item) => item.data.type === 'outline').sort(compareStoryEntries)
+  const disabledOutlines = allOutlines.filter((outline) => outlineLevelDisabled(outline, structure))
+  const outlines = allOutlines.filter((outline) => !outlineLevelDisabled(outline, structure))
+  const byId = new Map(allOutlines.map((outline) => [outline.data.id, outline] as const))
   const children = new Map<string | null, DocEntry[]>()
   for (const outline of outlines) {
     const explicitParent = (outline.data.parent as string | null | undefined) ?? null
-    const parent = explicitParent ?? inferLegacyOutlineParent(outlines, outline)
+    let parent = explicitParent ?? inferLegacyOutlineParent(allOutlines, outline)
+    const seen = new Set<string>()
+    while (parent && !seen.has(parent)) {
+      seen.add(parent)
+      const candidate = byId.get(parent)
+      if (!candidate || !outlineLevelDisabled(candidate, structure)) break
+      parent =
+        ((candidate.data.parent as string | null | undefined) ??
+          inferLegacyOutlineParent(allOutlines, candidate)) ||
+        null
+    }
     children.set(parent, [...(children.get(parent) ?? []), outline])
   }
-  return { outlines, children }
+  return { outlines, children, disabledOutlines }
+}
+
+function outlineLevelDisabled(outline: DocEntry, structure: StoryStructureConfigV1): boolean {
+  const level = String(outline.data.level)
+  return level === 'part' || level === 'arc'
+    ? !structure.part_enabled
+    : level === 'act'
+      ? !structure.act_enabled
+      : false
 }
 
 function inferLegacyOutlineParent(outlines: DocEntry[], outline: DocEntry): string | null {
@@ -152,9 +197,13 @@ export function outlineItemsForLevel(
   docs: DocEntry[],
   level: WorkLevel,
   selectedOutline: DocEntry | null,
-  selectedTarget: TargetSelection | null
+  selectedTarget: TargetSelection | null,
+  structureInput: Partial<StoryStructureConfigV1> = DEFAULT_STORY_STRUCTURE
 ): DocEntry[] {
-  const outlines = docs.filter((item) => item.data.type === 'outline').sort(compareStoryEntries)
+  const structure = normalizeStoryStructure(structureInput)
+  if ((level === 'part' && !structure.part_enabled) || (level === 'act' && !structure.act_enabled)) return []
+  const hierarchy = buildOutlineHierarchy(docs, structure)
+  const outlines = hierarchy.outlines
   if (level === 'ai') {
     const chapter =
       selectedTarget?.type === 'outline'
@@ -170,13 +219,15 @@ export function outlineItemsForLevel(
       ? outlines.find((item) => item.data.id === selectedTarget.id)
       : selectedOutline
   if (level === 'chapter' && selected) {
-    const directParent = ['act', 'part', 'arc'].includes(String(selected.data.level))
-      ? selected
-      : (findAncestor(outlines, selected, 'act') ?? findAncestor(outlines, selected, 'part'))
-    if (directParent) {
-      return outlines.filter(
-        (item) => item.data.level === 'chapter' && item.data.parent === directParent.data.id
-      )
+    const allowedParents = new Set(parentLevelsForWorkLevel('chapter', structure))
+    const selectedLevel = selected.data.level === 'arc' ? 'part' : String(selected.data.level)
+    const effectiveParentId = allowedParents.has(selectedLevel as WorkLevel)
+      ? selected.data.id
+      : [...hierarchy.children.entries()].find(([, children]) =>
+          children.some((child) => child.data.id === selected.data.id)
+        )?.[0]
+    if (effectiveParentId) {
+      return (hierarchy.children.get(effectiveParentId) ?? []).filter((item) => item.data.level === 'chapter')
     }
   }
   const parentLevel = previousWorkLevel(level)
@@ -195,15 +246,17 @@ export function outlineItemsForLevel(
 export function firstSelectableForLevel(
   docs: DocEntry[],
   level: WorkLevel,
-  current: DocEntry | null
+  current: DocEntry | null,
+  structureInput: Partial<StoryStructureConfigV1> = DEFAULT_STORY_STRUCTURE
 ): DocEntry | null {
   const items = outlineItemsForLevel(
     docs,
     level,
     current,
-    current ? { type: 'outline', id: current.data.id } : null
+    current ? { type: 'outline', id: current.data.id } : null,
+    structureInput
   )
-  const hierarchy = buildOutlineHierarchy(docs)
+  const hierarchy = buildOutlineHierarchy(docs, structureInput)
   return (
     items.find((item) => (hierarchy.children.get(item.data.id) ?? []).length > 0) ??
     items[0] ??
@@ -252,12 +305,16 @@ export function isWorkLevel(value: string): value is WorkLevel {
   )
 }
 
-export function nextWorkLevel(level: WorkLevel): WorkLevel | null {
+export function nextWorkLevel(
+  level: WorkLevel,
+  structureInput: Partial<StoryStructureConfigV1> = DEFAULT_STORY_STRUCTURE
+): WorkLevel | null {
+  const structure = normalizeStoryStructure(structureInput)
   if (level === 'book') return 'volume'
-  if (level === 'volume') return 'part'
-  if (level === 'part') return 'act'
+  if (level === 'volume') return structure.part_enabled ? 'part' : 'chapter'
+  if (level === 'part') return structure.act_enabled ? 'act' : 'chapter'
   if (level === 'act') return 'chapter'
-  if (level === 'chapter') return 'ai'
+  if (level === 'chapter') return structure.scene_enabled ? 'ai' : null
   return null
 }
 
@@ -273,34 +330,60 @@ export function previousWorkLevel(level: WorkLevel): WorkLevel | null {
 export function parentForNewLevel(
   docs: DocEntry[],
   level: WorkLevel,
-  selected: DocEntry | null
+  selected: DocEntry | null,
+  structureInput: Partial<StoryStructureConfigV1> = DEFAULT_STORY_STRUCTURE
 ): string | null {
+  const structure = normalizeStoryStructure(structureInput)
+  if (level === 'chapter') {
+    const allowed = !structure.part_enabled
+      ? ['volume']
+      : structure.act_enabled
+        ? ['act', 'part', 'arc']
+        : ['part', 'arc']
+    if (selected && allowed.includes(String(selected.data.level))) return selected.data.id
+    if (selected) {
+      for (const parentLevel of allowed) {
+        const ancestor = findAncestor(
+          docs.filter((item) => item.data.type === 'outline'),
+          selected,
+          (parentLevel === 'arc' ? 'part' : parentLevel) as WorkLevel
+        )
+        if (ancestor) return ancestor.data.id
+      }
+    }
+    return (
+      docs.find((item) => item.data.type === 'outline' && allowed.includes(String(item.data.level)))?.data
+        .id ?? null
+    )
+  }
   const parentLevel = previousWorkLevel(level)
   if (!parentLevel) return null
   const outlines = docs.filter((item) => item.data.type === 'outline')
-  if (level === 'chapter') {
-    if (selected && ['act', 'part', 'arc'].includes(String(selected.data.level))) return selected.data.id
-    if (selected) {
-      return (
-        findAncestor(outlines, selected, 'act')?.data.id ??
-        findAncestor(outlines, selected, 'part')?.data.id ??
-        null
-      )
-    }
-  }
   if (selected?.data.level === parentLevel) return selected.data.id
   if (selected) return findAncestor(outlines, selected, parentLevel)?.data.id ?? null
   return docs.find((item) => item.data.type === 'outline' && item.data.level === parentLevel)?.data.id ?? null
 }
 
-export function childWorkLevels(level: WorkLevel): WorkLevel[] {
-  if (level === 'part') return ['act', 'chapter']
-  const next = nextWorkLevel(level)
+export function childWorkLevels(
+  level: WorkLevel,
+  structureInput: Partial<StoryStructureConfigV1> = DEFAULT_STORY_STRUCTURE
+): WorkLevel[] {
+  const structure = normalizeStoryStructure(structureInput)
+  if (level === 'volume' && !structure.part_enabled) return ['chapter']
+  if (level === 'part') return structure.act_enabled ? ['act', 'chapter'] : ['chapter']
+  const next = nextWorkLevel(level, structure)
   return next && next !== 'ai' ? [next] : []
 }
 
-export function parentLevelsForWorkLevel(level: WorkLevel): WorkLevel[] {
-  if (level === 'chapter') return ['act', 'part']
+export function parentLevelsForWorkLevel(
+  level: WorkLevel,
+  structureInput: Partial<StoryStructureConfigV1> = DEFAULT_STORY_STRUCTURE
+): WorkLevel[] {
+  const structure = normalizeStoryStructure(structureInput)
+  if (level === 'chapter') {
+    if (!structure.part_enabled) return ['volume']
+    return structure.act_enabled ? ['act', 'part'] : ['part']
+  }
   const previous = previousWorkLevel(level)
   return previous ? [previous] : []
 }

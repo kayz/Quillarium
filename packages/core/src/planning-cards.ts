@@ -5,6 +5,9 @@ export const PLANNING_CARD_TYPES = new Set<DocType>([
   'canon',
   'character',
   'character_relation',
+  'faction',
+  'faction_relation',
+  'faction_membership',
   'timeline_node',
   'timeline_event',
   'location',
@@ -221,6 +224,15 @@ function intrinsicCardLinks(document: PlanningCardDoc): Array<{ target_id: strin
       break
     case 'character_relation':
       for (const field of ['from_character', 'to_character', 'starts_at', 'ends_at']) add(field, data[field])
+      break
+    case 'faction':
+      for (const field of ['headquarters', 'founded_at', 'dissolved_at']) add(field, data[field])
+      break
+    case 'faction_relation':
+      for (const field of ['from_faction', 'to_faction', 'starts_at', 'ends_at']) add(field, data[field])
+      break
+    case 'faction_membership':
+      for (const field of ['faction_id', 'character_id', 'starts_at', 'ends_at']) add(field, data[field])
       break
     case 'foreshadowing': {
       add('planted_at', data['planted_at'])

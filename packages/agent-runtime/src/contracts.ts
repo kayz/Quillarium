@@ -23,6 +23,7 @@ export const agentRuntimeOperationSchema = z.enum([
   'read_project',
   'compile_context',
   'invoke_model',
+  'produce_candidate',
   'produce_report',
   'propose_issue'
 ])
@@ -152,6 +153,8 @@ export interface AgentDecodeContext {
   request: AgentExecutionRequestV1
   call: PreparedAgentModelCall
   validDocumentIds: ReadonlySet<string>
+  /** Exact post-budget blocks that were visible to this model call. */
+  promptBlocks: readonly PromptBlock[]
 }
 
 export interface AgentAggregateContext {

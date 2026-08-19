@@ -4,6 +4,7 @@ import {
   CheckCircle2,
   Clock3,
   FileText,
+  Flag,
   GitBranch,
   GripVertical,
   Library,
@@ -12,10 +13,10 @@ import {
   Sparkles,
   UserRound
 } from 'lucide-react'
-import type { ReorderStorySiblingsRequest, StoryNodeRef } from '@quillarium/core'
+import type { ReorderStorySiblingsRequest, StoryNodeRef, StoryStructureConfigV1 } from '@quillarium/core'
 import type { DocEntry, LanguageName, ModuleName, TargetSelection } from '../../app/types.js'
 import { t } from '../../app/i18n.js'
-import { buildOutlineHierarchy, compareStoryEntries } from '../../shared/outline.js'
+import { buildOutlineHierarchy, compareStoryEntries, normalizeStoryStructure } from '../../shared/outline.js'
 import {
   documentTypeLabel,
   enumChoiceLabel,
@@ -24,24 +25,29 @@ import {
 
 export function StructureTree({
   docs,
+  storyStructure: storyStructureInput,
   selectedTarget,
   onSelect,
   onReorder,
   language
 }: {
   docs: DocEntry[]
+  storyStructure?: Partial<StoryStructureConfigV1>
   selectedTarget: TargetSelection | null
   onSelect: (target: TargetSelection) => void
   onReorder?: (request: ReorderStorySiblingsRequest) => void | Promise<void>
   language: LanguageName
 }) {
+  const storyStructure = normalizeStoryStructure(storyStructureInput)
   const [dragged, setDragged] = React.useState<StoryNodeRef | null>(null)
   const [dropTarget, setDropTarget] = React.useState<{
     node: StoryNodeRef
     placement: 'before' | 'after'
   } | null>(null)
-  const { children } = buildOutlineHierarchy(docs)
-  const scenes = docs.filter((item) => item.data.type === 'scene').sort(compareStoryEntries)
+  const { children } = buildOutlineHierarchy(docs, storyStructure)
+  const scenes = storyStructure.scene_enabled
+    ? docs.filter((item) => item.data.type === 'scene').sort(compareStoryEntries)
+    : []
   const chapterProse = docs.filter((item) => item.data.type === 'chapter_prose')
   const reorder = (request: ReorderStorySiblingsRequest | null) => {
     if (!request || !onReorder) return
@@ -178,7 +184,7 @@ export function StructureTree({
             onClick: () => onSelect({ type: 'scene', id: scene.data.id, view: 'ai' })
           })
         )}
-        {outline.data.level === 'chapter' && (
+        {storyStructure.scene_enabled && outline.data.level === 'chapter' && (
           <button
             className={`tree-node level-ai ${
               selectedTarget?.id === outline.data.id && selectedTarget.view === 'ai' ? 'active' : ''
@@ -319,6 +325,9 @@ export function ModuleNav({
   const counts: Partial<Record<ModuleName, number>> = {
     canon: docs.filter((doc) => doc.data.type === 'canon').length,
     world: docs.filter((doc) => doc.data.type === 'world_entry').length,
+    factions: docs.filter((doc) =>
+      ['faction', 'faction_relation', 'faction_membership'].includes(doc.data.type)
+    ).length,
     foreshadowing: docs.filter((doc) => doc.data.type === 'foreshadowing').length,
     issues: docs.filter((doc) => doc.data.type === 'issue').length,
     references: docs.filter((doc) => doc.data.type === 'reference').length,
@@ -330,6 +339,7 @@ export function ModuleNav({
     ['canon', Library, documentTypeLabel('canon', language)],
     ['world', BookOpen, t(language, 'worldBook')],
     ['characters', UserRound, t(language, 'characters')],
+    ['factions', Flag, t(language, 'factions')],
     ['timeline', Clock3, t(language, 'timeline')],
     ['foreshadowing', GitBranch, t(language, 'foreshadowing')],
     ['issues', CheckCircle2, t(language, 'issues')],

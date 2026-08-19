@@ -113,24 +113,37 @@ actions. Selection is visibly distinct from acceptance and never writes prose.
 ## Planning Record Creation
 
 The planning modules for characters and relationships, world entries, timeline nodes and events,
-locations, foreshadowing, narrative guidance, issues, and references use one guided AI flow:
+locations, foreshadowing, narrative guidance, and issues use one guided AI flow:
 
 1. the renderer opens a multi-turn discussion dialog and supplies only the current project and module
    identifiers
 2. the main process filters metadata to the active module's code-owned allowlist and asks the
    configured background AI profile for a strict, schema-validated ordered proposal set; timeline
    dialogs expose only timeline nodes/events, for example
-3. the right proposal rail preserves every stable temporary ID, source, create/update operation,
-   state, body, and revision; the author can switch, edit, confirm, retract confirmation, and continue
-   discussing any item without writing files
-4. cancel leaves the project unchanged; applying the confirmed subset preflights every expected hash,
-   takes the project write lock, atomically writes, verifies, and rolls back the complete set on failure
+3. the right bounded proposal grid shows the exact card and confirmation counts while preserving every
+   stable temporary ID, source, create/update operation, state, body, and revision; the author can
+   switch, edit, confirm one, confirm dependencies or explicitly confirm/retract the complete set
+   without writing files
+4. cancel leaves the project unchanged; applying the confirmed subset rejects unconfirmed in-session
+   dependencies, preflights every expected hash, topologically orders linked creates, resolves their
+   temporary IDs to final stable project IDs, takes the project write lock, atomically writes, verifies,
+   and rolls back the complete set on failure
 
 The same dialog may be explicitly seeded from one existing planning card. The true file and stable ID
 remain the first anchored item through regeneration and restore; subsequent create proposals follow
 it in order. The anchor is only updated after explicit confirmation and an unchanged source hash. It
 cannot accept prose, mutate Canon or outlines, or bypass the accepted-text lifecycle. Imported cards
 keep their source/re-import workflow as a separate action.
+
+References deliberately use a different two-stage workflow. “Upload reference document” accepts one
+or more UTF-8 `.md`, `.markdown`, or `.txt` files and deterministically creates project-local
+`references/*.md` cards without reading AI configuration or calling a model. A batch records only the
+source filename (never its external absolute path) and rolls back every card if any source fails.
+After a saved reference is selected, “AI discussion to create cards” opens the proposal dialog with
+that reference as a hash-checked read-only source rather than an editable anchor. AI may propose
+multiple new setting cards from the source; the trusted process adds the reference stable ID to every
+proposal's `source_refs`, rejects reference-update or out-of-scope proposals, and rechecks the source
+hash before an explicitly confirmed atomic apply.
 
 Page-specific AI-check entries carry an explicit scope through IPC. The timeline semantic check
 compiles only timeline nodes and events; the global AI check uses the broader project scope but still

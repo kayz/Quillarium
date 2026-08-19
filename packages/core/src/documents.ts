@@ -10,6 +10,9 @@ import {
   characterRelationSchema,
   characterStateSchema,
   characterSchema,
+  factionMembershipSchema,
+  factionRelationSchema,
+  factionSchema,
   foreshadowingSchema,
   issueSchema,
   locationSchema,
@@ -33,6 +36,9 @@ import type {
   CharacterDoc,
   DocType,
   DocumentIdentity,
+  FactionDoc,
+  FactionMembershipDoc,
+  FactionRelationDoc,
   ForeshadowingDoc,
   IssueDoc,
   LocationDoc,
@@ -65,6 +71,9 @@ const TYPE_DIR: Record<DocType, string> = {
   canon: 'canon',
   character: 'characters',
   character_relation: 'characters/relations',
+  faction: 'factions',
+  faction_relation: 'factions/relations',
+  faction_membership: 'factions/memberships',
   timeline_node: 'timeline/nodes',
   timeline_event: 'timeline',
   location: 'locations',
@@ -89,6 +98,9 @@ const DOC_SCHEMAS = {
   canon: canonSchema.passthrough(),
   character: characterSchema.passthrough(),
   character_relation: characterRelationSchema.passthrough(),
+  faction: factionSchema.passthrough(),
+  faction_relation: factionRelationSchema.passthrough(),
+  faction_membership: factionMembershipSchema.passthrough(),
   timeline_node: timelineNodeSchema.passthrough(),
   timeline_event: timelineEventSchema.passthrough(),
   location: locationSchema.passthrough(),
@@ -115,7 +127,8 @@ function planningCardFields(partial: Partial<PlanningCardDoc>) {
   return {
     enabled: partial.enabled ?? true,
     source_refs: partial.source_refs ?? [],
-    relations: partial.relations ?? []
+    relations: partial.relations ?? [],
+    image: partial.image ?? null
   }
 }
 
@@ -294,6 +307,147 @@ export async function createCharacterRelation(
   return file
 }
 
+export async function createFaction(
+  projectRoot: string,
+  title: string,
+  partial: Partial<FactionDoc> = {},
+  content = ''
+): Promise<string> {
+  const locationIds = new Set(
+    (await listDocs<LocationDoc>(projectRoot, 'location')).map((document) => document.data.id)
+  )
+  if (partial.headquarters && !locationIds.has(partial.headquarters)) {
+    throw new Error(`Faction headquarters not found: ${partial.headquarters}`)
+  }
+  await assertTimelineInterval(projectRoot, partial.founded_at, partial.dissolved_at, 'Faction')
+  const doc = factionSchema.parse({
+    id: partial.id ?? (await allocateAutoId(projectRoot, 'faction', 'faction', title)),
+    type: 'faction',
+    schema_version: 1,
+    title,
+    status: partial.status ?? 'active',
+    tags: partial.tags ?? [],
+    ...planningCardFields(partial),
+    aliases: partial.aliases ?? [],
+    faction_kind: partial.faction_kind ?? 'organization',
+    summary: partial.summary ?? '',
+    motto: partial.motto ?? '',
+    goals: partial.goals ?? [],
+    methods: partial.methods ?? [],
+    headquarters: partial.headquarters ?? null,
+    founded_at: partial.founded_at ?? null,
+    dissolved_at: partial.dissolved_at ?? null,
+    visibility: partial.visibility ?? 'private'
+  }) as FactionDoc
+  const file = fileForDoc(projectRoot, 'faction', doc.id, title)
+  await writeMarkdown(file, doc as unknown as Record<string, unknown>, content || `## Faction\n`)
+  return file
+}
+
+export async function createFactionRelation(
+  projectRoot: string,
+  title: string,
+  partial: Partial<FactionRelationDoc> &
+    Pick<FactionRelationDoc, 'from_faction' | 'to_faction' | 'relation_type'>,
+  content = ''
+): Promise<string> {
+  const factionIds = new Set(
+    (await listDocs<FactionDoc>(projectRoot, 'faction')).map((document) => document.data.id)
+  )
+  if (!factionIds.has(partial.from_faction)) {
+    throw new Error(`Faction relationship source not found: ${partial.from_faction}`)
+  }
+  if (!factionIds.has(partial.to_faction)) {
+    throw new Error(`Faction relationship target not found: ${partial.to_faction}`)
+  }
+  if (partial.from_faction === partial.to_faction) {
+    throw new Error('A faction relationship must connect two different factions.')
+  }
+  await assertTimelineInterval(projectRoot, partial.starts_at, partial.ends_at, 'Faction relationship')
+  const doc = factionRelationSchema.parse({
+    id: partial.id ?? (await allocateAutoId(projectRoot, 'faction_relation', 'frel', title)),
+    type: 'faction_relation',
+    schema_version: 1,
+    title,
+    status: partial.status ?? 'active',
+    tags: partial.tags ?? [],
+    ...planningCardFields(partial),
+    from_faction: partial.from_faction,
+    to_faction: partial.to_faction,
+    relation_type: partial.relation_type,
+    direction: partial.direction ?? 'directed',
+    starts_at: partial.starts_at ?? null,
+    ends_at: partial.ends_at ?? null,
+    visibility: partial.visibility ?? 'private'
+  }) as FactionRelationDoc
+  const file = fileForDoc(projectRoot, 'faction_relation', doc.id, title)
+  await writeMarkdown(file, doc as unknown as Record<string, unknown>, content)
+  return file
+}
+
+export async function createFactionMembership(
+  projectRoot: string,
+  title: string,
+  partial: Partial<FactionMembershipDoc> & Pick<FactionMembershipDoc, 'faction_id' | 'character_id'>,
+  content = ''
+): Promise<string> {
+  const [factions, characters] = await Promise.all([
+    listDocs<FactionDoc>(projectRoot, 'faction'),
+    listDocs<CharacterDoc>(projectRoot, 'character')
+  ])
+  if (!factions.some((document) => document.data.id === partial.faction_id)) {
+    throw new Error(`Faction membership faction not found: ${partial.faction_id}`)
+  }
+  if (!characters.some((document) => document.data.id === partial.character_id)) {
+    throw new Error(`Faction membership character not found: ${partial.character_id}`)
+  }
+  await assertTimelineInterval(projectRoot, partial.starts_at, partial.ends_at, 'Faction membership')
+  const doc = factionMembershipSchema.parse({
+    id: partial.id ?? (await allocateAutoId(projectRoot, 'faction_membership', 'member', title)),
+    type: 'faction_membership',
+    schema_version: 1,
+    title,
+    status: partial.status ?? 'active',
+    tags: partial.tags ?? [],
+    ...planningCardFields(partial),
+    faction_id: partial.faction_id,
+    character_id: partial.character_id,
+    role: partial.role ?? 'member',
+    rank: partial.rank ?? '',
+    primary: partial.primary ?? false,
+    starts_at: partial.starts_at ?? null,
+    ends_at: partial.ends_at ?? null,
+    visibility: partial.visibility ?? 'private'
+  }) as FactionMembershipDoc
+  const file = fileForDoc(projectRoot, 'faction_membership', doc.id, title)
+  await writeMarkdown(file, doc as unknown as Record<string, unknown>, content)
+  return file
+}
+
+async function assertTimelineInterval(
+  projectRoot: string,
+  startsAt: string | null | undefined,
+  endsAt: string | null | undefined,
+  label: string
+): Promise<void> {
+  if (!startsAt && !endsAt) return
+  const timelineDocuments = await listDocs<TimelineNodeDoc>(projectRoot, 'timeline_node')
+  const timelineIds = new Set(timelineDocuments.map((document) => document.data.id))
+  for (const nodeId of [startsAt, endsAt]) {
+    if (nodeId && !timelineIds.has(nodeId)) throw new Error(`Timeline node not found: ${nodeId}`)
+  }
+  if (!startsAt || !endsAt) return
+  const order = new Map(
+    timelineDocuments
+      .map((document) => document.data)
+      .sort(compareTimelineNodes)
+      .map((node, index) => [node.id, index] as const)
+  )
+  if (Number(order.get(endsAt)) <= Number(order.get(startsAt))) {
+    throw new Error(`${label} end time must be after start time.`)
+  }
+}
+
 export async function createForeshadowing(
   projectRoot: string,
   title: string,
@@ -417,6 +571,8 @@ export async function createIssue(
     rule_id: partial.rule_id ?? '',
     evidence: partial.evidence ?? '',
     check_fingerprint: partial.check_fingerprint ?? '',
+    ...(partial.issue_identity_v2 ? { issue_identity_v2: partial.issue_identity_v2 } : {}),
+    legacy_check_fingerprints: partial.legacy_check_fingerprints ?? [],
     checked_at: partial.checked_at ?? ''
   }) as IssueDoc
   const file = path.join(dirForType(projectRoot, 'issue'), `${doc.id}.md`)
@@ -807,11 +963,16 @@ export async function createOutline(
   const currentLevel = normalizeOutlineLevel(level)
   const parent = partial.parent ?? null
   if (options.placement !== 'legacy-import') {
-    const outlines = await listDocs<OutlineDoc>(projectRoot, 'outline')
+    const [outlines, project] = await Promise.all([
+      listDocs<OutlineDoc>(projectRoot, 'outline'),
+      loadProject(projectRoot)
+    ])
     assertOutlinePlacementAgainst(
       outlines.map((item) => item.data),
       currentLevel,
-      parent
+      parent,
+      undefined,
+      project.story_structure
     )
   }
   const doc = outlineSchema.parse({
@@ -883,6 +1044,9 @@ export async function createScene(
   content = ''
 ): Promise<string> {
   const project = await loadProject(projectRoot)
+  if (!project.story_structure.scene_enabled) {
+    throw new Error('SCENE_LEVEL_DISABLED')
+  }
   const chapterId = partial.chapter_id ?? partial.section
   const doc = sceneSchema.parse({
     id: partial.id ?? (await allocateAutoId(projectRoot, 'scene', 'scene', title)),
@@ -990,6 +1154,7 @@ export async function listDocs<T extends DocumentIdentity>(
     : [
         'canon',
         'characters',
+        'factions',
         'timeline',
         'locations',
         'foreshadowing',

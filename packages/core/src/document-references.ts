@@ -113,12 +113,29 @@ const STRUCTURED_REFERENCE_FIELDS = new Set([
 
 export class LocalDocumentReferenceResolver {
   private readonly documents: IndexedDocument[]
+  private readonly byStableId = new Map<string, IndexedDocument[]>()
+  private readonly byCode = new Map<string, IndexedDocument[]>()
+  private readonly byRelativePath = new Map<string, IndexedDocument[]>()
+  private readonly byFilename = new Map<string, IndexedDocument[]>()
+  private readonly byFilenameStem = new Map<string, IndexedDocument[]>()
+  private readonly byTitle = new Map<string, IndexedDocument[]>()
+  private readonly byAlias = new Map<string, IndexedDocument[]>()
 
   constructor(
     documents: ReferenceDocument[],
     private readonly projectRoot?: string
   ) {
     this.documents = documents.map((document) => indexDocument(document, projectRoot))
+    for (const document of this.documents) {
+      addLookup(this.byStableId, document.stableId, document)
+      if (document.code) addLookup(this.byCode, document.code, document)
+      addLookup(this.byRelativePath, document.normalizedRelativePath, document)
+      addLookup(this.byRelativePath, stripMarkdownExtension(document.normalizedRelativePath), document)
+      addLookup(this.byFilename, document.filename, document)
+      addLookup(this.byFilenameStem, document.filenameStem, document)
+      addLookup(this.byTitle, document.title, document)
+      for (const alias of document.aliases) addLookup(this.byAlias, alias, document)
+    }
   }
 
   resolve(
@@ -143,14 +160,11 @@ export class LocalDocumentReferenceResolver {
     }> = [
       {
         basis: 'stable_id',
-        candidates: () => this.documents.filter((candidate) => candidate.stableId === normalizeExact(target))
+        candidates: () => this.byStableId.get(normalizeExact(target)) ?? []
       },
       {
         basis: 'code',
-        candidates: () =>
-          this.documents.filter(
-            (candidate) => candidate.code !== null && candidate.code === normalizeLookup(target)
-          )
+        candidates: () => this.byCode.get(normalizeLookup(target)) ?? []
       },
       {
         basis: 'relative_path',
@@ -164,19 +178,16 @@ export class LocalDocumentReferenceResolver {
         basis: 'wikilink_target',
         candidates: () =>
           parsed.syntax === 'wikilink'
-            ? this.documents.filter(
-                (candidate) => candidate.filenameStem === normalizeLookup(stripMarkdownExtension(target))
-              )
+            ? (this.byFilenameStem.get(normalizeLookup(stripMarkdownExtension(target))) ?? [])
             : []
       },
       {
         basis: 'title',
-        candidates: () => this.documents.filter((candidate) => candidate.title === normalizeLookup(target))
+        candidates: () => this.byTitle.get(normalizeLookup(target)) ?? []
       },
       {
         basis: 'alias',
-        candidates: () =>
-          this.documents.filter((candidate) => candidate.aliases.includes(normalizeLookup(target)))
+        candidates: () => this.byAlias.get(normalizeLookup(target)) ?? []
       }
     ]
 
@@ -210,20 +221,14 @@ export class LocalDocumentReferenceResolver {
         possible.add(stripMarkdownExtension(fromSource))
       }
     }
-    return this.documents.filter((candidate) => {
-      const withExtension = candidate.normalizedRelativePath
-      const withoutExtension = stripMarkdownExtension(withExtension)
-      return [...possible].some(
-        (item) => normalizeLookup(item) === withExtension || normalizeLookup(item) === withoutExtension
-      )
-    })
+    return [...possible].flatMap((item) => this.byRelativePath.get(normalizeLookup(item)) ?? [])
   }
 
   private matchFilename(target: string): IndexedDocument[] {
     const basename = path.posix.basename(normalizeVaultPath(target))
     if (!basename.toLocaleLowerCase('en-US').endsWith('.md')) return []
     const key = normalizeLookup(basename)
-    return this.documents.filter((candidate) => candidate.filename === key)
+    return this.byFilename.get(key) ?? []
   }
 }
 
@@ -362,11 +367,18 @@ export async function readLocalDocumentLinkIndex(
 }
 
 export async function loadLocalDocumentLinkIndex(projectRoot: string): Promise<LocalDocumentLinkIndexV1> {
-  return (await readLocalDocumentLinkIndex(projectRoot)) ?? rebuildLocalDocumentLinkIndex(projectRoot)
+  const documents = await listDocs<DocumentIdentity>(projectRoot)
+  const sourceSha256 = documentSetSha256(documents, projectRoot)
+  const cached = await readLocalDocumentLinkIndex(projectRoot)
+  if (cached?.source_sha256 === sourceSha256) return cached
+  return rebuildLocalDocumentLinkIndex(projectRoot, documents)
 }
 
-export async function rebuildLocalDocumentLinkIndex(projectRoot: string): Promise<LocalDocumentLinkIndexV1> {
-  const documents = await listDocs<DocumentIdentity>(projectRoot)
+export async function rebuildLocalDocumentLinkIndex(
+  projectRoot: string,
+  suppliedDocuments?: ReferenceDocument[]
+): Promise<LocalDocumentLinkIndexV1> {
+  const documents = suppliedDocuments ?? (await listDocs<DocumentIdentity>(projectRoot))
   const index = buildLocalDocumentLinkIndex(documents, projectRoot)
   await ensureDir(path.dirname(localDocumentLinkIndexPath(projectRoot)))
   await writeText(localDocumentLinkIndexPath(projectRoot), `${JSON.stringify(index, null, 2)}\n`)
@@ -491,6 +503,13 @@ function uniqueDocuments(documents: IndexedDocument[]): IndexedDocument[] {
   })
 }
 
+function addLookup(lookup: Map<string, IndexedDocument[]>, key: string, document: IndexedDocument): void {
+  if (!key) return
+  const matches = lookup.get(key)
+  if (matches) matches.push(document)
+  else lookup.set(key, [document])
+}
+
 function uniqueReferenceTokens(tokens: ExtractedLocalReference[]): ExtractedLocalReference[] {
   const seen = new Set<string>()
   return tokens.filter((token) => {
@@ -503,7 +522,14 @@ function uniqueReferenceTokens(tokens: ExtractedLocalReference[]): ExtractedLoca
 
 function documentSetSha256(documents: ReferenceDocument[], projectRoot?: string): string {
   const canonical = [...documents]
-    .sort((left, right) => left.data.id.localeCompare(right.data.id, 'en'))
+    .sort(
+      (left, right) =>
+        left.data.id.localeCompare(right.data.id, 'en') ||
+        relativeDocumentPath(left.path, projectRoot).localeCompare(
+          relativeDocumentPath(right.path, projectRoot),
+          'en'
+        )
+    )
     .map((document) => ({
       id: document.data.id,
       path: relativeDocumentPath(document.path, projectRoot),

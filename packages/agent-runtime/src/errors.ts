@@ -1,4 +1,5 @@
 import { AIRequestError, StructuredOutputError } from '@quillarium/ai'
+import { SensitiveContentError, sanitizeSensitiveText } from '@quillarium/core/sensitive-data'
 import { z } from 'zod'
 import { agentArtifactReferenceV1Schema, agentRuntimeIdSchema } from './contracts.js'
 
@@ -7,6 +8,7 @@ export const agentRuntimeErrorCodeSchema = z.enum([
   'AGENT_INVALID_REQUEST',
   'AGENT_INVALID_TARGET',
   'AGENT_PREFLIGHT_FAILED',
+  'SENSITIVE_PROMPT_CONTENT',
   'AGENT_CONTEXT_LIMIT_EXCEEDED',
   'AGENT_AI_NOT_CONFIGURED',
   'AGENT_PROVIDER_AUTH_FAILED',
@@ -178,19 +180,13 @@ export function sanitizedProviderError(cause: unknown, recordedAt: string): Sani
 }
 
 export function scrubSensitiveText(value: string): string {
-  return value
-    .replace(
-      /(["']?(?:authorization|proxy-authorization|api[_-]?key|access[_-]?token|secret|password)["']?\s*:\s*)["'][^"'\r\n]*["']/giu,
-      '$1"[REDACTED]"'
-    )
-    .replace(/(authorization|proxy-authorization)\s*[:=]\s*(?:bearer\s+)?[^\s,;]+/giu, '$1: [REDACTED]')
-    .replace(/(api[_-]?key|access[_-]?token|secret|password)\s*[:=]\s*[^\s,;]+/giu, '$1=[REDACTED]')
-    .replace(/\b(?:sk|key)-[A-Za-z0-9_-]{8,}\b/gu, '[REDACTED]')
-    .replace(/\b[A-Za-z]:[\\/](?:[^\r\n<>:"|?*]+[\\/])*[^\r\n<>:"|?*]*/gu, '[LOCAL_PATH]')
-    .replace(/\b(?:file:\/\/\/)[^\s]+/giu, '[LOCAL_PATH]')
+  return sanitizeSensitiveText(value)
 }
 
 function mapErrorCode(cause: unknown, detail: string, status: number | undefined): AgentRuntimeErrorCode {
+  if (cause instanceof SensitiveContentError || /SENSITIVE_PROMPT_CONTENT/u.test(detail)) {
+    return 'SENSITIVE_PROMPT_CONTENT'
+  }
   if (/Missing QUILL_AI_API_KEY|not configured|AI_NOT_CONFIGURED/iu.test(detail)) {
     return 'AGENT_AI_NOT_CONFIGURED'
   }
@@ -218,6 +214,7 @@ function mapErrorCode(cause: unknown, detail: string, status: number | undefined
 }
 
 function phaseForCode(code: AgentRuntimeErrorCode): AgentRuntimeErrorV1['phase'] {
+  if (code === 'SENSITIVE_PROMPT_CONTENT') return 'preflight'
   if (code.includes('AUDIT')) return 'audit'
   if (code.includes('CONTEXT')) return 'context'
   if (code.includes('REQUEST') || code.includes('TARGET') || code.includes('TASK')) return 'request'
@@ -236,6 +233,7 @@ function retrySafe(code: AgentRuntimeErrorCode): boolean {
     'AGENT_INVALID_REQUEST',
     'AGENT_INVALID_TARGET',
     'AGENT_TASK_NOT_REGISTERED',
+    'SENSITIVE_PROMPT_CONTENT',
     'AGENT_PROVIDER_AUTH_FAILED',
     'AGENT_APPROVAL_REJECTED',
     'AGENT_APPROVAL_INVALID',

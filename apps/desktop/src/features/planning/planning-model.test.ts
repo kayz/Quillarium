@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest'
+import type { PlanningProposal } from '../../app/types.js'
 import { OUTLINE_HOME_SECTIONS, VOLUME_SECTIONS, localizedOutlineSection } from '../outline/outline-model.js'
-import { isAIPlanningContext, planningKindForContext } from './planning-model.js'
+import {
+  confirmAllPlanningProposals,
+  isAIPlanningContext,
+  planningKindForContext,
+  planningProposalDependencies
+} from './planning-model.js'
 
 describe('planning module mapping', () => {
   it.each([
@@ -10,20 +16,24 @@ describe('planning module mapping', () => {
     ['locations', 'location'],
     ['foreshadowing', 'foreshadowing'],
     ['narrative', 'narrative'],
-    ['issues', 'issue'],
-    ['references', 'reference']
+    ['issues', 'issue']
   ] as const)('routes %s to the %s guided record type', (context, kind) => {
     expect(planningKindForContext(context)).toBe(kind)
     expect(isAIPlanningContext(context)).toBe(true)
   })
 
-  it.each(['write', 'canon', 'runs', 'volumes', 'parts'] as const)(
+  it.each(['write', 'canon', 'runs', 'volumes', 'parts', 'references'] as const)(
     'leaves %s on its existing non-planning workflow',
     (context) => {
       expect(planningKindForContext(context)).toBeNull()
       expect(isAIPlanningContext(context)).toBe(false)
     }
   )
+
+  it('treats uploaded references as sources for derived cards rather than AI-created cards', () => {
+    expect(planningKindForContext('references')).toBeNull()
+    expect(isAIPlanningContext('references')).toBe(false)
+  })
 
   it('provides complete Chinese and English labels for outline and volume navigation', () => {
     for (const section of [...OUTLINE_HOME_SECTIONS, ...VOLUME_SECTIONS]) {
@@ -41,4 +51,39 @@ describe('planning module mapping', () => {
       expect(section.enHeading).not.toMatch(/[\u3400-\u9fff]/u)
     }
   })
+
+  it('finds session-local dependencies and confirms the complete multi-card set explicitly', () => {
+    const proposals: PlanningProposal[] = [
+      proposal('membership_zhu_qizhen', 'faction_membership', '朱祁镇所属明皇室', {
+        faction_id: 'faction_daming_huangshi',
+        character_id: 'zhu_qizhen'
+      }),
+      proposal('faction_daming_huangshi', 'faction', '明皇室', {})
+    ]
+
+    expect(planningProposalDependencies(proposals[0]!, proposals).map((item) => item.id)).toEqual([
+      'faction_daming_huangshi'
+    ])
+    expect(confirmAllPlanningProposals(proposals).map((item) => item.status)).toEqual([
+      'confirmed',
+      'confirmed'
+    ])
+    expect(proposals.map((item) => item.status)).toEqual(['draft', 'draft'])
+  })
 })
+
+function proposal(
+  id: string,
+  kind: PlanningProposal['draft']['kind'],
+  title: string,
+  fields: Record<string, unknown>
+): PlanningProposal {
+  return {
+    id,
+    operation: 'create',
+    source: 'ai',
+    status: 'draft',
+    draft: { kind, title, fields, content: '' },
+    revisions: []
+  }
+}
