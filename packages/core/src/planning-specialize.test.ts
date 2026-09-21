@@ -68,7 +68,7 @@ describe('specializePlanningCard', () => {
     await expect(specializePlanningCard(root, 'character-lin', 'world_entry', {})).rejects.toThrow(
       '现有类型化引用失效'
     )
-    const [character] = await listDocs(root, 'character')
+    const character = (await listDocs(root, 'character')).find((item) => item.data.id === 'character-lin')
     expect(character?.data.id).toBe('character-lin')
     expect(character?.data.type).toBe('character')
   })
