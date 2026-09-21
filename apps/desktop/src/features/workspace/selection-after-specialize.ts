@@ -1,8 +1,9 @@
+import type { DocumentIdentity } from '@quillarium/core'
 import type { DocEntry, TargetSelection } from '../../app/types.js'
 
 export interface SpecializePlanningCardResult {
   path: string
-  data: Record<string, unknown> & { id: string; type: string }
+  data: DocumentIdentity
   content: string
 }
 
@@ -17,7 +18,7 @@ export function selectionAfterSpecialize(result: SpecializePlanningCardResult): 
     },
     doc: {
       path: result.path,
-      data: result.data as DocEntry['data'],
+      data: result.data as unknown as DocEntry['data'],
       content: result.content
     }
   }

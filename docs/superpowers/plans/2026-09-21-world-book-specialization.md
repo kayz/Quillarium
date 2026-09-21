@@ -302,17 +302,17 @@ git commit -m "feat: specialize planning cards in place from core"
 After an existing world-entry create test if one exists; otherwise add a focused `describe('card specialize')`. `world add` has no `--id`, so seed with core:
 
 ```ts
-  it('specializes a world entry into a character through the CLI', async () => {
-    const { root } = await initProject()
-    await createWorldEntry(root, 'Lin Zhou', { id: 'world-lin' }, 'A northern sailor.')
-    await expect(run('card', 'specialize', 'world-lin', '--to', 'character_relation', '--project', root)).rejects.toThrow(
-      '特化缺少必填字段'
-    )
-    expect((await listDocs(root, 'world_entry'))[0]?.data.type).toBe('world_entry')
-    await run('card', 'specialize', 'world-lin', '--to', 'character', '--project', root)
-    expect(await listDocs(root, 'world_entry')).toHaveLength(0)
-    expect((await listDocs(root, 'character'))[0]?.data.id).toBe('world-lin')
-  })
+it('specializes a world entry into a character through the CLI', async () => {
+  const { root } = await initProject()
+  await createWorldEntry(root, 'Lin Zhou', { id: 'world-lin' }, 'A northern sailor.')
+  await expect(
+    run('card', 'specialize', 'world-lin', '--to', 'character_relation', '--project', root)
+  ).rejects.toThrow('特化缺少必填字段')
+  expect((await listDocs(root, 'world_entry'))[0]?.data.type).toBe('world_entry')
+  await run('card', 'specialize', 'world-lin', '--to', 'character', '--project', root)
+  expect(await listDocs(root, 'world_entry')).toHaveLength(0)
+  expect((await listDocs(root, 'character'))[0]?.data.id).toBe('world-lin')
+})
 ```
 
 - [ ] **Step 2: Run it**
@@ -326,52 +326,54 @@ Expected: FAIL — unknown command `card`.
 Import `specializePlanningCard` and `requiredSpecializationFields`. Add:
 
 ```ts
-  const card = program.command('card').description('Specialize or inspect setting cards')
-  projectOption(
-    card
-      .command('specialize')
-      .argument('<id>', 'Stable card id')
-      .requiredOption('--to <type>', 'Target document type')
-      .option('--from-character <id>', 'character_relation.from_character')
-      .option('--to-character <id>', 'character_relation.to_character')
-      .option('--relation-type <text>', 'Relation type')
-      .option('--from-faction <id>', 'faction_relation.from_faction')
-      .option('--to-faction <id>', 'faction_relation.to_faction')
-      .option('--faction <id>', 'faction_membership.faction_id')
-      .option('--character <id>', 'faction_membership.character_id')
-      .description('Change this card type in place; keep the stable id')
-  ).action(async (id, opts) => {
-    const fields: Record<string, unknown> = {}
-    if (opts.fromCharacter) fields.from_character = opts.fromCharacter
-    if (opts.toCharacter) fields.to_character = opts.toCharacter
-    if (opts.relationType) fields.relation_type = opts.relationType
-    if (opts.fromFaction) fields.from_faction = opts.fromFaction
-    if (opts.toFaction) fields.to_faction = opts.toFaction
-    if (opts.faction) fields.faction_id = opts.faction
-    if (opts.character) fields.character_id = opts.character
-    const missing = requiredSpecializationFields(opts.to).filter((key) => !fields[key])
-    if (missing.length) {
-      throw new Error(`特化缺少必填字段：${missing.join('、')}`)
-    }
-    const result = await specializePlanningCard(path.resolve(opts.project), id, opts.to, fields)
-    console.log(result.path)
-  })
+const card = program.command('card').description('Specialize or inspect setting cards')
+projectOption(
+  card
+    .command('specialize')
+    .argument('<id>', 'Stable card id')
+    .requiredOption('--to <type>', 'Target document type')
+    .option('--from-character <id>', 'character_relation.from_character')
+    .option('--to-character <id>', 'character_relation.to_character')
+    .option('--relation-type <text>', 'Relation type')
+    .option('--from-faction <id>', 'faction_relation.from_faction')
+    .option('--to-faction <id>', 'faction_relation.to_faction')
+    .option('--faction <id>', 'faction_membership.faction_id')
+    .option('--character <id>', 'faction_membership.character_id')
+    .description('Change this card type in place; keep the stable id')
+).action(async (id, opts) => {
+  const fields: Record<string, unknown> = {}
+  if (opts.fromCharacter) fields.from_character = opts.fromCharacter
+  if (opts.toCharacter) fields.to_character = opts.toCharacter
+  if (opts.relationType) fields.relation_type = opts.relationType
+  if (opts.fromFaction) fields.from_faction = opts.fromFaction
+  if (opts.toFaction) fields.to_faction = opts.toFaction
+  if (opts.faction) fields.faction_id = opts.faction
+  if (opts.character) fields.character_id = opts.character
+  const missing = requiredSpecializationFields(opts.to).filter((key) => !fields[key])
+  if (missing.length) {
+    throw new Error(`特化缺少必填字段：${missing.join('、')}`)
+  }
+  const result = await specializePlanningCard(path.resolve(opts.project), id, opts.to, fields)
+  console.log(result.path)
+})
 ```
 
 Keep `character add` / `world add` unchanged.
 
 - [ ] **Step 4: Document** in `docs/CLI.md` after the world/character create examples:
 
-```markdown
+````markdown
 New setting cards can start as world entries and later specialize in place (same id):
 
 ```bash
 pnpm cli world add "Lin Zhou" --project "./writing-workspace/projects/my-novel"
 pnpm cli card specialize <world-id> --to character --project "./writing-workspace/projects/my-novel"
 ```
+````
 
 `character add` and other typed create commands remain available as shortcuts.
-```
+
+````
 
 - [ ] **Step 5: Run CLI tests**
 
@@ -384,7 +386,7 @@ Expected: PASS.
 ```bash
 git add packages/cli/src/index.ts packages/cli/src/index.test.ts docs/CLI.md
 git commit -m "feat: specialize setting cards from the CLI"
-```
+````
 
 ---
 
@@ -437,9 +439,9 @@ Mirror in `preload.cjs` with `ipcRenderer.invoke('planning:specialize', ...)`.
 In `planning.ts` `registerPlanningHandlers`:
 
 ```ts
-  typedHandle('planning:specialize', async (_event, root, cardId, targetType, fields, expectedSha256) =>
-    specializePlanningCard(root, cardId, targetType, fields, { expectedSha256 })
-  )
+typedHandle('planning:specialize', async (_event, root, cardId, targetType, fields, expectedSha256) =>
+  specializePlanningCard(root, cardId, targetType, fields, { expectedSha256 })
+)
 ```
 
 Change `contract.test.ts` expected count **162 → 163**.
@@ -459,14 +461,14 @@ Expected: PASS after all three files list the new channel.
 `ModuleView.tsx`: next to the existing AI convert shortcut, add a button `特化` / `Specialize` that opens the dialog (not the AI session). On confirm call `onSpecializeCard(doc, targetType, fields)` provided by WorkspaceView:
 
 ```ts
-  const specializePlanningCard = async (
-    card: DocEntry,
-    targetType: string,
-    fields: Record<string, unknown>
-  ) => {
-    await bridge.specializePlanningCard(root, card.data.id, targetType, fields)
-    await load()
-  }
+const specializePlanningCard = async (
+  card: DocEntry,
+  targetType: string,
+  fields: Record<string, unknown>
+) => {
+  await bridge.specializePlanningCard(root, card.data.id, targetType, fields)
+  await load()
+}
 ```
 
 Do not remove `onAIConvertCard`. Do not add the dialog to OutlineHome/VolumeHome this slice.
@@ -503,28 +505,28 @@ git commit -m "feat: let authors specialize setting cards without AI"
 Replace the `writeMarkdown(update.target, …)` + later `removeFile(update.source)` for that update with:
 
 ```ts
-      if (update.changing_type) {
-        const specialized = await specializePlanningCard(
-          root,
-          String(update.current_data['id']),
-          resolvedDraft.kind,
-          { ...resolvedDraft.fields, title: resolvedDraft.title },
-          {
-            content: resolvedDraft.content,
-            expectedSha256: update.proposal.target?.expected_sha256
-          }
-        )
-        writtenTargets.push(specialized.path)
-        appliedDrafts.set(update.proposal.id, resolvedDraft)
-        results.push({
-          proposal_id: update.proposal.id,
-          operation: 'update',
-          path: specialized.path,
-          document: { data: specialized.data as unknown as Record<string, unknown>, content: specialized.content },
-          source_sha256: sha256Text(await readText(specialized.path))
-        })
-        continue
-      }
+if (update.changing_type) {
+  const specialized = await specializePlanningCard(
+    root,
+    String(update.current_data['id']),
+    resolvedDraft.kind,
+    { ...resolvedDraft.fields, title: resolvedDraft.title },
+    {
+      content: resolvedDraft.content,
+      expectedSha256: update.proposal.target?.expected_sha256
+    }
+  )
+  writtenTargets.push(specialized.path)
+  appliedDrafts.set(update.proposal.id, resolvedDraft)
+  results.push({
+    proposal_id: update.proposal.id,
+    operation: 'update',
+    path: specialized.path,
+    document: { data: specialized.data as unknown as Record<string, unknown>, content: specialized.content },
+    source_sha256: sha256Text(await readText(specialized.path))
+  })
+  continue
+}
 ```
 
 Keep create proposals and same-type updates on the existing path. Keep session rollback: if specialize throws, it already restored the source file; do not double-delete. Skip `removeFile(update.source)` for updates already handled by specialize (filter `changing_type` removals that specialize already deleted).

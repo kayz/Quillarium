@@ -15,15 +15,15 @@ Scope: 设定卡「先是世界书，再特化」的身份、写入路径、作�
 
 ## 已锁定的决策
 
-| 主题 | 选择 |
-| ---- | ---- |
-| 文件语义 | 就地：同一 `id`，改 `type`；目录按 `fileForDoc` 搬迁，然后删旧文件。 |
-| 新建 | 主路径：先建世界书再特化。快捷：各类型模块/CLI `create` 仍可直接建该类型。 |
-| 谁发起 | 作者可直接特化/转回，不经 AI。现有 AI `card-conversion` 仍可补字段，apply 必须走同一写入函数。 |
-| 允许的目标 | 与当前 AI 转换名单一致，见下节。 |
-| 必填 | 写盘前补齐目标 schema 中无默认值的必填项。缺了整笔失败。 |
-| 多余字段 | 目标 schema 没有的 frontmatter 丢掉。非空叙述可并进正文附录，禁止非法 frontmatter。 |
-| 实现 | `@quillarium/core` 公开就地特化 API；桌面表单、CLI、AI apply 都调用它。 |
+| 主题       | 选择                                                                                           |
+| ---------- | ---------------------------------------------------------------------------------------------- |
+| 文件语义   | 就地：同一 `id`，改 `type`；目录按 `fileForDoc` 搬迁，然后删旧文件。                           |
+| 新建       | 主路径：先建世界书再特化。快捷：各类型模块/CLI `create` 仍可直接建该类型。                     |
+| 谁发起     | 作者可直接特化/转回，不经 AI。现有 AI `card-conversion` 仍可补字段，apply 必须走同一写入函数。 |
+| 允许的目标 | 与当前 AI 转换名单一致，见下节。                                                               |
+| 必填       | 写盘前补齐目标 schema 中无默认值的必填项。缺了整笔失败。                                       |
+| 多余字段   | 目标 schema 没有的 frontmatter 丢掉。非空叙述可并进正文附录，禁止非法 frontmatter。            |
+| 实现       | `@quillarium/core` 公开就地特化 API；桌面表单、CLI、AI apply 都调用它。                        |
 
 ## 允许转换的类型
 
@@ -90,11 +90,11 @@ specializePlanningCard(
 
 无默认、必须在 `fields` 里给出的：
 
-| 目标 | 必填 |
-| ---- | ---- |
+| 目标                 | 必填                                              |
+| -------------------- | ------------------------------------------------- |
 | `character_relation` | `from_character`, `to_character`, `relation_type` |
-| `faction_relation` | `from_faction`, `to_faction`, `relation_type` |
-| `faction_membership` | `faction_id`, `character_id` |
+| `faction_relation`   | `from_faction`, `to_faction`, `relation_type`     |
+| `faction_membership` | `faction_id`, `character_id`                      |
 
 引用必须指向项目里已存在、且类型匹配的卡（沿用 `assertCardReferencesExist`）。占位符 `__quillarium_unset_reference__` 不允许出现在特化写入中。
 

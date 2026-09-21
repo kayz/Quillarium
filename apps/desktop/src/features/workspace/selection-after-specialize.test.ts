@@ -7,8 +7,10 @@ describe('selectionAfterSpecialize', () => {
       path: 'characters/hero.md',
       data: {
         id: 'card-1',
-        type: 'character',
-        title: 'Hero'
+        type: 'character' as const,
+        schema_version: 1,
+        title: 'Hero',
+        tags: [] as string[]
       },
       content: '# Hero\n\nFormer world entry.'
     }
@@ -20,7 +22,9 @@ describe('selectionAfterSpecialize', () => {
         data: {
           id: 'card-1',
           type: 'character',
-          title: 'Hero'
+          schema_version: 1,
+          title: 'Hero',
+          tags: []
         },
         content: '# Hero\n\nFormer world entry.'
       }
@@ -33,7 +37,9 @@ describe('selectionAfterSpecialize', () => {
       data: {
         id: 42 as unknown as string,
         type: 'world_entry' as const,
-        title: 'Entry'
+        schema_version: 1,
+        title: 'Entry',
+        tags: []
       },
       content: 'body'
     })
