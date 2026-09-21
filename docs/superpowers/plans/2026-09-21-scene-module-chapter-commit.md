@@ -64,18 +64,18 @@ The approved spec has three more subsystems. Implement them as separate plans af
 In `packages/core/src/chapter-lifecycle.test.ts`, inside `it('accepts scenes in order and locks AI after finalization'...)`, replace the block that currently expects chapter prose after the first accept:
 
 ```ts
-    await expect(acceptSceneIntoChapter(root, 'scene-two', '后文。')).rejects.toThrow('先接受前一节')
-    await acceptSceneIntoChapter(root, 'scene-one', '开篇正文。')
-    const afterFirst = await loadChapterLifecycle(root, 'chapter')
-    expect(afterFirst.prose.content.trim()).toBe('')
-    expect(afterFirst.prose.data.scene_ids).toEqual([])
-    expect(afterFirst.scenes[0].data.accepted_at).toBeTruthy()
-    expect(afterFirst.scenes[0].content).toContain('开篇正文。')
-    await expect(finalizeChapter(root, 'chapter')).rejects.toThrow('unaccepted')
-    await acceptSceneIntoChapter(root, 'scene-two', '后文。')
-    const afterAll = await loadChapterLifecycle(root, 'chapter')
-    expect(afterAll.prose.content.trim()).toBe('开篇正文。后文。')
-    expect(afterAll.prose.data.scene_ids).toEqual(['scene-one', 'scene-two'])
+await expect(acceptSceneIntoChapter(root, 'scene-two', '后文。')).rejects.toThrow('先接受前一节')
+await acceptSceneIntoChapter(root, 'scene-one', '开篇正文。')
+const afterFirst = await loadChapterLifecycle(root, 'chapter')
+expect(afterFirst.prose.content.trim()).toBe('')
+expect(afterFirst.prose.data.scene_ids).toEqual([])
+expect(afterFirst.scenes[0].data.accepted_at).toBeTruthy()
+expect(afterFirst.scenes[0].content).toContain('开篇正文。')
+await expect(finalizeChapter(root, 'chapter')).rejects.toThrow('unaccepted')
+await acceptSceneIntoChapter(root, 'scene-two', '后文。')
+const afterAll = await loadChapterLifecycle(root, 'chapter')
+expect(afterAll.prose.content.trim()).toBe('开篇正文。后文。')
+expect(afterAll.prose.data.scene_ids).toEqual(['scene-one', 'scene-two'])
 ```
 
 Keep the rest of that test (finalize, AI lock) unchanged.
@@ -83,28 +83,28 @@ Keep the rest of that test (finalize, AI lock) unchanged.
 - [ ] **Step 2: Add a handwritten-conflict test after the two-scene test**
 
 ```ts
-  it('refuses to commit confirmed scenes over handwritten chapter prose', async () => {
-    const root = await fixture()
-    const lifecycle = await loadChapterLifecycle(root, 'chapter')
-    await writeMarkdown(
-      lifecycle.prose.path,
-      lifecycle.prose.data as unknown as Record<string, unknown>,
-      '作者手写的章正文。'
-    )
-    await createScene(root, '第一节', {
-      id: 'scene-one',
-      chapter_id: 'chapter',
-      section: 'chapter',
-      order: 0,
-      timeline_node: 'timeline-opening',
-      location: 'location-room',
-      pov: 'character-protagonist'
-    })
-    await expect(acceptSceneIntoChapter(root, 'scene-one', '生成的正文。')).rejects.toThrow('手写')
-    const after = await loadChapterLifecycle(root, 'chapter')
-    expect(after.prose.content).toContain('作者手写的章正文。')
-    expect(after.prose.data.scene_ids).toEqual([])
+it('refuses to commit confirmed scenes over handwritten chapter prose', async () => {
+  const root = await fixture()
+  const lifecycle = await loadChapterLifecycle(root, 'chapter')
+  await writeMarkdown(
+    lifecycle.prose.path,
+    lifecycle.prose.data as unknown as Record<string, unknown>,
+    '作者手写的章正文。'
+  )
+  await createScene(root, '第一节', {
+    id: 'scene-one',
+    chapter_id: 'chapter',
+    section: 'chapter',
+    order: 0,
+    timeline_node: 'timeline-opening',
+    location: 'location-room',
+    pov: 'character-protagonist'
   })
+  await expect(acceptSceneIntoChapter(root, 'scene-one', '生成的正文。')).rejects.toThrow('手写')
+  const after = await loadChapterLifecycle(root, 'chapter')
+  expect(after.prose.content).toContain('作者手写的章正文。')
+  expect(after.prose.data.scene_ids).toEqual([])
+})
 ```
 
 Import `writeMarkdown` from `./index.js` if it is not already imported (it is).
@@ -112,47 +112,47 @@ Import `writeMarkdown` from `./index.js` if it is not already imported (it is).
 - [ ] **Step 3: Add a legacy partial-commit compatibility test**
 
 ```ts
-  it('still appends when chapter prose already lists an accepted scene id', async () => {
-    const root = await fixture()
-    await createScene(root, '第一节', {
-      id: 'scene-one',
-      chapter_id: 'chapter',
-      section: 'chapter',
-      order: 0,
-      timeline_node: 'timeline-opening',
-      location: 'location-room',
-      pov: 'character-protagonist'
-    })
-    await createScene(root, '第二节', {
-      id: 'scene-two',
-      chapter_id: 'chapter',
-      section: 'chapter',
-      order: 1,
-      timeline_node: 'timeline-opening',
-      location: 'location-room',
-      pov: 'character-protagonist'
-    })
-    const started = await loadChapterLifecycle(root, 'chapter')
-    await writeMarkdown(
-      started.prose.path,
-      { ...started.prose.data, scene_ids: ['scene-one'] } as unknown as Record<string, unknown>,
-      '开篇正文。'
-    )
-    const first = (await listDocs<SceneDoc>(root, 'scene')).find((item) => item.data.id === 'scene-one')
-    if (!first) throw new Error('missing scene-one')
-    await writeMarkdown(
-      first.path,
-      { ...first.data, accepted_at: '2026-01-01T00:00:00.000Z', status: 'final' } as unknown as Record<
-        string,
-        unknown
-      >,
-      '开篇正文。'
-    )
-    await acceptSceneIntoChapter(root, 'scene-two', '后文。')
-    const after = await loadChapterLifecycle(root, 'chapter')
-    expect(after.prose.content.trim()).toBe('开篇正文。后文。')
-    expect(after.prose.data.scene_ids).toEqual(['scene-one', 'scene-two'])
+it('still appends when chapter prose already lists an accepted scene id', async () => {
+  const root = await fixture()
+  await createScene(root, '第一节', {
+    id: 'scene-one',
+    chapter_id: 'chapter',
+    section: 'chapter',
+    order: 0,
+    timeline_node: 'timeline-opening',
+    location: 'location-room',
+    pov: 'character-protagonist'
   })
+  await createScene(root, '第二节', {
+    id: 'scene-two',
+    chapter_id: 'chapter',
+    section: 'chapter',
+    order: 1,
+    timeline_node: 'timeline-opening',
+    location: 'location-room',
+    pov: 'character-protagonist'
+  })
+  const started = await loadChapterLifecycle(root, 'chapter')
+  await writeMarkdown(
+    started.prose.path,
+    { ...started.prose.data, scene_ids: ['scene-one'] } as unknown as Record<string, unknown>,
+    '开篇正文。'
+  )
+  const first = (await listDocs<SceneDoc>(root, 'scene')).find((item) => item.data.id === 'scene-one')
+  if (!first) throw new Error('missing scene-one')
+  await writeMarkdown(
+    first.path,
+    { ...first.data, accepted_at: '2026-01-01T00:00:00.000Z', status: 'final' } as unknown as Record<
+      string,
+      unknown
+    >,
+    '开篇正文。'
+  )
+  await acceptSceneIntoChapter(root, 'scene-two', '后文。')
+  const after = await loadChapterLifecycle(root, 'chapter')
+  expect(after.prose.content.trim()).toBe('开篇正文。后文。')
+  expect(after.prose.data.scene_ids).toEqual(['scene-one', 'scene-two'])
+})
 ```
 
 - [ ] **Step 4: Run the lifecycle tests to verify they fail**
@@ -226,9 +226,7 @@ async function writeChapterProseForAcceptedScene(
   justAccepted: { path: string; data: SceneDoc; content: string }
 ): Promise<ChapterLifecycleSnapshot> {
   const lifecycle = await loadChapterLifecycle(projectRoot, chapterId)
-  const scenes = lifecycle.scenes.map((item) =>
-    item.data.id === justAccepted.data.id ? justAccepted : item
-  )
+  const scenes = lifecycle.scenes.map((item) => (item.data.id === justAccepted.data.id ? justAccepted : item))
   const legacyPartial = lifecycle.prose.data.scene_ids.length > 0
   if (legacyPartial) {
     const nextProse: ChapterProseDoc = {
@@ -315,10 +313,10 @@ export const WRITER_DEFAULT_STORY_STRUCTURE: StoryStructureConfigV1 = Object.fre
 - [ ] **Step 3: Write a focused test in `packages/core/src/factions-and-structure.test.ts`**
 
 ```ts
-  it('keeps schema tests on the compatibility default and exposes a writer default with scenes off', () => {
-    expect(DEFAULT_STORY_STRUCTURE.scene_enabled).toBe(true)
-    expect(WRITER_DEFAULT_STORY_STRUCTURE.scene_enabled).toBe(false)
-  })
+it('keeps schema tests on the compatibility default and exposes a writer default with scenes off', () => {
+  expect(DEFAULT_STORY_STRUCTURE.scene_enabled).toBe(true)
+  expect(WRITER_DEFAULT_STORY_STRUCTURE.scene_enabled).toBe(false)
+})
 ```
 
 Add the named imports.
@@ -409,17 +407,21 @@ git commit -m "feat: start new workspace projects with the scene module off"
 `ChapterProseWorkspace.tsx`:
 
 ```ts
-{zh
-  ? '可以完全手写正文。节模块会在本章所有节都确认后，才把各节正文一次性写入这里，不加入标题或分隔符。'
-  : 'Write directly. The scene module writes into this prose only after every scene in the chapter is confirmed, with no headings or separators.'}
+{
+  zh
+    ? '可以完全手写正文。节模块会在本章所有节都确认后，才把各节正文一次性写入这里，不加入标题或分隔符。'
+    : 'Write directly. The scene module writes into this prose only after every scene in the chapter is confirmed, with no headings or separators.'
+}
 ```
 
 `AIWritingWorkspace.tsx` replace the “accept then append” sentence with:
 
 ```ts
-{zh
-  ? '每节约一千字，可多次生成、选择和手改；确认后先留在本节。本章全部节确认后，才写入章正文。'
-  : 'Each scene is a ~1000-word generation chunk. Confirm leaves prose on the scene; chapter prose updates after every scene is confirmed.'}
+{
+  zh
+    ? '每节约一千字，可多次生成、选择和手改；确认后先留在本节。本章全部节确认后，才写入章正文。'
+    : 'Each scene is a ~1000-word generation chunk. Confirm leaves prose on the scene; chapter prose updates after every scene is confirmed.'
+}
 ```
 
 Change `已写入章正文` to `已确认` / `Confirmed` for a scene that has `accepted_at` but whose id is not yet in `prose.scene_ids` if that UI can see both. If the workspace only has the scene doc, keep `已确认`.
@@ -435,7 +437,7 @@ English: `'When the author confirmed this scene. Chapter prose is written after 
 `Workspace.tsx` delete dialog: keep “already written chapter prose is preserved” only when `scene_ids` already contains that scene. If that data is not in the dialog closure, use:
 
 ```ts
-`删除节「${title}」？节文件和运行记录会删除。若章正文尚未纳入本节，章正文不变；若已经写入，已写入的文字会留在章正文里供手改。`
+;`删除节「${title}」？节文件和运行记录会删除。若章正文尚未纳入本节，章正文不变；若已经写入，已写入的文字会留在章正文里供手改。`
 ```
 
 - [ ] **Step 3: Fix UI tests that `toContain` the old Chinese copy**

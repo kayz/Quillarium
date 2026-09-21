@@ -1,0 +1,4 @@
+# Untracked local scratch. CI only ever formats tracked files, so ignoring these keeps a local
+# `pnpm format:check` honest. Prettier already reads the repository-root .gitignore.
+.superpowers/
+.worktrees/

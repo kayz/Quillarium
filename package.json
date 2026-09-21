@@ -12,7 +12,7 @@
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "check": "pnpm build && pnpm test",
+    "check": "pnpm build && pnpm test && pnpm lint && pnpm format:check",
     "cli": "tsx packages/cli/src/index.ts",
     "desktop:dev": "pnpm --filter @quillarium/desktop dev",
     "desktop:build": "pnpm --filter @quillarium/desktop build"
