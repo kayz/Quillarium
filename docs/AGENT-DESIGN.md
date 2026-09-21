@@ -78,8 +78,8 @@ chapter is not complete merely because all of its scenes have drafts.
 
 A scene is the minimum prose-generation unit. It binds POV, time, location, participants, writing
 focus, constraints, and intended state changes. A chapter may contain zero scenes and be written
-entirely by hand, or contain several ordered scenes. A scene's accepted plain prose is appended into
-the independent chapter prose; its outline remains durable after publication purges prompts and AI
+entirely by hand, or contain several ordered scenes. A scene's accepted plain prose is confirmed on
+the scene record; chapter prose is written when every scene in that chapter is confirmed. Its outline remains durable after publication purges prompts and AI
 artifacts.
 
 ## Chapter Lifecycle

@@ -203,7 +203,7 @@ provider, model, and creation metadata.
 recoverable, keeps all unselected candidates, and may be changed until one group member is accepted.
 
 `run accept` copies a non-empty `output-raw.md` to `output-accepted.md`, marks the run accepted, and
-accepts the target scene into its chapter and appends it to the independent chapter prose in order.
+confirms the scene; chapter prose is written when every scene in that chapter is confirmed.
 Grouped candidates must be selected first. Empty or Markdown-formatted output is rejected. Pass `--scene <scene-id>` only when the scene
 recorded in run metadata must be overridden.
 

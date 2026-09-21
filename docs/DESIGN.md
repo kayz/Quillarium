@@ -179,8 +179,9 @@ chapter has exactly one parent (`part` or `act`); an act belongs to one part. Th
 minimum serial-delivery unit, while the scene is the minimum AI-generation unit. The lifecycle is:
 
 ```text
-prepare -> generate candidates -> accept scenes -> check chapter
-        -> finalize -> apply continuity -> feedback and retrospective
+prepare scenes -> generate candidates -> confirm each scene
+        -> when every scene is confirmed, write chapter prose
+        -> check chapter -> finalize -> apply continuity
 ```
 
 Selecting a candidate does not accept prose. Accepting a scene does not finalize a chapter.
@@ -194,7 +195,7 @@ interpreted as an executable patch.
 
 Chapter prose has three states:
 
-- `draft`: the author may edit freely and accepted scene prose is appended in scene order;
+- `draft`: the author may edit chapter prose by hand. The scene module does not touch that file until every scene in the chapter is confirmed; it then writes the confirmed scene prose in order with no headings. If chapter prose already has handwritten text and `scene_ids` is empty, confirmation fails closed.
 - `final`: AI generation and all scene edits are rejected, while the author may make small direct
   changes to the chapter prose;
 - `published`: the prose is immutable. Publication requires two author confirmations, deletes that
@@ -202,8 +203,8 @@ Chapter prose has three states:
   outlines plus the published chapter prose.
 
 The chapter prose and its ordered scenes are sibling children in the story tree. A chapter may have
-no scenes at all: the author can write its prose directly. Accepting a scene writes its plain-text
-result into the chapter prose in scene order without headings or separator characters. Before
+no scenes at all: the author can write its prose directly. Confirming a scene stores its plain-text
+result on the scene record; chapter prose is written only when every scene in the chapter is confirmed, in scene order without headings or separator characters. Before
 publication, a volume, part, act, chapter, or scene may be deleted; deleting an outline recursively
 removes its unpublished descendants, chapter-prose files, and related runs. Any published chapter in
 the affected subtree blocks deletion.
@@ -391,8 +392,8 @@ first pass the module-intake gate in the unified runtime ADR.
 
 Every generation or dry run creates a run directory. Its metadata moves through `created`,
 `generated`, `checked`, and `accepted`; the run is therefore an auditable lifecycle record, not an
-immutable directory. Acceptance is explicit and writes non-empty plain prose into the owning scene
-and chapter. Shared-guidance snapshots, once created for a run, are immutable.
+immutable directory. Acceptance is explicit and writes non-empty plain prose into the owning scene;
+chapter prose is written when every scene in that chapter is confirmed. Shared-guidance snapshots, once created for a run, are immutable.
 
 The artifact superset across current scene Runs and unified Agent executions is below; a
 flow writes only the files relevant to its lifecycle:
