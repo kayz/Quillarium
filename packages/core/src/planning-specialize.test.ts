@@ -45,7 +45,7 @@ describe('specializePlanningCard', () => {
     await specializePlanningCard(root, 'world-lin', 'character', {})
 
     const [character] = await listDocs(root, 'character')
-    expect(character!.data[DOCUMENT_ORIGIN_FIELD]).toEqual(origin)
+    expect((character!.data as Record<string, unknown>)[DOCUMENT_ORIGIN_FIELD]).toEqual(origin)
     expect(character!.content).toContain('## 特化前摘录')
     expect(character!.content).toContain('triggers:')
     expect(character!.content).not.toContain(DOCUMENT_ORIGIN_FIELD)
