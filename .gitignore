@@ -14,3 +14,6 @@ _tmp_*
 # Local vaults and generated runs can become large.
 local-vaults/
 runs-tmp/
+
+.worktrees/
+
