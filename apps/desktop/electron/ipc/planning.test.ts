@@ -665,11 +665,16 @@ describe('planning discussion side effects', () => {
     })
 
     expect(await pathExists(toWorld.document!.path)).toBe(false)
+    expect(worldResult.path.replaceAll('\\', '/')).toContain('/world/')
     expect(worldResult.document.data).toMatchObject({
       id: 'canon-dusk-gate',
       type: 'world_entry',
       title: '黄昏闭门规则',
       tags: ['城门']
+    })
+    expect(worldResult.document.data.quillarium_origin).toMatchObject({
+      kind: 'ai-conversation',
+      session_id: toWorld.id
     })
 
     const backToCanon = await startPlanningSession(root, 'card-conversion', 'canon-dusk-gate')
@@ -690,11 +695,16 @@ describe('planning discussion side effects', () => {
     })
 
     expect(await pathExists(backToCanon.document!.path)).toBe(false)
+    expect(canonResult.path.replaceAll('\\', '/')).toContain('/canon/')
     expect(canonResult.document.data).toMatchObject({
       id: 'canon-dusk-gate',
       type: 'canon',
       title: '黄昏闭门',
       tags: ['城门']
+    })
+    expect(canonResult.document.data.quillarium_origin).toMatchObject({
+      kind: 'ai-conversation',
+      session_id: backToCanon.id
     })
     expect(await listDocs(root, 'world_entry')).toHaveLength(0)
     expect(await listDocs(root, 'canon')).toHaveLength(1)

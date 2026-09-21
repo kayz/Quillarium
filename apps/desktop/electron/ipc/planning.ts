@@ -548,10 +548,40 @@ async function applyPlanningProposalTransaction(
     const documentsAfterCreates = await listDocs<DocumentIdentity>(root)
     for (const update of updates) {
       const resolvedDraft = resolvePlanningProposalReferences(update.draft, resolvedProposalIds)
+      if (update.changing_type) {
+        const specialized = await specializePlanningCard(
+          root,
+          String(update.current_data['id']),
+          resolvedDraft.kind,
+          {
+            ...sharedMigrationFields(update.current_data, resolvedDraft.fields, resolvedDraft.kind),
+            title: resolvedDraft.title
+          },
+          {
+            content: resolvedDraft.content,
+            expectedSha256: update.proposal.target?.expected_sha256
+          }
+        )
+        writtenTargets.push(specialized.path)
+        await writeMarkdown(
+          specialized.path,
+          { ...specialized.data, [DOCUMENT_ORIGIN_FIELD]: planningOrigin(session, update.proposal.id) },
+          specialized.content
+        )
+        appliedDrafts.set(update.proposal.id, resolvedDraft)
+        const document = await readMarkdown<Record<string, unknown>>(specialized.path)
+        results.push({
+          proposal_id: update.proposal.id,
+          operation: 'update',
+          path: specialized.path,
+          document,
+          source_sha256: sha256Text(await readText(specialized.path))
+        })
+        continue
+      }
       const parsed = parseDocumentFields(resolvedDraft.kind, {
-        ...(update.changing_type
-          ? sharedMigrationFields(update.current_data, resolvedDraft.fields, resolvedDraft.kind)
-          : { ...update.current_data, ...resolvedDraft.fields }),
+        ...update.current_data,
+        ...resolvedDraft.fields,
         id: update.current_data['id'],
         type: resolvedDraft.kind,
         schema_version: 1,
@@ -617,7 +647,9 @@ async function applyPlanningProposalTransaction(
       }
     }
     await persistence.writeSession(root, session)
-    for (const update of updates.filter((item) => item.changing_type)) {
+    for (const update of updates.filter(
+      (item) => item.changing_type && !appliedDrafts.has(item.proposal.id)
+    )) {
       await persistence.removeFile(update.source)
     }
     const selected =
