@@ -293,22 +293,53 @@ export async function acceptSceneIntoChapter(
     outline_content: scene.data.outline_content || scene.content,
     accepted_at: new Date().toISOString()
   }
-  const nextProse: ChapterProseDoc = {
-    ...lifecycle.prose.data,
-    scene_ids: [...lifecycle.prose.data.scene_ids, scene.data.id]
-  }
   await writeMarkdown(scene.path, nextScene as unknown as Record<string, unknown>, prose)
   try {
-    await writeMarkdown(
-      lifecycle.prose.path,
-      nextProse as unknown as Record<string, unknown>,
-      `${lifecycle.prose.content.trimEnd()}${prose}`
-    )
+    return await writeChapterProseForAcceptedScene(projectRoot, lifecycle.chapter.data.id, {
+      ...scene,
+      data: nextScene,
+      content: prose
+    })
   } catch (error) {
     await writeMarkdown(scene.path, scene.data as unknown as Record<string, unknown>, scene.content)
     throw error
   }
-  return loadChapterLifecycle(projectRoot, lifecycle.chapter.data.id)
+}
+
+async function writeChapterProseForAcceptedScene(
+  projectRoot: string,
+  chapterId: string,
+  justAccepted: { path: string; data: SceneDoc; content: string }
+): Promise<ChapterLifecycleSnapshot> {
+  const lifecycle = await loadChapterLifecycle(projectRoot, chapterId)
+  const scenes = lifecycle.scenes.map((item) =>
+    item.data.id === justAccepted.data.id ? justAccepted : item
+  )
+  const legacyPartial = lifecycle.prose.data.scene_ids.length > 0
+  if (legacyPartial) {
+    const nextProse: ChapterProseDoc = {
+      ...lifecycle.prose.data,
+      scene_ids: [...lifecycle.prose.data.scene_ids, justAccepted.data.id]
+    }
+    await writeMarkdown(
+      lifecycle.prose.path,
+      nextProse as unknown as Record<string, unknown>,
+      `${lifecycle.prose.content.trimEnd()}${justAccepted.content}`
+    )
+    return loadChapterLifecycle(projectRoot, chapterId)
+  }
+  const unaccepted = scenes.filter((item) => !item.data.accepted_at)
+  if (unaccepted.length) return loadChapterLifecycle(projectRoot, chapterId)
+  if (lifecycle.prose.content.trim()) {
+    throw new Error('章正文已有手写内容，不能用节模块覆盖。请先清空章正文，或关闭节模块后继续手写。')
+  }
+  const joined = scenes.map((item) => assertPlainProse(item.content)).join('')
+  const nextProse: ChapterProseDoc = {
+    ...lifecycle.prose.data,
+    scene_ids: scenes.map((item) => item.data.id)
+  }
+  await writeMarkdown(lifecycle.prose.path, nextProse as unknown as Record<string, unknown>, joined)
+  return loadChapterLifecycle(projectRoot, chapterId)
 }
 
 export async function finalizeChapter(
@@ -317,13 +348,13 @@ export async function finalizeChapter(
 ): Promise<ChapterLifecycleSnapshot> {
   const lifecycle = await loadChapterLifecycle(projectRoot, chapterId)
   if (lifecycle.prose.data.status === 'published') throw new Error('Published chapters cannot be changed.')
-  if (!lifecycle.prose.content.trim()) throw new Error('Cannot finalize an empty chapter.')
   const unaccepted = lifecycle.scenes.filter((scene) => !scene.data.accepted_at)
   if (unaccepted.length) {
     throw new Error(
       `Cannot finalize while scenes are unaccepted: ${unaccepted.map((item) => item.data.title).join(', ')}`
     )
   }
+  if (!lifecycle.prose.content.trim()) throw new Error('Cannot finalize an empty chapter.')
   const expected = lifecycle.scenes.map((scene) => scene.data.id)
   if (
     expected.length !== lifecycle.prose.data.scene_ids.length ||
