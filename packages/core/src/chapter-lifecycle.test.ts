@@ -101,10 +101,16 @@ describe('seven-level hierarchy and chapter lifecycle', () => {
       location: 'location-room',
       pov: 'character-protagonist'
     })
+    const before = await loadChapterLifecycle(root, 'chapter')
     await expect(acceptSceneIntoChapter(root, 'scene-one', '生成的正文。')).rejects.toThrow('手写')
     const after = await loadChapterLifecycle(root, 'chapter')
     expect(after.prose.content).toContain('作者手写的章正文。')
     expect(after.prose.data.scene_ids).toEqual([])
+    expect(after.scenes[0].data.accepted_at).toBeFalsy()
+    expect(after.scenes[0].data.status).toBe(before.scenes[0].data.status)
+    expect(after.scenes[0].data.status).not.toBe('final')
+    expect(after.scenes[0].content).toBe(before.scenes[0].content)
+    expect(after.scenes[0].content).not.toContain('生成的正文。')
   })
 
   it('still appends when chapter prose already lists an accepted scene id', async () => {
