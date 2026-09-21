@@ -54,6 +54,7 @@ import {
   type PlanningCheckApplyPanelOutcome,
   type PlanningCheckPanelOutcome
 } from '../agents/PlanningCheckPanel.js'
+import { selectionAfterSpecialize } from './selection-after-specialize.js'
 
 type EditableDoc = { data: Record<string, unknown>; content: string; path: string }
 
@@ -320,7 +321,11 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
     targetType: string,
     fields: Record<string, unknown>
   ) => {
-    await bridge.specializePlanningCard(root, card.data.id, targetType, fields)
+    const result = await bridge.specializePlanningCard(root, card.data.id, targetType, fields)
+    const { selectedTarget: nextTarget, doc: nextDoc } = selectionAfterSpecialize(result)
+    setSelectedTarget(nextTarget)
+    setDoc(nextDoc)
+    setDirty(false)
     await load()
   }
   const storyStructure = normalizeStoryStructure(data.project.story_structure)
