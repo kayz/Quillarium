@@ -3,6 +3,7 @@ import path from 'node:path'
 import { fileForDoc, listDocs } from './documents.js'
 import { pathExists, readMarkdown, readText, writeMarkdown, writeText } from './fs.js'
 import { assertCardReferencesExist, validatePlanningCardGraph } from './planning-cards.js'
+import { DOCUMENT_ORIGIN_FIELD } from './provenance.js'
 import { withProjectWriteLock } from './project-write-lock.js'
 import {
   canonSchema,
@@ -22,7 +23,7 @@ import { sha256Text } from './versioned-yaml-store.js'
 
 const UNSET_REFERENCE = '__quillarium_unset_reference__'
 const EXCERPT_HEADER = '## 特化前摘录'
-const SKIP_EXCERPT_KEYS = new Set(['id', 'type', 'schema_version'])
+const SKIP_EXCERPT_KEYS = new Set(['id', 'type', 'schema_version', DOCUMENT_ORIGIN_FIELD])
 const SHARED_PLANNING_KEYS = ['status', 'tags', 'enabled', 'source_refs', 'relations', 'image'] as const
 
 export const SPECIALIZATION_KINDS = [
@@ -111,6 +112,10 @@ export async function specializePlanningCard(
     }
     const parsed = SPECIALIZATION_SCHEMAS[targetType].parse(merged) as DocumentIdentity &
       Record<string, unknown>
+    const existingOrigin = sourceData[DOCUMENT_ORIGIN_FIELD]
+    if (existingOrigin !== undefined && existingOrigin !== null) {
+      parsed[DOCUMENT_ORIGIN_FIELD] = existingOrigin
+    }
 
     if (targetType === 'character_relation' && parsed['from_character'] === parsed['to_character']) {
       throw new Error('人物关系必须连接两个不同的人物。')

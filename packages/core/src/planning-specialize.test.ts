@@ -3,8 +3,9 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createCharacter, createCharacterRelation, createWorldEntry, listDocs } from './documents.js'
-import { pathExists } from './fs.js'
+import { pathExists, readMarkdown, writeMarkdown } from './fs.js'
 import { specializePlanningCard } from './planning-specialize.js'
+import { DOCUMENT_ORIGIN_FIELD } from './provenance.js'
 import { createProjectAt } from './project.js'
 
 const roots: string[] = []
@@ -21,6 +22,36 @@ async function fixture(): Promise<string> {
 }
 
 describe('specializePlanningCard', () => {
+  it('preserves existing quillarium_origin and excludes it from excerpt', async () => {
+    const root = await fixture()
+    const sourcePath = await createWorldEntry(
+      root,
+      '林舟',
+      { id: 'world-lin', triggers: ['林舟', '舟师'], story_setting: '北港水手' },
+      '北港的舟师。'
+    )
+    const origin = {
+      schema_version: 1 as const,
+      kind: 'document-import' as const,
+      sources: [{ path: '/tmp/source.md', sha256: 'abc123' }],
+      item_index: 0,
+      item_title: '林舟',
+      created_at: '2026-09-20T00:00:00.000Z',
+      updated_at: '2026-09-20T00:00:00.000Z'
+    }
+    const existing = await readMarkdown<Record<string, unknown>>(sourcePath)
+    await writeMarkdown(sourcePath, { ...existing.data, [DOCUMENT_ORIGIN_FIELD]: origin }, existing.content)
+
+    await specializePlanningCard(root, 'world-lin', 'character', {})
+
+    const [character] = await listDocs(root, 'character')
+    expect(character!.data[DOCUMENT_ORIGIN_FIELD]).toEqual(origin)
+    expect(character!.content).toContain('## 特化前摘录')
+    expect(character!.content).toContain('triggers:')
+    expect(character!.content).not.toContain(DOCUMENT_ORIGIN_FIELD)
+    expect(JSON.stringify(character!.data)).not.toContain('story_setting')
+  })
+
   it('moves a world entry to a character file and keeps the id', async () => {
     const root = await fixture()
     const source = await createWorldEntry(
