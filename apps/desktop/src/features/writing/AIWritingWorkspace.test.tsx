@@ -318,6 +318,159 @@ describe('AIWritingWorkspace', () => {
     expect(html).toContain('新增下一节')
   })
 
+  it('shows 已确认 for an accepted scene not yet in chapter prose scene_ids', () => {
+    const acceptedScene: DocEntry = {
+      ...openingScene,
+      data: {
+        ...openingScene.data,
+        accepted_at: '2026-08-13T00:00:00.000Z'
+      },
+      content: '已确认的正文。'
+    }
+    const draftProse: DocEntry = {
+      path: 'chapters/chapter-one.md',
+      data: {
+        id: 'prose-chapter-one',
+        type: 'chapter_prose',
+        title: '第一章 正文',
+        status: 'draft',
+        chapter_id: 'chapter-one',
+        scene_ids: []
+      },
+      content: ''
+    }
+    const html = renderToStaticMarkup(
+      <AIWritingWorkspace
+        root="C:/project"
+        docs={[chapter, acceptedScene, draftProse]}
+        runs={[]}
+        outline={chapter}
+        scene={null}
+        context=""
+        contextPacket={null}
+        checkReport={null}
+        assembledPrompt=""
+        busy={false}
+        onPromptChange={() => undefined}
+        onCheck={async () => undefined}
+        onGenerate={async () => undefined}
+        onDelete={async () => undefined}
+        onAccepted={async () => undefined}
+        {...navigationCallbacks}
+        language="zh"
+      />
+    )
+
+    expect(html).toContain('已确认')
+    expect(html).not.toContain('已写入章正文')
+  })
+
+  it('shows 已写入章正文 when an accepted scene id is in chapter prose scene_ids', () => {
+    const acceptedScene: DocEntry = {
+      ...openingScene,
+      data: {
+        ...openingScene.data,
+        accepted_at: '2026-08-13T00:00:00.000Z'
+      },
+      content: '已写入章正文的节。'
+    }
+    const draftProse: DocEntry = {
+      path: 'chapters/chapter-one.md',
+      data: {
+        id: 'prose-chapter-one',
+        type: 'chapter_prose',
+        title: '第一章 正文',
+        status: 'draft',
+        chapter_id: 'chapter-one',
+        scene_ids: ['scene-opening']
+      },
+      content: '已经写入的第一节。'
+    }
+    const html = renderToStaticMarkup(
+      <AIWritingWorkspace
+        root="C:/project"
+        docs={[chapter, acceptedScene, draftProse]}
+        runs={[]}
+        outline={chapter}
+        scene={null}
+        context=""
+        contextPacket={null}
+        checkReport={null}
+        assembledPrompt=""
+        busy={false}
+        onPromptChange={() => undefined}
+        onCheck={async () => undefined}
+        onGenerate={async () => undefined}
+        onDelete={async () => undefined}
+        onAccepted={async () => undefined}
+        {...navigationCallbacks}
+        language="zh"
+      />
+    )
+
+    expect(html).toContain('已写入章正文')
+    expect(html).not.toContain('已确认')
+  })
+
+  it('shows Confirmed vs In chapter prose in English using scene_ids', () => {
+    const acceptedOnly: DocEntry = {
+      ...openingScene,
+      data: {
+        ...openingScene.data,
+        accepted_at: '2026-08-13T00:00:00.000Z'
+      },
+      content: 'Accepted scene prose.'
+    }
+    const inProse: DocEntry = {
+      ...openingScene,
+      path: 'scenes/scene-second.md',
+      data: {
+        ...openingScene.data,
+        id: 'scene-second',
+        title: 'Scene Two',
+        order: 2,
+        accepted_at: '2026-08-13T00:01:00.000Z'
+      },
+      content: 'Scene in chapter prose.'
+    }
+    const draftProse: DocEntry = {
+      path: 'chapters/chapter-one.md',
+      data: {
+        id: 'prose-chapter-one',
+        type: 'chapter_prose',
+        title: 'Chapter One Prose',
+        status: 'draft',
+        chapter_id: 'chapter-one',
+        scene_ids: ['scene-second']
+      },
+      content: 'Second scene prose.'
+    }
+    const html = renderToStaticMarkup(
+      <AIWritingWorkspace
+        root="C:/project"
+        docs={[chapter, acceptedOnly, inProse, draftProse]}
+        runs={[]}
+        outline={chapter}
+        scene={null}
+        context=""
+        contextPacket={null}
+        checkReport={null}
+        assembledPrompt=""
+        busy={false}
+        onPromptChange={() => undefined}
+        onCheck={async () => undefined}
+        onGenerate={async () => undefined}
+        onDelete={async () => undefined}
+        onAccepted={async () => undefined}
+        {...navigationCallbacks}
+        language="en"
+      />
+    )
+
+    expect(html).toContain('Confirmed')
+    expect(html).toContain('In chapter prose')
+  })
+
   it('explains why a finalized chapter cannot add or edit scenes', () => {
     const finalProse: DocEntry = {
       path: 'chapters/chapter-one.md',

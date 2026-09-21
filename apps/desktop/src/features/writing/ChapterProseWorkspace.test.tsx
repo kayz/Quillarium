@@ -53,4 +53,10 @@ describe('ChapterProseWorkspace', () => {
   it('counts prose characters without whitespace', () => {
     expect(countProseCharacters('甲乙。\n\n丙 丁。')).toBe(6)
   })
+
+  it('describes deferred chapter prose write after all scenes are confirmed', () => {
+    const html = render('draft')
+    expect(html).toContain('节模块会在本章所有节都确认后，才把各节正文一次性写入这里')
+    expect(html).not.toContain('确认后会写入章正文')
+  })
 })
