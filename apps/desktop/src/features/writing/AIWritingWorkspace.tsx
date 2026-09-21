@@ -115,6 +115,9 @@ export function AIWritingWorkspace({
       } satisfies DocEntry)
     : scene
   const chapterSceneIds = chapterScenes.map((item) => item.data.id)
+  const proseSceneIds =
+    lifecycle?.prose.data.scene_ids ??
+    (Array.isArray(fallbackProse?.data.scene_ids) ? (fallbackProse.data.scene_ids as string[]) : [])
 
   const refreshChapter = async () => {
     if (!outline) return
@@ -339,6 +342,7 @@ export function AIWritingWorkspace({
       {!currentScene ? (
         <ChapterSceneOverview
           scenes={chapterScenes}
+          proseSceneIds={proseSceneIds}
           proseStatus={proseStatus}
           proseContent={proseContent}
           busy={busy}
@@ -552,6 +556,7 @@ export function AIWritingWorkspace({
 
 function ChapterSceneOverview({
   scenes,
+  proseSceneIds,
   proseStatus,
   proseContent,
   busy,
@@ -563,6 +568,7 @@ function ChapterSceneOverview({
   onOpenProse
 }: {
   scenes: ChapterLifecycleSnapshot['scenes']
+  proseSceneIds: string[]
   proseStatus: string
   proseContent: string
   busy: boolean
@@ -583,8 +589,8 @@ function ChapterSceneOverview({
           <h3>{zh ? '节与章正文' : 'Scenes and chapter prose'}</h3>
           <p>
             {zh
-              ? '每节可以独立生成、重写和检查；接受后按顺序写入章正文。'
-              : 'Generate and check each scene independently, then accept it into chapter prose in order.'}
+              ? '每节约一千字，可多次生成、选择和手改；确认后先留在本节。本章全部节确认后，才写入章正文。'
+              : 'Each scene is a ~1000-word generation chunk. Confirm leaves prose on the scene; chapter prose updates after every scene is confirmed.'}
           </p>
         </div>
         {!locked ? (
@@ -624,9 +630,13 @@ function ChapterSceneOverview({
                 <strong>{item.data.title}</strong>
                 <span>
                   {item.data.accepted_at
-                    ? zh
-                      ? '已写入章正文'
-                      : 'Accepted into prose'
+                    ? proseSceneIds.includes(item.data.id)
+                      ? zh
+                        ? '已写入章正文'
+                        : 'In chapter prose'
+                      : zh
+                        ? '已确认'
+                        : 'Confirmed'
                     : zh
                       ? '工作中'
                       : 'In progress'}{' '}

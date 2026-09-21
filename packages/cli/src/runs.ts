@@ -70,7 +70,7 @@ export function registerRunCommands(program: Command, projectOption: (command: C
       .command('accept')
       .argument('<run-id>', 'Run id')
       .option('--scene <scene-id>', 'Scene id; defaults to metadata scene_id')
-      .description('Accept output-raw.md into the scene and append it to chapter prose')
+      .description('Confirm this run as scene prose; write chapter prose only when every scene in the chapter is confirmed')
   ).action(async (runId, options) => {
     const root = path.resolve(options.project)
     const current = await requireRun(root, runId)

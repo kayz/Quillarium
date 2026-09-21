@@ -936,9 +936,9 @@ const FIELD_DEFINITIONS: Record<string, LocalizedFieldDefinition> = {
   ),
   accepted_at: field(
     '接受时间',
-    '本节成果被作者接受并写入章正文的时间。',
+    '作者确认本节成果的时间。章正文要等本章全部节确认后才写入。',
     'Accepted at',
-    'When the author accepted this scene into chapter prose.'
+    'When the author confirmed this scene. Chapter prose is written after every scene in the chapter is confirmed.'
   ),
   purged_at: field(
     '清理时间',

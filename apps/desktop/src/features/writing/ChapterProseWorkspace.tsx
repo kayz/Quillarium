@@ -305,8 +305,8 @@ export function ChapterProseWorkspace({
 
       <p className="chapter-prose-note">
         {zh
-          ? '可以完全手写正文；接受某一节的成果时，系统会按节顺序写入这里，不加入标题或分隔符。'
-          : 'Write directly, or accept scene results into this prose in scene order without headings or separators.'}
+          ? '可以完全手写正文。节模块会在本章所有节都确认后，才把各节正文一次性写入这里，不加入标题或分隔符。'
+          : 'Write directly. The scene module writes into this prose only after every scene in the chapter is confirmed, with no headings or separators.'}
       </p>
     </section>
   )
