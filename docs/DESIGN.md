@@ -603,6 +603,12 @@ use the same sanitizer, and final serialized CCv3 content is scanned before PNG 
 
 ## 0.3.0 Setting Cards, Story-Tree Visibility, and Factions
 
+New setting facts can start as a `world_entry` and stay in the world book until the author chooses
+a typed shape. Authors may specialize a record in place: the document id stays stable while the file
+moves from `world/` to the destination module directory. Direct typed creates and planning-card
+creates remain unchanged. AI `card-conversion` proposals use the same core in-place write path as
+manual specialization; the display layer and setting-card HTML rendering are unchanged by the move.
+
 ### Project-local setting images
 
 `world_entry`, `character`, `location`, `character_relation`, and `faction` documents may carry one
