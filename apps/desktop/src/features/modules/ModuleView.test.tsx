@@ -13,6 +13,7 @@ const baseProps = {
   onCreateBlank: noopAsync,
   onAIPlanningCreate: vi.fn(),
   onAIConvertCard: vi.fn(),
+  onSpecializeCard: vi.fn(),
   onUploadReferences: noopAsync,
   onAIExtractReference: vi.fn(),
   selectedTarget: null,

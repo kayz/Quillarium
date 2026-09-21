@@ -157,6 +157,8 @@ const api: QuillariumAPI = {
   applyPlanningCheck: (root, executionId, decisionId) =>
     invoke('planning:checkApply', root, executionId, decisionId),
   openPlanningCheckRun: (root, executionId) => invoke('planning:checkOpenRun', root, executionId),
+  specializePlanningCard: (root, cardId, targetType, fields, expectedSha256) =>
+    invoke('planning:specialize', root, cardId, targetType, fields, expectedSha256),
   assembleContext: (root, sceneId) => invoke('scene:context', root, sceneId),
   assembleTargetContext: (root, target) => invoke('target:context', root, target),
   assembleWritingPrompt: (root, outlineId) => invoke('target:writingPrompt', root, outlineId),

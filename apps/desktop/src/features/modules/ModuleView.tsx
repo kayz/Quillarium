@@ -17,6 +17,7 @@ import { CanonWorkspace } from './CanonWorkspace.js'
 import { IssueWorkspace } from './IssueWorkspace.js'
 import { BoundedPager } from '../layout/BoundedPager.js'
 import { boundedPage } from '../layout/bounded-page.js'
+import { OutlineCreateDialog } from '../outline/OutlineCreateDialog.js'
 import { SETTING_IMAGE_TYPES, SettingThumbnail } from '../planning/SettingCardMedia.js'
 import {
   blankSettingCardInput,
@@ -24,7 +25,7 @@ import {
   planningConversionKinds,
   planningKindForContext
 } from '../planning/planning-model.js'
-import { OutlineCreateDialog } from '../outline/OutlineCreateDialog.js'
+import { SpecializeCardDialog } from '../planning/SpecializeCardDialog.js'
 
 const MODULE_PAGE_SIZE = 30
 const MODULE_TYPE_MAP: Record<string, string> = {
@@ -52,6 +53,7 @@ export function ModuleView({
   onCreateBlank,
   onAIPlanningCreate,
   onAIConvertCard,
+  onSpecializeCard,
   onUploadReferences,
   onAIExtractReference,
   selectedTarget,
@@ -69,6 +71,7 @@ export function ModuleView({
   onCreateBlank: (kind: PlanningDocumentKind, input: Record<string, unknown>) => Promise<void>
   onAIPlanningCreate: (module: ModuleName) => void
   onAIConvertCard: (doc: DocEntry) => void
+  onSpecializeCard: (doc: DocEntry, targetType: string, fields: Record<string, unknown>) => Promise<void>
   onUploadReferences: () => Promise<void>
   onAIExtractReference: (doc: DocEntry) => void
   selectedTarget: TargetSelection | null
@@ -80,6 +83,7 @@ export function ModuleView({
 }) {
   const [pageIndex, setPageIndex] = useState(0)
   const [blankCreateOpen, setBlankCreateOpen] = useState(false)
+  const [specializeCard, setSpecializeCard] = useState<DocEntry | null>(null)
   const blankKind = planningKindForContext(module)
   const filtered = useMemo(
     () =>
@@ -236,6 +240,9 @@ export function ModuleView({
           <button className="primary" type="button" onClick={() => onAIConvertCard(selectedConvertible)}>
             <Bot size={15} /> {language === 'zh' ? '转换卡片类型' : 'Convert card type'}
           </button>
+          <button className="secondary" type="button" onClick={() => setSpecializeCard(selectedConvertible)}>
+            {language === 'zh' ? '特化' : 'Specialize'}
+          </button>
         </div>
       )}
       {module === 'characters' && selectedTarget?.type === 'character' && (
@@ -356,6 +363,17 @@ export function ModuleView({
           onConfirm={async (title) => {
             await onCreateBlank(blankKind, blankSettingCardInput(blankKind, title))
             setBlankCreateOpen(false)
+          }}
+        />
+      )}
+      {specializeCard && (
+        <SpecializeCardDialog
+          language={language}
+          sourceType={specializeCard.data.type}
+          onCancel={() => setSpecializeCard(null)}
+          onConfirm={async (targetType, fields) => {
+            await onSpecializeCard(specializeCard, targetType, fields)
+            setSpecializeCard(null)
           }}
         />
       )}

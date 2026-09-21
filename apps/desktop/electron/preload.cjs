@@ -178,6 +178,8 @@ const api = {
   applyPlanningCheck: (root, executionId, decisionId) =>
     ipcRenderer.invoke('planning:checkApply', root, executionId, decisionId),
   openPlanningCheckRun: (root, executionId) => ipcRenderer.invoke('planning:checkOpenRun', root, executionId),
+  specializePlanningCard: (root, cardId, targetType, fields, expectedSha256) =>
+    ipcRenderer.invoke('planning:specialize', root, cardId, targetType, fields, expectedSha256),
   assembleContext: (root, sceneId) => ipcRenderer.invoke('scene:context', root, sceneId),
   assembleTargetContext: (root, target) => ipcRenderer.invoke('target:context', root, target),
   assembleWritingPrompt: (root, outlineId) => ipcRenderer.invoke('target:writingPrompt', root, outlineId),

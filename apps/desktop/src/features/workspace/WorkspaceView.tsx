@@ -315,6 +315,14 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
   const convertPlanningCard = (card: DocEntry) => {
     setPlanningDialog({ module: 'card-conversion', documentId: card.data.id })
   }
+  const specializePlanningCard = async (
+    card: DocEntry,
+    targetType: string,
+    fields: Record<string, unknown>
+  ) => {
+    await bridge.specializePlanningCard(root, card.data.id, targetType, fields)
+    await load()
+  }
   const storyStructure = normalizeStoryStructure(data.project.story_structure)
 
   return (
@@ -597,6 +605,7 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
                   }}
                   onAIPlanningCreate={(module) => setPlanningDialog({ module })}
                   onAIConvertCard={convertPlanningCard}
+                  onSpecializeCard={specializePlanningCard}
                   onUploadReferences={uploadReferences}
                   onAIExtractReference={extractCardsFromReference}
                   selectedTarget={selectedTarget}

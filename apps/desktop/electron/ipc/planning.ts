@@ -37,6 +37,7 @@ import {
   timelineNodeSchema,
   worldEntrySchema,
   withProjectWriteLock,
+  specializePlanningCard,
   writeMarkdown,
   writeText,
   type BaseDoc,
@@ -215,6 +216,9 @@ export function registerPlanningHandlers(): void {
   )
   typedHandle('planning:checkOpenRun', async (_event, root, executionId) =>
     openPlanningCheckRun(root, executionId)
+  )
+  typedHandle('planning:specialize', async (_event, root, cardId, targetType, fields, expectedSha256) =>
+    specializePlanningCard(root, cardId, targetType, fields, { expectedSha256 })
   )
 }
 

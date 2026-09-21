@@ -928,6 +928,16 @@ export interface IpcContract {
     request: [root: string, executionId: string]
     response: boolean
   }
+  'planning:specialize': {
+    request: [
+      root: string,
+      cardId: string,
+      targetType: string,
+      fields: Record<string, unknown>,
+      expectedSha256?: string
+    ]
+    response: { path: string; data: DocumentIdentity; content: string }
+  }
   'scene:context': { request: [root: string, sceneId: string]; response: string }
   'target:context': {
     request: [root: string, target: TargetInput]
@@ -1195,6 +1205,7 @@ export const QUILLARIUM_API_CHANNELS = {
   decidePlanningCheck: 'planning:checkDecision',
   applyPlanningCheck: 'planning:checkApply',
   openPlanningCheckRun: 'planning:checkOpenRun',
+  specializePlanningCard: 'planning:specialize',
   assembleContext: 'scene:context',
   assembleTargetContext: 'target:context',
   assembleWritingPrompt: 'target:writingPrompt',
