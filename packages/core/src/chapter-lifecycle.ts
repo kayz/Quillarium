@@ -247,6 +247,21 @@ export async function deleteStoryNode(
       )
       changedProse.push(prose)
     }
+    if (target.type === 'scene') {
+      // Deleting the last open scene can leave a draft chapter holding confirmed scenes that were
+      // still waiting for the deferred commit; write them now so the chapter is not stranded empty.
+      const chapterId = sceneChapterId(scenesToDelete[0]!.data)
+      const chapterProse = affectedProse.find(
+        (item) => item.data.chapter_id === chapterId && !deletedProseIds.has(item.data.id)
+      )
+      if (chapterProse?.data.status === 'draft') {
+        if (!changedProse.includes(chapterProse)) changedProse.push(chapterProse)
+        await commitConfirmedScenesIntoChapterProse(
+          projectRoot,
+          await loadChapterLifecycle(projectRoot, chapterId)
+        )
+      }
+    }
     await rm(staging, { recursive: true, force: true })
   } catch (error) {
     for (const prose of changedProse.reverse()) {
@@ -286,6 +301,9 @@ export async function acceptSceneIntoChapter(
     (item) => item.data.order < scene.data.order && !item.data.accepted_at
   )
   if (earlier) throw new Error(`请先接受前一节「${earlier.data.title}」，章正文必须按节顺序写入。`)
+  if (lifecycle.prose.content.trim() && !hasCommittedScenes(lifecycle.prose.data)) {
+    throw new Error('章正文已有手写内容，不能用节模块覆盖。请先清空章正文，或关闭节模块后继续手写。')
+  }
   const prose = assertPlainProse(candidate ?? scene.content)
   const nextScene: SceneDoc = {
     ...scene.data,
@@ -306,17 +324,22 @@ export async function acceptSceneIntoChapter(
   }
 }
 
+/**
+ * Nonempty `scene_ids` means this chapter already took the incremental-append path: either a legacy
+ * half-commit written before the deferred commit existed, or a draft whose scenes were committed and
+ * is now accepting a scene added afterwards. Such a chapter keeps appending instead of rejoining.
+ */
+function hasCommittedScenes(prose: ChapterProseDoc): boolean {
+  return prose.scene_ids.length > 0
+}
+
 async function writeChapterProseForAcceptedScene(
   projectRoot: string,
   chapterId: string,
   justAccepted: { path: string; data: SceneDoc; content: string }
 ): Promise<ChapterLifecycleSnapshot> {
   const lifecycle = await loadChapterLifecycle(projectRoot, chapterId)
-  const scenes = lifecycle.scenes.map((item) =>
-    item.data.id === justAccepted.data.id ? justAccepted : item
-  )
-  const legacyPartial = lifecycle.prose.data.scene_ids.length > 0
-  if (legacyPartial) {
+  if (hasCommittedScenes(lifecycle.prose.data)) {
     const nextProse: ChapterProseDoc = {
       ...lifecycle.prose.data,
       scene_ids: [...lifecycle.prose.data.scene_ids, justAccepted.data.id]
@@ -328,18 +351,33 @@ async function writeChapterProseForAcceptedScene(
     )
     return loadChapterLifecycle(projectRoot, chapterId)
   }
-  const unaccepted = scenes.filter((item) => !item.data.accepted_at)
-  if (unaccepted.length) return loadChapterLifecycle(projectRoot, chapterId)
-  if (lifecycle.prose.content.trim()) {
-    throw new Error('章正文已有手写内容，不能用节模块覆盖。请先清空章正文，或关闭节模块后继续手写。')
-  }
-  const joined = scenes.map((item) => assertPlainProse(item.content)).join('')
+  await commitConfirmedScenesIntoChapterProse(projectRoot, lifecycle)
+  return loadChapterLifecycle(projectRoot, chapterId)
+}
+
+/**
+ * Deferred chapter commit: joins every scene of a draft chapter into its prose, in scene order,
+ * once no scene is still open. Does nothing while a scene is unconfirmed, when the chapter already
+ * holds handwritten or committed prose, or when no scene remains — an emptied chapter stays a
+ * handwritten chapter.
+ */
+async function commitConfirmedScenesIntoChapterProse(
+  projectRoot: string,
+  lifecycle: ChapterLifecycleSnapshot
+): Promise<void> {
+  if (lifecycle.prose.data.status !== 'draft') return
+  if (hasCommittedScenes(lifecycle.prose.data) || lifecycle.prose.content.trim()) return
+  if (!lifecycle.scenes.length) return
+  if (lifecycle.scenes.some((item) => !item.data.accepted_at)) return
   const nextProse: ChapterProseDoc = {
     ...lifecycle.prose.data,
-    scene_ids: scenes.map((item) => item.data.id)
+    scene_ids: lifecycle.scenes.map((item) => item.data.id)
   }
-  await writeMarkdown(lifecycle.prose.path, nextProse as unknown as Record<string, unknown>, joined)
-  return loadChapterLifecycle(projectRoot, chapterId)
+  await writeMarkdown(
+    lifecycle.prose.path,
+    nextProse as unknown as Record<string, unknown>,
+    lifecycle.scenes.map((item) => assertPlainProse(item.content)).join('')
+  )
 }
 
 export async function finalizeChapter(

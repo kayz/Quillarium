@@ -84,7 +84,7 @@ describe('seven-level hierarchy and chapter lifecycle', () => {
     await expect(assertDocumentHumanEditable(root, scene.data)).rejects.toThrow('已定稿')
   })
 
-  it('refuses to commit confirmed scenes over handwritten chapter prose', async () => {
+  it('refuses to commit confirmed scenes over handwritten chapter prose on the first confirmation', async () => {
     const root = await fixture()
     const lifecycle = await loadChapterLifecycle(root, 'chapter')
     await writeMarkdown(
@@ -101,16 +101,80 @@ describe('seven-level hierarchy and chapter lifecycle', () => {
       location: 'location-room',
       pov: 'character-protagonist'
     })
+    await createScene(root, '第二节', {
+      id: 'scene-two',
+      chapter_id: 'chapter',
+      section: 'chapter',
+      order: 1,
+      timeline_node: 'timeline-opening',
+      location: 'location-room',
+      pov: 'character-protagonist'
+    })
     const before = await loadChapterLifecycle(root, 'chapter')
     await expect(acceptSceneIntoChapter(root, 'scene-one', '生成的正文。')).rejects.toThrow('手写')
     const after = await loadChapterLifecycle(root, 'chapter')
     expect(after.prose.content).toContain('作者手写的章正文。')
     expect(after.prose.data.scene_ids).toEqual([])
-    expect(after.scenes[0].data.accepted_at).toBeFalsy()
-    expect(after.scenes[0].data.status).toBe(before.scenes[0].data.status)
-    expect(after.scenes[0].data.status).not.toBe('final')
-    expect(after.scenes[0].content).toBe(before.scenes[0].content)
-    expect(after.scenes[0].content).not.toContain('生成的正文。')
+    expect(after.scenes.map((item) => item.data.accepted_at).filter(Boolean)).toEqual([])
+    expect(after.scenes.map((item) => item.data.status)).toEqual(
+      before.scenes.map((item) => item.data.status)
+    )
+    expect(after.scenes.map((item) => item.data.status)).not.toContain('final')
+    expect(after.scenes.map((item) => item.content)).toEqual(before.scenes.map((item) => item.content))
+    expect(after.scenes.some((item) => item.content.includes('生成的正文。'))).toBe(false)
+  })
+
+  it('commits the confirmed scenes when the last open scene of a draft chapter is deleted', async () => {
+    const root = await fixture()
+    await createScene(root, '第一节', {
+      id: 'scene-one',
+      chapter_id: 'chapter',
+      section: 'chapter',
+      order: 0,
+      timeline_node: 'timeline-opening',
+      location: 'location-room',
+      pov: 'character-protagonist'
+    })
+    await createScene(root, '第二节', {
+      id: 'scene-two',
+      chapter_id: 'chapter',
+      section: 'chapter',
+      order: 1,
+      timeline_node: 'timeline-opening',
+      location: 'location-room',
+      pov: 'character-protagonist'
+    })
+    await acceptSceneIntoChapter(root, 'scene-one', '开篇正文。')
+    const beforeDelete = await loadChapterLifecycle(root, 'chapter')
+    expect(beforeDelete.prose.content.trim()).toBe('')
+
+    await deleteStoryNode(root, { type: 'scene', id: 'scene-two' })
+
+    const afterDelete = await loadChapterLifecycle(root, 'chapter')
+    expect(afterDelete.prose.content.trim()).toBe('开篇正文。')
+    expect(afterDelete.prose.data.scene_ids).toEqual(['scene-one'])
+    const finalized = await finalizeChapter(root, 'chapter')
+    expect(finalized.prose.data.status).toBe('final')
+  })
+
+  it('leaves a draft chapter handwritten when its only remaining scene is deleted', async () => {
+    const root = await fixture()
+    await createScene(root, '第一节', {
+      id: 'scene-one',
+      chapter_id: 'chapter',
+      section: 'chapter',
+      order: 0,
+      timeline_node: 'timeline-opening',
+      location: 'location-room',
+      pov: 'character-protagonist'
+    })
+
+    await deleteStoryNode(root, { type: 'scene', id: 'scene-one' })
+
+    const lifecycle = await loadChapterLifecycle(root, 'chapter')
+    expect(lifecycle.scenes).toEqual([])
+    expect(lifecycle.prose.content.trim()).toBe('')
+    expect(lifecycle.prose.data.scene_ids).toEqual([])
   })
 
   it('still appends when chapter prose already lists an accepted scene id', async () => {
