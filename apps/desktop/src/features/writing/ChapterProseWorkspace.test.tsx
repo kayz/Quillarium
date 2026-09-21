@@ -57,6 +57,6 @@ describe('ChapterProseWorkspace', () => {
   it('describes deferred chapter prose write after all scenes are confirmed', () => {
     const html = render('draft')
     expect(html).toContain('节模块会在本章所有节都确认后，才把各节正文一次性写入这里')
-    expect(html).not.toContain('确认后会写入章正文')
+    expect(html).not.toContain('接受某一节的成果时，系统会按节顺序写入这里')
   })
 })

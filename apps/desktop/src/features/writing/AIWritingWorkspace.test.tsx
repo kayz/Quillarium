@@ -71,6 +71,41 @@ const openingCharacter: DocEntry = {
   content: ''
 }
 
+/** Reads the status line of one scene card so an assertion names the scene it is about. */
+function sceneStatusLabel(html: string, sceneTitle: string): string {
+  const card = html.split(`<strong>${sceneTitle}</strong>`)[1] ?? ''
+  return (card.match(/<span>([^<]*)<\/span>/u)?.[1] ?? '').split('·')[0]?.trim() ?? ''
+}
+
+/** One chapter holding a committed scene, a confirmed but uncommitted scene, and an open scene. */
+function sceneStatusDocs(language: 'zh' | 'en'): DocEntry[] {
+  const zh = language === 'zh'
+  const scene = (id: string, title: string, order: number, acceptedAt: string | null): DocEntry => ({
+    ...openingScene,
+    path: `scenes/${id}.md`,
+    data: { ...openingScene.data, id, title, order, accepted_at: acceptedAt },
+    content: '节正文。'
+  })
+  return [
+    chapter,
+    scene('scene-in-prose', zh ? '已写入的节' : 'Scene in prose', 1, '2026-08-13T00:00:00.000Z'),
+    scene('scene-confirmed', zh ? '已确认的节' : 'Confirmed scene', 2, '2026-08-13T00:01:00.000Z'),
+    scene('scene-open', zh ? '工作中的节' : 'Open scene', 3, null),
+    {
+      path: 'chapters/chapter-one.md',
+      data: {
+        id: 'prose-chapter-one',
+        type: 'chapter_prose',
+        title: zh ? '第一章 正文' : 'Chapter One Prose',
+        status: 'draft',
+        chapter_id: 'chapter-one',
+        scene_ids: ['scene-in-prose']
+      },
+      content: '已经写入的节正文。'
+    }
+  ]
+}
+
 describe('AIWritingWorkspace', () => {
   it('gives the adjusted prompt a dedicated full workspace before generation', () => {
     const html = renderToStaticMarkup(
@@ -318,31 +353,11 @@ describe('AIWritingWorkspace', () => {
     expect(html).toContain('新增下一节')
   })
 
-  it('shows 已确认 for an accepted scene not yet in chapter prose scene_ids', () => {
-    const acceptedScene: DocEntry = {
-      ...openingScene,
-      data: {
-        ...openingScene.data,
-        accepted_at: '2026-08-13T00:00:00.000Z'
-      },
-      content: '已确认的正文。'
-    }
-    const draftProse: DocEntry = {
-      path: 'chapters/chapter-one.md',
-      data: {
-        id: 'prose-chapter-one',
-        type: 'chapter_prose',
-        title: '第一章 正文',
-        status: 'draft',
-        chapter_id: 'chapter-one',
-        scene_ids: []
-      },
-      content: ''
-    }
+  it('labels every scene by confirmation and by membership in chapter prose scene_ids', () => {
     const html = renderToStaticMarkup(
       <AIWritingWorkspace
         root="C:/project"
-        docs={[chapter, acceptedScene, draftProse]}
+        docs={sceneStatusDocs('zh')}
         runs={[]}
         outline={chapter}
         scene={null}
@@ -361,94 +376,16 @@ describe('AIWritingWorkspace', () => {
       />
     )
 
-    expect(html).toContain('已确认')
-    expect(html).not.toContain('已写入章正文')
+    expect(sceneStatusLabel(html, '已写入的节')).toBe('已写入章正文')
+    expect(sceneStatusLabel(html, '已确认的节')).toBe('已确认')
+    expect(sceneStatusLabel(html, '工作中的节')).toBe('工作中')
   })
 
-  it('shows 已写入章正文 when an accepted scene id is in chapter prose scene_ids', () => {
-    const acceptedScene: DocEntry = {
-      ...openingScene,
-      data: {
-        ...openingScene.data,
-        accepted_at: '2026-08-13T00:00:00.000Z'
-      },
-      content: '已写入章正文的节。'
-    }
-    const draftProse: DocEntry = {
-      path: 'chapters/chapter-one.md',
-      data: {
-        id: 'prose-chapter-one',
-        type: 'chapter_prose',
-        title: '第一章 正文',
-        status: 'draft',
-        chapter_id: 'chapter-one',
-        scene_ids: ['scene-opening']
-      },
-      content: '已经写入的第一节。'
-    }
+  it('labels every scene the same way in English', () => {
     const html = renderToStaticMarkup(
       <AIWritingWorkspace
         root="C:/project"
-        docs={[chapter, acceptedScene, draftProse]}
-        runs={[]}
-        outline={chapter}
-        scene={null}
-        context=""
-        contextPacket={null}
-        checkReport={null}
-        assembledPrompt=""
-        busy={false}
-        onPromptChange={() => undefined}
-        onCheck={async () => undefined}
-        onGenerate={async () => undefined}
-        onDelete={async () => undefined}
-        onAccepted={async () => undefined}
-        {...navigationCallbacks}
-        language="zh"
-      />
-    )
-
-    expect(html).toContain('已写入章正文')
-    expect(html).not.toContain('已确认')
-  })
-
-  it('shows Confirmed vs In chapter prose in English using scene_ids', () => {
-    const acceptedOnly: DocEntry = {
-      ...openingScene,
-      data: {
-        ...openingScene.data,
-        accepted_at: '2026-08-13T00:00:00.000Z'
-      },
-      content: 'Accepted scene prose.'
-    }
-    const inProse: DocEntry = {
-      ...openingScene,
-      path: 'scenes/scene-second.md',
-      data: {
-        ...openingScene.data,
-        id: 'scene-second',
-        title: 'Scene Two',
-        order: 2,
-        accepted_at: '2026-08-13T00:01:00.000Z'
-      },
-      content: 'Scene in chapter prose.'
-    }
-    const draftProse: DocEntry = {
-      path: 'chapters/chapter-one.md',
-      data: {
-        id: 'prose-chapter-one',
-        type: 'chapter_prose',
-        title: 'Chapter One Prose',
-        status: 'draft',
-        chapter_id: 'chapter-one',
-        scene_ids: ['scene-second']
-      },
-      content: 'Second scene prose.'
-    }
-    const html = renderToStaticMarkup(
-      <AIWritingWorkspace
-        root="C:/project"
-        docs={[chapter, acceptedOnly, inProse, draftProse]}
+        docs={sceneStatusDocs('en')}
         runs={[]}
         outline={chapter}
         scene={null}
@@ -467,8 +404,9 @@ describe('AIWritingWorkspace', () => {
       />
     )
 
-    expect(html).toContain('Confirmed')
-    expect(html).toContain('In chapter prose')
+    expect(sceneStatusLabel(html, 'Scene in prose')).toBe('In chapter prose')
+    expect(sceneStatusLabel(html, 'Confirmed scene')).toBe('Confirmed')
+    expect(sceneStatusLabel(html, 'Open scene')).toBe('In progress')
   })
 
   it('explains why a finalized chapter cannot add or edit scenes', () => {

@@ -39,6 +39,7 @@ import {
   parentForNewLevel,
   outlineItemsForLevel
 } from '../../shared/outline.js'
+import { deleteConfirmationMessage } from './delete-confirmation.js'
 import { WorkspaceView } from './WorkspaceView.js'
 import type {
   PlanningCheckApplyPanelOutcome,
@@ -632,30 +633,19 @@ export function Workspace({
     if (!doc) return
     const type = String(doc.data.type ?? '')
     const level = String(doc.data.level ?? '')
-    const isBranch =
-      type === 'outline' && ['volume', 'part', 'arc', 'act', 'chapter', 'section'].includes(level)
-    const acceptedScene = type === 'scene' && Boolean(doc.data.accepted_at)
-    const title = String(doc.data.title ?? '当前文档')
-    const chapterId =
-      type === 'scene' ? String(doc.data.chapter_id ?? doc.data.section ?? '') : ''
+    const chapterId = type === 'scene' ? String(doc.data.chapter_id ?? doc.data.section ?? '') : ''
     const chapterProse = chapterId
-      ? data?.docs.find(
-          (item) => item.data.type === 'chapter_prose' && item.data.chapter_id === chapterId
-        )
+      ? data?.docs.find((item) => item.data.type === 'chapter_prose' && item.data.chapter_id === chapterId)
       : undefined
-    const sceneIds = chapterProse?.data.scene_ids
-    const sceneInProse =
-      acceptedScene &&
-      Array.isArray(sceneIds) &&
-      sceneIds.includes(String(doc.data.id))
     const ok = window.confirm(
-      isBranch
-        ? `删除「${title}」及其全部下级内容？只要其中没有已发布正文，卷、篇、幕、章、节及相关运行记录都会一并删除。`
-        : acceptedScene
-          ? sceneInProse
-            ? `删除节「${title}」？它的节文件和运行记录会删除；已经写入章正文的文字会保留，供你在章正文中手工调整。`
-            : `删除节「${title}」？节文件和运行记录会删除。若章正文尚未纳入本节，章正文不变；若已经写入，已写入的文字会留在章正文里供手改。`
-          : `删除「${title}」？此操作会删除对应文件和相关运行记录。`
+      deleteConfirmationMessage({
+        type,
+        level,
+        id: String(doc.data.id ?? ''),
+        title: String(doc.data.title ?? '当前文档'),
+        acceptedScene: type === 'scene' && Boolean(doc.data.accepted_at),
+        chapterSceneIds: chapterProse?.data.scene_ids
+      })
     )
     if (!ok) return
     const parentId =
