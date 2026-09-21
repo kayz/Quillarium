@@ -1308,3 +1308,17 @@ describe('CLI smoke flow', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 })
+
+describe('card specialize', () => {
+  it('specializes a world entry into a character through the CLI', async () => {
+    const { root } = await initProject()
+    await createWorldEntry(root, 'Lin Zhou', { id: 'world-lin' }, 'A northern sailor.')
+    await expect(run('card', 'specialize', 'world-lin', '--to', 'character_relation', '--project', root)).rejects.toThrow(
+      '特化缺少必填字段'
+    )
+    expect((await listDocs(root, 'world_entry'))[0]?.data.type).toBe('world_entry')
+    await run('card', 'specialize', 'world-lin', '--to', 'character', '--project', root)
+    expect(await listDocs(root, 'world_entry')).toHaveLength(0)
+    expect((await listDocs(root, 'character'))[0]?.data.id).toBe('world-lin')
+  })
+})

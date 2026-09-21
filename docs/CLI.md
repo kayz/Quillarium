@@ -68,6 +68,15 @@ pnpm cli issue add "Decide first-act POV order" --project "./writing-workspace/p
 pnpm cli strategy add "Courtroom Pressure" --project "./writing-workspace/projects/my-novel" --category pacing --principle "Every exchange changes leverage" --avoid "Unopposed exposition"
 ```
 
+New setting cards can start as world entries and later specialize in place (same id):
+
+```bash
+pnpm cli world add "Lin Zhou" --project "./writing-workspace/projects/my-novel"
+pnpm cli card specialize <world-id> --to character --project "./writing-workspace/projects/my-novel"
+```
+
+`character add` and other typed create commands remain available as shortcuts.
+
 The desktop and current import/AI proposal flow create unified `narrative` cards for new style,
 structure, pacing, and genre guidance. The source-run CLI does not yet have a `narrative` command; its
 `strategy` and `pattern` groups are retained compatibility surfaces and continue to create those

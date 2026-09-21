@@ -64,8 +64,10 @@ import {
   setWorkspaceDir,
   loadProject,
   loadWorkspace,
+  requiredSpecializationFields,
   registerWorkspaceProject,
   recoverFinalizationApplications,
+  specializePlanningCard,
   stableProjectId,
   updateProjectConfig,
   writeRunFile,
@@ -497,6 +499,37 @@ export function buildProgram(): Command {
   })
   projectOption(world.command('list').description('List worldbook entries')).action(async (opts) => {
     await printDocs(path.resolve(opts.project), 'world_entry')
+  })
+
+  const card = program.command('card').description('Specialize or inspect setting cards')
+  projectOption(
+    card
+      .command('specialize')
+      .argument('<id>', 'Stable card id')
+      .requiredOption('--to <type>', 'Target document type')
+      .option('--from-character <id>', 'character_relation.from_character')
+      .option('--to-character <id>', 'character_relation.to_character')
+      .option('--relation-type <text>', 'Relation type')
+      .option('--from-faction <id>', 'faction_relation.from_faction')
+      .option('--to-faction <id>', 'faction_relation.to_faction')
+      .option('--faction <id>', 'faction_membership.faction_id')
+      .option('--character <id>', 'faction_membership.character_id')
+      .description('Change this card type in place; keep the stable id')
+  ).action(async (id, opts) => {
+    const fields: Record<string, unknown> = {}
+    if (opts.fromCharacter) fields.from_character = opts.fromCharacter
+    if (opts.toCharacter) fields.to_character = opts.toCharacter
+    if (opts.relationType) fields.relation_type = opts.relationType
+    if (opts.fromFaction) fields.from_faction = opts.fromFaction
+    if (opts.toFaction) fields.to_faction = opts.toFaction
+    if (opts.faction) fields.faction_id = opts.faction
+    if (opts.character) fields.character_id = opts.character
+    const missing = requiredSpecializationFields(opts.to).filter((key) => !fields[key])
+    if (missing.length) {
+      throw new Error(`特化缺少必填字段：${missing.join('、')}`)
+    }
+    const result = await specializePlanningCard(path.resolve(opts.project), id, opts.to, fields)
+    console.log(result.path)
   })
 
   const reference = program.command('reference').description('Manage research/reference documents')
