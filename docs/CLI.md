@@ -75,6 +75,16 @@ legacy document families.
 
 ### 2. Create a scene
 
+New workspace projects start with the scene module off, so a chapter is written directly as chapter
+prose. Turn the module on for a project before creating scenes; part and act levels are untouched:
+
+```bash
+pnpm cli project set-structure --project "./writing-workspace/projects/my-novel" --scene-enabled
+```
+
+The same command turns it off again with `--no-scene-enabled`, and prints the resulting
+`story_structure`. While the module is off, `scene create` refuses and names this command.
+
 The current hierarchy is `book → volume → part → optional act → chapter → scene`. The source-run
 CLI retains the option name `--section` for pre-0.2 compatibility, but the value must be the owning
 **chapter outline ID**; the created document writes both current `chapter_id` and the readable legacy
@@ -394,6 +404,7 @@ and options.
 | `workspace`      | `list`, `create-project`                                                             |
 | `config`         | Workspace configuration plus explicit legacy-vault compatibility                     |
 | `init`           | Create/register `projects/<id>`; `--vault` is legacy-only                            |
+| `project`        | `set-structure`: turn the scene module on or off for one project                     |
 | `preset`         | `init`, `list`, `show`, `select`, `create`, `migrate`                                |
 | `canon`          | `add`, `import`, `list`, `search`                                                    |
 | `character`      | `add`, `list`                                                                        |

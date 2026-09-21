@@ -658,7 +658,9 @@ renders a bounded safe Markdown subset for long-form text.
 ### Reversible story-tree visibility
 
 `ProjectConfig.story_structure` stores `part_enabled`, `act_enabled`, and `scene_enabled`. Missing
-configuration in an old project defaults to all three enabled without a read-time migration. Acts
+configuration in an old project defaults to all three enabled without a read-time migration. New
+workspace projects are created with `scene_enabled: false` so a chapter is the default writing unit,
+while the schema default stays `true` for existing projects. Acts
 cannot be enabled when parts are disabled. When part or act is off, the renderer walks through the
 disabled ancestors and presents chapters beneath the nearest enabled parent; every existing outline
 keeps its original `parent` and file. The Settings inspector lists disabled part/act/scene files and

@@ -62,10 +62,12 @@ import {
   selectWritingPreset,
   setObsidianDir,
   setWorkspaceDir,
+  loadProject,
   loadWorkspace,
   registerWorkspaceProject,
   recoverFinalizationApplications,
   stableProjectId,
+  updateProjectConfig,
   writeRunFile,
   writeRunMetadata,
   type BaseDoc,
@@ -143,6 +145,28 @@ export function buildProgram(): Command {
   function projectOption(cmd: Command): Command {
     return cmd.requiredOption('-p, --project <path>', 'Novel project root')
   }
+
+  const projectCmd = program.command('project').description('Manage project-level configuration')
+  projectOption(
+    projectCmd
+      .command('set-structure')
+      .option('--scene-enabled', 'Turn the scene module on')
+      .option('--no-scene-enabled', 'Turn the scene module off')
+      .description('Turn the scene module on or off; part and act levels are left unchanged')
+  ).action(async (opts) => {
+    if (opts.sceneEnabled === undefined) {
+      throw new Error('Pass --scene-enabled or --no-scene-enabled.')
+    }
+    const root = path.resolve(opts.project)
+    const current = await loadProject(root)
+    const updated = await updateProjectConfig(root, {
+      story_structure: { ...current.story_structure, scene_enabled: opts.sceneEnabled }
+    })
+    const structure = updated.story_structure
+    console.log(
+      `story_structure: part_enabled=${structure.part_enabled} act_enabled=${structure.act_enabled} scene_enabled=${structure.scene_enabled}`
+    )
+  })
 
   registerAgentCommands(program, projectOption)
 
@@ -664,19 +688,30 @@ export function buildProgram(): Command {
       .option('--chapter <tag>', 'Chapter tag', 'chapter-001')
       .description('Create a scene/section prose file')
   ).action(async (title, opts) => {
-    printPath(
-      await createScene(path.resolve(opts.project), title, {
-        section: opts.section,
-        timeline_node: opts.timeline,
-        location: opts.location,
-        pov: opts.pov,
-        characters: csv(opts.characters),
-        target_words: opts.targetWords,
-        chapter_hook: !!opts.chapterHook,
-        previous_scene: opts.previousScene ?? null,
-        tags: [opts.volume, opts.chapter]
-      })
-    )
+    const root = path.resolve(opts.project)
+    try {
+      printPath(
+        await createScene(root, title, {
+          section: opts.section,
+          timeline_node: opts.timeline,
+          location: opts.location,
+          pov: opts.pov,
+          characters: csv(opts.characters),
+          target_words: opts.targetWords,
+          chapter_hook: !!opts.chapterHook,
+          previous_scene: opts.previousScene ?? null,
+          tags: [opts.volume, opts.chapter]
+        })
+      )
+    } catch (error) {
+      if (error instanceof Error && error.message === 'SCENE_LEVEL_DISABLED') {
+        throw new Error(
+          `The scene module is off for this project. Turn it on first: quill project set-structure --project ${root} --scene-enabled`,
+          { cause: error }
+        )
+      }
+      throw error
+    }
   })
   projectOption(scene.command('list').description('List scenes')).action(async (opts) => {
     await printDocs(path.resolve(opts.project), 'scene')

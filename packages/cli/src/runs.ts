@@ -70,7 +70,9 @@ export function registerRunCommands(program: Command, projectOption: (command: C
       .command('accept')
       .argument('<run-id>', 'Run id')
       .option('--scene <scene-id>', 'Scene id; defaults to metadata scene_id')
-      .description('Confirm this run as scene prose; write chapter prose only when every scene in the chapter is confirmed')
+      .description(
+        'Confirm this run as scene prose; write chapter prose only when every scene in the chapter is confirmed'
+      )
   ).action(async (runId, options) => {
     const root = path.resolve(options.project)
     const current = await requireRun(root, runId)
@@ -84,7 +86,11 @@ export function registerRunCommands(program: Command, projectOption: (command: C
     await writeRunMetadata(root, accepted)
     try {
       const lifecycle = await acceptSceneIntoChapter(root, sceneId, raw)
-      console.log(`Accepted ${runId} into ${lifecycle.prose.path}`)
+      console.log(
+        lifecycle.prose.data.scene_ids.includes(sceneId)
+          ? `Accepted ${runId} into ${lifecycle.prose.path}`
+          : `Accepted ${runId} as scene prose; ${lifecycle.prose.path} is written once every scene in this chapter is confirmed.`
+      )
     } catch (error) {
       await writeRunFile(root, current, 'output-accepted.md', '')
       await writeRunMetadata(root, current)

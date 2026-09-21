@@ -466,6 +466,64 @@ describe('CLI smoke flow', () => {
     expect(output.at(-1)).toBe(`Created project: ${root}`)
   })
 
+  it('turns the scene module on for a workspace project that starts without it', async () => {
+    const { root } = await initWorkspaceProject()
+    await createOutline(root, 'book', 'Structure Book', { id: 'book-structure' })
+    await createOutline(root, 'volume', 'Structure Volume', {
+      id: 'volume-structure',
+      parent: 'book-structure'
+    })
+    await createOutline(root, 'part', 'Structure Part', {
+      id: 'part-structure',
+      parent: 'volume-structure'
+    })
+    await createOutline(root, 'chapter', 'Structure Chapter', {
+      id: 'chapter-structure',
+      parent: 'part-structure'
+    })
+    const createStructureScene = () =>
+      run(
+        'scene',
+        'create',
+        'Structure Scene',
+        '--section',
+        'chapter-structure',
+        '--timeline',
+        'event-structure',
+        '--location',
+        'location-structure',
+        '--pov',
+        'character-structure',
+        '--project',
+        root
+      )
+
+    await expect(createStructureScene()).rejects.toThrow(
+      `The scene module is off for this project. Turn it on first: quill project set-structure --project ${root} --scene-enabled`
+    )
+    expect(await listDocs<SceneDoc>(root, 'scene')).toEqual([])
+
+    await run('project', 'set-structure', '--scene-enabled', '--project', root)
+    expect((await loadProject(root)).story_structure).toEqual({
+      part_enabled: true,
+      act_enabled: true,
+      scene_enabled: true
+    })
+    expect(output.at(-1)).toBe('story_structure: part_enabled=true act_enabled=true scene_enabled=true')
+
+    await createStructureScene()
+    expect((await listDocs<SceneDoc>(root, 'scene')).map((item) => item.data.title)).toEqual([
+      'Structure Scene'
+    ])
+
+    await run('project', 'set-structure', '--no-scene-enabled', '--project', root)
+    expect((await loadProject(root)).story_structure.scene_enabled).toBe(false)
+
+    await expect(run('project', 'set-structure', '--project', root)).rejects.toThrow(
+      'Pass --scene-enabled or --no-scene-enabled.'
+    )
+  })
+
   it('creates, selects, and snapshots one portable writing preset through the CLI', async () => {
     vi.stubEnv('QUILL_AI_PROVIDER', 'openai')
     vi.stubEnv('QUILL_AI_MODEL', 'gpt-4o-mini')
