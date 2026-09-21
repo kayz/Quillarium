@@ -68,16 +68,85 @@ describe('seven-level hierarchy and chapter lifecycle', () => {
     })
     await expect(acceptSceneIntoChapter(root, 'scene-two', '后文。')).rejects.toThrow('先接受前一节')
     await acceptSceneIntoChapter(root, 'scene-one', '开篇正文。')
-    const lifecycle = await loadChapterLifecycle(root, 'chapter')
-    expect(lifecycle.prose.content).toContain('开篇正文。')
-    expect(lifecycle.prose.data.scene_ids).toEqual(['scene-one'])
+    const afterFirst = await loadChapterLifecycle(root, 'chapter')
+    expect(afterFirst.prose.content.trim()).toBe('')
+    expect(afterFirst.prose.data.scene_ids).toEqual([])
+    expect(afterFirst.scenes[0].data.accepted_at).toBeTruthy()
+    expect(afterFirst.scenes[0].content).toContain('开篇正文。')
     await expect(finalizeChapter(root, 'chapter')).rejects.toThrow('unaccepted')
     await acceptSceneIntoChapter(root, 'scene-two', '后文。')
-    expect((await loadChapterLifecycle(root, 'chapter')).prose.content.trim()).toBe('开篇正文。后文。')
+    const afterAll = await loadChapterLifecycle(root, 'chapter')
+    expect(afterAll.prose.content.trim()).toBe('开篇正文。后文。')
+    expect(afterAll.prose.data.scene_ids).toEqual(['scene-one', 'scene-two'])
     await finalizeChapter(root, 'chapter')
     await expect(assertChapterAllowsAI(root, 'chapter')).rejects.toThrow('已定稿')
     const scene = await readMarkdown<Record<string, unknown>>(first)
     await expect(assertDocumentHumanEditable(root, scene.data)).rejects.toThrow('已定稿')
+  })
+
+  it('refuses to commit confirmed scenes over handwritten chapter prose', async () => {
+    const root = await fixture()
+    const lifecycle = await loadChapterLifecycle(root, 'chapter')
+    await writeMarkdown(
+      lifecycle.prose.path,
+      lifecycle.prose.data as unknown as Record<string, unknown>,
+      '作者手写的章正文。'
+    )
+    await createScene(root, '第一节', {
+      id: 'scene-one',
+      chapter_id: 'chapter',
+      section: 'chapter',
+      order: 0,
+      timeline_node: 'timeline-opening',
+      location: 'location-room',
+      pov: 'character-protagonist'
+    })
+    await expect(acceptSceneIntoChapter(root, 'scene-one', '生成的正文。')).rejects.toThrow('手写')
+    const after = await loadChapterLifecycle(root, 'chapter')
+    expect(after.prose.content).toContain('作者手写的章正文。')
+    expect(after.prose.data.scene_ids).toEqual([])
+  })
+
+  it('still appends when chapter prose already lists an accepted scene id', async () => {
+    const root = await fixture()
+    await createScene(root, '第一节', {
+      id: 'scene-one',
+      chapter_id: 'chapter',
+      section: 'chapter',
+      order: 0,
+      timeline_node: 'timeline-opening',
+      location: 'location-room',
+      pov: 'character-protagonist'
+    })
+    await createScene(root, '第二节', {
+      id: 'scene-two',
+      chapter_id: 'chapter',
+      section: 'chapter',
+      order: 1,
+      timeline_node: 'timeline-opening',
+      location: 'location-room',
+      pov: 'character-protagonist'
+    })
+    const started = await loadChapterLifecycle(root, 'chapter')
+    await writeMarkdown(
+      started.prose.path,
+      { ...started.prose.data, scene_ids: ['scene-one'] } as unknown as Record<string, unknown>,
+      '开篇正文。'
+    )
+    const first = (await listDocs<SceneDoc>(root, 'scene')).find((item) => item.data.id === 'scene-one')
+    if (!first) throw new Error('missing scene-one')
+    await writeMarkdown(
+      first.path,
+      { ...first.data, accepted_at: '2026-01-01T00:00:00.000Z', status: 'final' } as unknown as Record<
+        string,
+        unknown
+      >,
+      '开篇正文。'
+    )
+    await acceptSceneIntoChapter(root, 'scene-two', '后文。')
+    const after = await loadChapterLifecycle(root, 'chapter')
+    expect(after.prose.content.trim()).toBe('开篇正文。后文。')
+    expect(after.prose.data.scene_ids).toEqual(['scene-one', 'scene-two'])
   })
 
   it('publishes with exact-title confirmation, purges generated artifacts, preserves scene outlines, and locks prose', async () => {
