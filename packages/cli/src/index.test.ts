@@ -18,6 +18,7 @@ import {
   createWorldEntry,
   listDocs,
   listRuns,
+  loadProject,
   pathExists,
   readRunFile,
   type CanonDoc,
@@ -453,10 +454,12 @@ describe('CLI smoke flow', () => {
   it('initializes and registers a direct project-vault in the configured workspace by default', async () => {
     const { workspace, root, id } = await initWorkspaceProject()
     const config = await readFile(path.join(root, 'project.yaml'), 'utf8')
+    const loaded = await loadProject(root)
     const manifest = await readFile(path.join(workspace, 'quillarium-workspace.yaml'), 'utf8')
 
     expect(config).toContain('schema_version: 2')
     expect(config).toContain(`id: ${id}`)
+    expect(loaded.story_structure.scene_enabled).toBe(false)
     expect(await pathExists(path.join(root, '.obsidian'))).toBe(true)
     expect(manifest).toContain(`id: ${id}`)
     expect(manifest).toContain(`path: projects/${id}`)

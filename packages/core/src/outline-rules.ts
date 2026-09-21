@@ -19,6 +19,12 @@ export const DEFAULT_STORY_STRUCTURE: StoryStructureConfigV1 = Object.freeze({
   scene_enabled: true
 })
 
+export const WRITER_DEFAULT_STORY_STRUCTURE: StoryStructureConfigV1 = Object.freeze({
+  part_enabled: true,
+  act_enabled: true,
+  scene_enabled: false
+})
+
 export function normalizeOutlineLevel(level: OutlineLevelInput): NormalizedOutlineLevel {
   return level === 'arc' ? 'part' : level
 }

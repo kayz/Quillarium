@@ -11,7 +11,11 @@ import {
   createScene,
   listDocs
 } from './documents.js'
-import { allowedParentLevels } from './outline-rules.js'
+import {
+  DEFAULT_STORY_STRUCTURE,
+  WRITER_DEFAULT_STORY_STRUCTURE,
+  allowedParentLevels
+} from './outline-rules.js'
 import { createProjectAt, updateProjectConfig } from './project.js'
 import type { FactionDoc, FactionMembershipDoc, FactionRelationDoc } from './types.js'
 
@@ -22,6 +26,11 @@ afterEach(async () => {
 })
 
 describe('factions and configurable story structure', () => {
+  it('keeps schema tests on the compatibility default and exposes a writer default with scenes off', () => {
+    expect(DEFAULT_STORY_STRUCTURE.scene_enabled).toBe(true)
+    expect(WRITER_DEFAULT_STORY_STRUCTURE.scene_enabled).toBe(false)
+  })
+
   it('persists faction, faction relationship, and character membership as stable documents', async () => {
     const root = await fixture('faction-project')
     await createCharacter(root, '林澜', { id: 'char-lin' })

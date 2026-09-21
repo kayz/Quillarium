@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url'
 import { Command } from 'commander'
 import dotenv from 'dotenv'
 import {
+  WRITER_DEFAULT_STORY_STRUCTURE,
   appendTimelineEvent,
   answerFinalizeQuestion,
   applyFinalizeReviewSession,
@@ -128,7 +129,12 @@ export function buildProgram(): Command {
       if (normalizedId !== id) throw new Error(`Project id must be path-safe: ${normalizedId}`)
       const relative = path.posix.join(loaded.manifest.projects_dir.replace(/\\/g, '/'), id)
       const projectRoot = path.join(loaded.root, ...relative.split('/'))
-      await createProjectAt(projectRoot, { id, title, genre: opts.genre })
+      await createProjectAt(projectRoot, {
+        id,
+        title,
+        genre: opts.genre,
+        story_structure: WRITER_DEFAULT_STORY_STRUCTURE
+      })
       await registerWorkspaceProject(loaded.root, { id, path: relative })
       await setWorkspaceDir(loaded.root, id)
       console.log(projectRoot)
@@ -330,7 +336,8 @@ export function buildProgram(): Command {
         target_words: opts.targetWords,
         chapter_words: opts.chapterWords,
         section_words: opts.sectionWords,
-        default_theme: opts.defaultTheme
+        default_theme: opts.defaultTheme,
+        story_structure: WRITER_DEFAULT_STORY_STRUCTURE
       })
       await registerWorkspaceProject(workspace.root, { id, path: relative })
       await setWorkspaceDir(workspace.root, id)
