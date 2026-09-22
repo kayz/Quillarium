@@ -298,7 +298,6 @@ function builtinRoles(): CreatorRoleV1[] {
       enabled_operations: [
         'converse',
         'append_exploration',
-        'generate_candidate',
         'propose_planning_record',
         'propose_configuration_change'
       ],
