@@ -40,6 +40,7 @@ export const PROJECT_DIRS = [
   'assets',
   'assets/cover',
   'assets/settings',
+  'assets/display',
   'reviews',
   'style',
   'exports',
