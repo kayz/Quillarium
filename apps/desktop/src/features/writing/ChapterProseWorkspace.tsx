@@ -98,6 +98,14 @@ export function ChapterProseWorkspace({
     }
   }
 
+  const closeEvalPanel = () => {
+    setEvalProposals(null)
+    setEvalError('')
+    setEvalNotice('')
+    setSelectedIssues({})
+    setSelectedSettings({})
+  }
+
   const evaluateChapter = async () => {
     await runEvalAction(async () => {
       const proposals = await window.quillarium.evaluateChapter(root, chapterId)
@@ -350,11 +358,13 @@ export function ChapterProseWorkspace({
         <section className="chapter-eval-panel" aria-label={zh ? '章评估提案' : 'Chapter eval proposals'}>
           <header>
             <strong>{zh ? '章评估提案' : 'Chapter eval proposals'}</strong>
-            {evalProposals && (
-              <button onClick={() => setEvalProposals(null)} aria-label={zh ? '关闭评估提案' : 'Close eval'}>
-                <XCircle size={15} />
-              </button>
-            )}
+            <button
+              onClick={closeEvalPanel}
+              disabled={evalBusy}
+              aria-label={zh ? '关闭评估提案' : 'Close eval'}
+            >
+              <XCircle size={15} />
+            </button>
           </header>
           <div className="chapter-eval-body">
             {evalBusy && <p className="finalization-message">{zh ? '正在评估…' : 'Evaluating…'}</p>}
