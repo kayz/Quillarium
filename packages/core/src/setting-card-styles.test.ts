@@ -222,6 +222,50 @@ describe('workspace setting-card styles', () => {
     expect(html).not.toContain('onclick')
   })
 
+  it('spreads gallery dots from the bottom center for circular and rectangular visuals', () => {
+    const data = {
+      id: 'world-lin',
+      type: 'world_entry',
+      title: '林舟',
+      content: '水手。',
+      fields: {},
+      image_data_url: 'data:image/png;base64,AAAA',
+      image_data_urls: [
+        { id: 'one', alt: 'a', data_url: 'data:image/png;base64,AAAA' },
+        { id: 'two', alt: 'b', data_url: 'data:image/png;base64,BBBB' },
+        { id: 'three', alt: 'c', data_url: 'data:image/png;base64,CCCC' }
+      ]
+    }
+    const heraldic = renderSettingCardHtml(
+      defaultSettingCardTemplate('heraldic'),
+      { width: 720, height: 1080 },
+      data
+    )
+    const rectangular = renderSettingCardHtml(
+      defaultSettingCardTemplate('ink-archive'),
+      { width: 720, height: 1080 },
+      data
+    )
+
+    for (const html of [heraldic, rectangular]) {
+      expect(html).toMatch(/\.display-gallery-dot\{[^}]*align-self:end/)
+      expect(html).toMatch(/\.display-gallery-dot\{[^}]*justify-self:center/)
+      expect(html).not.toMatch(/\.display-gallery-dot\{[^}]*justify-self:start/)
+      expect(html).not.toMatch(/\.display-gallery-input:nth-of-type/)
+      expect(html).toMatch(
+        /<input class="display-gallery-input"[^>]*\/><label class="display-gallery-dot"[^>]*style="[^"]*margin[^"]*"[^>]*><\/label><figure class="display-gallery-slide">/
+      )
+      const dots = [...html.matchAll(/<label class="display-gallery-dot"[^>]*>/g)].map((match) => match[0])
+      expect(dots).toHaveLength(3)
+      expect(dots[0]).toContain('style="margin-left:-18px;margin-right:18px"')
+      expect(dots[1]).toContain('style="margin-left:0px;margin-right:0px"')
+      expect(dots[2]).toContain('style="margin-left:18px;margin-right:-18px"')
+    }
+
+    expect(heraldic).toMatch(/\.visual\{[^}]*border-radius:50%/)
+    expect(heraldic).toContain('overflow:hidden')
+  })
+
   it('renders every built-in style locally with a distinct template', () => {
     const templates = BUILTIN_SETTING_CARD_STYLES.map((style) => defaultSettingCardTemplate(style.id))
 

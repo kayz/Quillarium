@@ -110,7 +110,7 @@ const STATIC_TEMPLATE_TOKENS = new Set([
   '{{images}}'
 ])
 const DISPLAY_GALLERY_CSS =
-  '.visual{position:relative}.visual>.display-gallery{position:absolute;inset:0}.display-gallery{display:grid}.display-gallery-input{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);pointer-events:none}.display-gallery-dot{grid-area:1/1;z-index:2;align-self:end;justify-self:start;box-sizing:border-box;width:14px;height:14px;margin:0 0 12px 10px;border-radius:50%;background:rgba(255,255,255,.65);cursor:pointer}.display-gallery-input:nth-of-type(1)+.display-gallery-dot{margin-left:10px}.display-gallery-input:nth-of-type(2)+.display-gallery-dot{margin-left:28px}.display-gallery-input:nth-of-type(3)+.display-gallery-dot{margin-left:46px}.display-gallery-input:nth-of-type(4)+.display-gallery-dot{margin-left:64px}.display-gallery-input:nth-of-type(5)+.display-gallery-dot{margin-left:82px}.display-gallery-input:nth-of-type(6)+.display-gallery-dot{margin-left:100px}.display-gallery-input:nth-of-type(7)+.display-gallery-dot{margin-left:118px}.display-gallery-input:nth-of-type(8)+.display-gallery-dot{margin-left:136px}.display-gallery-slide{display:none;grid-area:1/1;margin:0;width:100%;height:100%}.display-gallery-input:checked+.display-gallery-dot+.display-gallery-slide{display:block}.display-gallery-input:checked+.display-gallery-dot{background:rgba(255,255,255,.95)}'
+  '.visual{position:relative}.visual>.display-gallery{position:absolute;inset:0}.display-gallery{display:grid}.display-gallery-input{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);pointer-events:none}.display-gallery-dot{grid-area:1/1;z-index:2;align-self:end;justify-self:center;box-sizing:border-box;width:14px;height:14px;margin-bottom:12px;border-radius:50%;background:rgba(255,255,255,.65);cursor:pointer}.display-gallery-slide{display:none;grid-area:1/1;margin:0;width:100%;height:100%}.display-gallery-input:checked+.display-gallery-dot+.display-gallery-slide{display:block}.display-gallery-input:checked+.display-gallery-dot{background:rgba(255,255,255,.95)}'
 const TEMPLATE_TOKEN_PATTERN = /\{\{[^{}]*\}\}/gu
 const FIELD_TEMPLATE_TOKEN_PATTERN = /^\{\{fields\.([a-zA-Z][a-zA-Z0-9_-]{0,63})\}\}$/u
 const SETTING_CARD_STYLE_ROOT = 'styles/setting-cards'
@@ -368,7 +368,9 @@ function renderDisplayImageGallery(data: SettingCardRenderData): string {
   const items = images
     .map((image, index) => {
       const checked = index === 0 ? ' checked' : ''
-      return `<input class="display-gallery-input" type="radio" name="${name}" id="${name}-${escapeHtml(image.id)}"${checked} /><label class="display-gallery-dot" for="${name}-${escapeHtml(image.id)}"></label><figure class="display-gallery-slide"><img class="setting-card-image" src="${image.data_url}" alt="${escapeHtml(image.alt || data.title)}" /></figure>`
+      const offset = ((2 * index - (images.length - 1)) * 18) / 2
+      const id = `${name}-${escapeHtml(image.id)}`
+      return `<input class="display-gallery-input" type="radio" name="${name}" id="${id}"${checked} /><label class="display-gallery-dot" for="${id}" style="margin-left:${offset}px;margin-right:${-offset}px"></label><figure class="display-gallery-slide"><img class="setting-card-image" src="${image.data_url}" alt="${escapeHtml(image.alt || data.title)}" /></figure>`
     })
     .join('')
   return `<div class="display-gallery">${items}</div>`
