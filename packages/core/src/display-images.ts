@@ -37,7 +37,7 @@ function extensionFor(mime: DisplayImageMime): 'png' | 'jpg' | 'webp' {
   return 'png'
 }
 
-function assertMagic(bytes: Uint8Array, mime: DisplayImageMime): void {
+function mimeFromMagic(bytes: Uint8Array): DisplayImageMime | undefined {
   const png =
     bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47
   const jpeg = bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff
@@ -48,10 +48,35 @@ function assertMagic(bytes: Uint8Array, mime: DisplayImageMime): void {
     bytes[9] === 0x45 &&
     bytes[10] === 0x42 &&
     bytes[11] === 0x50
-  if (mime === 'image/png' && png) return
-  if (mime === 'image/jpeg' && jpeg) return
-  if (mime === 'image/webp' && webp) return
+  if (png) return 'image/png'
+  if (jpeg) return 'image/jpeg'
+  if (webp) return 'image/webp'
+  return undefined
+}
+
+function mimeFromExtension(filePath: string): DisplayImageMime | undefined {
+  const ext = path.extname(filePath).toLowerCase()
+  if (ext === '.png') return 'image/png'
+  if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg'
+  if (ext === '.webp') return 'image/webp'
+  return undefined
+}
+
+function assertMagic(bytes: Uint8Array, mime: DisplayImageMime): void {
+  if (mimeFromMagic(bytes) === mime) return
   throw new Error('该文件不是可用的 png/jpeg/webp 配图。')
+}
+
+export function detectDisplayImageMime(filePath: string, bytes: Uint8Array): DisplayImageMime {
+  const fromExt = mimeFromExtension(filePath)
+  const fromMagic = mimeFromMagic(bytes)
+  if (fromExt && fromMagic && fromExt !== fromMagic) {
+    throw new Error('该文件不是可用的 png/jpeg/webp 配图。')
+  }
+  const mime = fromExt ?? fromMagic
+  if (!mime) throw new Error('该文件不是可用的 png/jpeg/webp 配图。')
+  assertMagic(bytes, mime)
+  return mime
 }
 
 async function readManifest(dir: string): Promise<DisplayImageManifest> {

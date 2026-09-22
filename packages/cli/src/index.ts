@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { Command } from 'commander'
@@ -6,6 +7,7 @@ import dotenv from 'dotenv'
 import {
   WRITER_DEFAULT_DISPLAY_LAYER,
   WRITER_DEFAULT_STORY_STRUCTURE,
+  addDisplayImage,
   appendTimelineEvent,
   answerFinalizeQuestion,
   applyFinalizeReviewSession,
@@ -60,12 +62,14 @@ import {
   snapshotSharedGuidance,
   snapshotWritingPreset,
   searchCanon,
+  settingCardDocumentTypeSchema,
   selectWritingPreset,
   setObsidianDir,
   setWorkspaceDir,
   loadProject,
   loadWorkspace,
   requiredSpecializationFields,
+  detectDisplayImageMime,
   resetDisplayLayer,
   registerWorkspaceProject,
   recoverFinalizationApplications,
@@ -183,6 +187,34 @@ export function buildProgram(): Command {
     if (!opts.confirm) throw new Error('未确认清盘。加上 --confirm 才会删除设定图。')
     await resetDisplayLayer(root)
     console.log('display_layer: enabled=true migrated=true')
+  })
+
+  const displayCmd = program.command('display').description('Manage display-layer card images')
+  projectOption(
+    displayCmd
+      .command('add-image')
+      .requiredOption('--card-id <id>', 'Stable card id')
+      .option('--file <path>', 'Local png, jpeg, or webp file')
+      .description('Upload a local image into a setting-card gallery')
+  ).action(async (opts) => {
+    if (!opts.file) throw new Error('请提供 --file。')
+    const root = path.resolve(opts.project)
+    const project = await loadProject(root)
+    if (project.display_layer?.enabled !== true) throw new Error('展示层已关闭，不能添加配图。')
+    const docs = await listDocs(root)
+    const card = docs.find((doc) => doc.data.id === opts.cardId)
+    if (!card) throw new Error('找不到这张设定卡。')
+    if (!settingCardDocumentTypeSchema.safeParse(card.data.type).success) {
+      throw new Error('该卡片类型不能配图。')
+    }
+    const file = path.resolve(opts.file)
+    const bytes = new Uint8Array(await readFile(file))
+    const manifest = await addDisplayImage(root, opts.cardId, bytes, {
+      mime_type: detectDisplayImageMime(file, bytes),
+      alt: card.data.title,
+      source: 'upload'
+    })
+    console.log(`display-image: ${manifest.selected_id} selected=${manifest.selected_id}`)
   })
 
   registerAgentCommands(program, projectOption)
@@ -1210,7 +1242,6 @@ export function buildProgram(): Command {
   }
 
   async function readFileText(file: string): Promise<string> {
-    const { readFile } = await import('node:fs/promises')
     return readFile(file, 'utf8')
   }
 

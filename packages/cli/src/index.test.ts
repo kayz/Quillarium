@@ -22,6 +22,7 @@ import {
   pathExists,
   readMarkdown,
   readRunFile,
+  updateProjectConfig,
   writeMarkdown,
   writeText,
   type CanonDoc,
@@ -559,6 +560,57 @@ describe('CLI smoke flow', () => {
     await run('project', 'reset-display', '--confirm', '--project', root)
     expect(await pathExists(asset)).toBe(false)
     expect(output.at(-1)).toBe('display_layer: enabled=true migrated=true')
+  })
+
+  it('refuses display add-image without --file then writes a gallery without card image', async () => {
+    const { workspace, root } = await initWorkspaceProject()
+    const file = await createWorldEntry(root, '林舟', { id: 'world-lin' }, '水手。')
+    const current = await readMarkdown<Record<string, unknown>>(file)
+    delete current.data.image
+    await writeMarkdown(file, current.data, current.content)
+    const png = path.join(workspace, 'lin.png')
+    await writeFile(
+      png,
+      Buffer.from(
+        'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+        'base64'
+      )
+    )
+    const display = buildProgram().commands.find((command) => command.name() === 'display')
+    expect(display?.commands.map((command) => command.name())).toEqual(['add-image'])
+    expect((await loadProject(root)).display_layer?.enabled).toBe(false)
+
+    await expect(run('display', 'add-image', '--card-id', 'world-lin', '--project', root)).rejects.toThrow(
+      '请提供 --file。'
+    )
+    expect(await pathExists(path.join(root, 'assets', 'display', 'world-lin', 'manifest.json'))).toBe(false)
+
+    await expect(
+      run('display', 'add-image', '--card-id', 'world-lin', '--file', png, '--project', root)
+    ).rejects.toThrow('展示层已关闭，不能添加配图。')
+    expect(await pathExists(path.join(root, 'assets', 'display', 'world-lin', 'manifest.json'))).toBe(false)
+
+    await updateProjectConfig(root, { display_layer: { enabled: true, migrated: true } })
+
+    await expect(
+      run('display', 'add-image', '--card-id', 'missing-card', '--file', png, '--project', root)
+    ).rejects.toThrow('找不到这张设定卡。')
+
+    await run('issue', 'add', 'Choose POV', '--project', root)
+    const [issue] = await listDocs<IssueDoc>(root, 'issue')
+    await expect(
+      run('display', 'add-image', '--card-id', issue.data.id, '--file', png, '--project', root)
+    ).rejects.toThrow('该卡片类型不能配图。')
+    expect(await pathExists(path.join(root, 'assets', 'display', issue.data.id, 'manifest.json'))).toBe(false)
+
+    output = []
+    await run('display', 'add-image', '--card-id', 'world-lin', '--file', png, '--project', root)
+    expect(await pathExists(path.join(root, 'assets', 'display', 'world-lin', 'manifest.json'))).toBe(true)
+    expect(await readFile(file, 'utf8')).not.toMatch(/^image:/m)
+    const logged = output.at(-1) ?? ''
+    const ids = logged.match(/^display-image: (\S+) selected=(\S+)$/)
+    expect(ids?.[1]).toBe(ids?.[2])
+    expect(ids?.[1]).toBeTruthy()
   })
 
   it('creates, selects, and snapshots one portable writing preset through the CLI', async () => {

@@ -104,6 +104,18 @@ pnpm cli project reset-display --confirm --project "./writing-workspace/projects
 That wipe sets `display_layer` to `enabled=true migrated=true`, strips card `image` fields, and
 deletes leftover files under `assets/settings/`.
 
+Upload a setting-card picture into `assets/display/<card-id>/`. The CLI writes a gallery manifest and
+does not set card `image`. New writer projects start with `display_layer.enabled` false, so enable
+that flag before adding images. There is no generate subcommand.
+
+```bash
+pnpm cli display add-image --card-id world-lin --file ./lin.png --project "./writing-workspace/projects/my-novel"
+```
+
+Missing `--file` throws `请提供 --file。` and leaves the project unchanged. A closed display layer,
+unknown card id, or a type outside the display-card allowlist also refuse in Chinese without writing
+files.
+
 The current hierarchy is `book → volume → part → optional act → chapter → scene`. The source-run
 CLI retains the option name `--section` for pre-0.2 compatibility, but the value must be the owning
 **chapter outline ID**; the created document writes both current `chapter_id` and the readable legacy
@@ -424,6 +436,7 @@ and options.
 | `config`         | Workspace configuration plus explicit legacy-vault compatibility                     |
 | `init`           | Create/register `projects/<id>`; `--vault` is legacy-only                            |
 | `project`        | `set-structure`: scene module on/off; `reset-display --confirm`: wipe setting images |
+| `display`        | `add-image`: upload png/jpeg/webp into `assets/display/<card-id>/` (no generate)     |
 | `preset`         | `init`, `list`, `show`, `select`, `create`, `migrate`                                |
 | `canon`          | `add`, `import`, `list`, `search`                                                    |
 | `character`      | `add`, `list`                                                                        |
