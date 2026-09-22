@@ -44,6 +44,17 @@ const api = {
   getSettingImage: (root, documentId) => ipcRenderer.invoke('settingImage:get', root, documentId),
   getSettingImageBatch: (root, documentIds) => ipcRenderer.invoke('settingImage:batch', root, documentIds),
   removeSettingImage: (root, documentPath) => ipcRenderer.invoke('settingImage:remove', root, documentPath),
+  listDisplayImages: (root, cardId) => ipcRenderer.invoke('displayImage:list', root, cardId),
+  chooseDisplayImage: (root, cardId, altText) =>
+    ipcRenderer.invoke('displayImage:choose', root, cardId, altText),
+  removeDisplayImage: (root, cardId, imageId) =>
+    ipcRenderer.invoke('displayImage:remove', root, cardId, imageId),
+  selectDisplayImage: (root, cardId, imageId) =>
+    ipcRenderer.invoke('displayImage:select', root, cardId, imageId),
+  generateDisplayImage: (root, cardId, prompt) =>
+    ipcRenderer.invoke('displayImage:generate', root, cardId, prompt),
+  confirmGenerateDisplayImage: (root, cardId, candidateId) =>
+    ipcRenderer.invoke('displayImage:confirmGenerate', root, cardId, candidateId),
   listSettingCardStyles: (root, documentType) => ipcRenderer.invoke('settingCard:styles', root, documentType),
   designSettingCard: (root, input) => ipcRenderer.invoke('settingCard:design', root, input),
   renderSettingCardStyle: (root, input) => ipcRenderer.invoke('settingCard:renderStyle', root, input),

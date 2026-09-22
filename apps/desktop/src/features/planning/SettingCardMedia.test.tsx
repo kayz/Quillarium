@@ -12,7 +12,7 @@ const document: DocEntry = {
 }
 
 describe('SettingCardMediaPanel', () => {
-  it('hides image upload controls this slice even when chrome is on', () => {
+  it('shows upload and generate controls when display chrome is on without writing card image', () => {
     const html = renderToStaticMarkup(
       <SettingCardMediaPanel
         root="C:/projects/sample"
@@ -22,13 +22,39 @@ describe('SettingCardMediaPanel', () => {
         onReloadDocument={async () => undefined}
         onReloadProject={async () => undefined}
         language="zh"
+        showImageChrome
+      />
+    )
+
+    expect(html).toContain('创建设定卡')
+    expect(html).toContain('上传图片')
+    expect(html).toContain('生成配图')
+    expect(html).toContain('确认保存')
+    expect(html).toContain('取消')
+    expect(html).toContain('林澜')
+    expect(html).toContain('水手。')
+    expect(html).not.toContain('name="image"')
+    expect(html).not.toMatch(/data-image-field/u)
+  })
+
+  it('hides upload and generate controls when display chrome is off', () => {
+    const html = renderToStaticMarkup(
+      <SettingCardMediaPanel
+        root="C:/projects/sample"
+        document={document}
+        dirty={false}
+        onSave={async () => undefined}
+        onReloadDocument={async () => undefined}
+        onReloadProject={async () => undefined}
+        language="zh"
+        showImageChrome={false}
       />
     )
 
     expect(html).toContain('创建设定卡')
     expect(html).not.toContain('上传图片')
-    expect(html).not.toContain('替换图片')
-    expect(html).not.toContain('尚未上传图片')
+    expect(html).not.toContain('生成配图')
+    expect(html).not.toContain('确认保存')
   })
 
   it('offers the HTML designer for allowlist types beyond world_entry/character/location/character_relation', () => {

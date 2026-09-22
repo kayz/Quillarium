@@ -28,6 +28,7 @@ import {
   type SettingCardTemplateV1
 } from '@quillarium/core'
 import { loadSettingImage } from './setting-assets.js'
+import { displayImageRenderFields } from './display-images.js'
 import {
   typedHandle,
   type SettingCardDesignResponse,
@@ -182,6 +183,7 @@ function renderPreviewData(
     content: preview.content,
     fields: preview.fields,
     image_data_url: preview.image_data_url ?? null,
+    image_data_urls: preview.image_data_urls,
     language
   })
 }
@@ -247,14 +249,16 @@ async function renderDocument(
   language: 'zh' | 'en' = 'zh'
 ): Promise<string> {
   const document = await settingDocument(projectRoot, documentId)
-  const preview = await loadSettingImage(projectRoot, documentId)
+  const display = await displayImageRenderFields(projectRoot, documentId)
+  const legacy = display.image_data_urls.length > 0 ? null : await loadSettingImage(projectRoot, documentId)
   return renderSettingCardHtml(template, size, {
     id: document.data.id,
     type: document.data.type,
     title: document.data.title,
     content: document.content,
-    fields: document.data as DocumentIdentity & Record<string, unknown>,
-    image_data_url: preview?.previewDataUrl ?? null,
+    fields: document.data as unknown as DocumentIdentity & Record<string, unknown>,
+    image_data_url: display.image_data_url ?? legacy?.previewDataUrl ?? null,
+    image_data_urls: display.image_data_urls,
     language
   })
 }

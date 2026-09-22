@@ -83,7 +83,9 @@ import type {
   SettingCardDocumentType,
   SettingCardSizeV1,
   SettingCardTemplateV1,
-  StoryStructureConfigV1
+  StoryStructureConfigV1,
+  DisplayImageManifest,
+  DisplayImageProvider
 } from '@quillarium/core'
 import { recordIpcFailure } from '../logging.js'
 import type { CheckReport, CheckScore } from '@quillarium/checks'
@@ -118,9 +120,38 @@ export interface DesktopGitHubConfig extends Omit<GitHubConfig, 'token' | 'token
   hasToken: boolean
 }
 
-export type DesktopConfig = Omit<QuillariumConfig, 'aiProfiles' | 'github'> & {
+export type DesktopCredentialProfileName = AIProfileName | 'displayImage'
+
+export type DisplayImageProviderName = DisplayImageProvider
+
+export interface DesktopDisplayImageProfileConfig {
+  provider: DisplayImageProviderName
+  baseUrl?: string
+  model: string
+  apiKey: string
+  hasKey: boolean
+  keyStatus: 'available' | 'unavailable' | 'none'
+}
+
+export type DesktopDisplayImageProfileInput = Partial<
+  Omit<DesktopDisplayImageProfileConfig, 'hasKey' | 'keyStatus'>
+> & {
+  clearApiKey?: boolean
+}
+
+export type DesktopDisplayImageManifest = DisplayImageManifest & {
+  image_data_urls: Array<{ id: string; alt: string; data_url: string }>
+}
+
+export type DesktopDisplayImageCandidate = {
+  candidate_id: string
+  data_url: string
+}
+
+export type DesktopConfig = Omit<QuillariumConfig, 'aiProfiles' | 'github' | 'displayImageProfile'> & {
   aiProfiles?: Partial<Record<AIProfileName, DesktopAIProfileConfig>>
   github?: DesktopGitHubConfig
+  displayImageProfile?: DesktopDisplayImageProfileConfig
   aiKeyStorage: AIKeyStorageStatus
 }
 
@@ -186,6 +217,7 @@ export interface SettingCardPreviewData {
   content: string
   fields: Record<string, unknown>
   image_data_url?: string | null
+  image_data_urls?: Array<{ data_url: string; alt: string; id: string }>
 }
 
 export type SettingCardRenderSource =
@@ -571,7 +603,7 @@ export interface IpcContract {
     response: DesktopConfig
   }
   'config:saveAIProfile': {
-    request: [profile: AIProfileName, input: DesktopAIProfileInput]
+    request: [profile: DesktopCredentialProfileName, input: DesktopAIProfileInput]
     response: DesktopConfig
   }
   'config:saveGithub': { request: [input: DesktopGitHubInput]; response: DesktopConfig }
@@ -603,6 +635,30 @@ export interface IpcContract {
     response: Record<string, SettingImagePreview>
   }
   'settingImage:remove': { request: [root: string, documentPath: string]; response: boolean }
+  'displayImage:list': {
+    request: [root: string, cardId: string]
+    response: DesktopDisplayImageManifest
+  }
+  'displayImage:choose': {
+    request: [root: string, cardId: string, altText: string]
+    response: DesktopDisplayImageManifest | null
+  }
+  'displayImage:remove': {
+    request: [root: string, cardId: string, imageId: string]
+    response: DesktopDisplayImageManifest
+  }
+  'displayImage:select': {
+    request: [root: string, cardId: string, imageId: string]
+    response: DesktopDisplayImageManifest
+  }
+  'displayImage:generate': {
+    request: [root: string, cardId: string, prompt: string]
+    response: DesktopDisplayImageCandidate
+  }
+  'displayImage:confirmGenerate': {
+    request: [root: string, cardId: string, candidate_id: string]
+    response: DesktopDisplayImageManifest
+  }
   'settingCard:styles': {
     request: [root: string, documentType: SettingCardDocumentType]
     response: LoadedSettingCardStyle[]
@@ -1125,6 +1181,12 @@ export const QUILLARIUM_API_CHANNELS = {
   getSettingImage: 'settingImage:get',
   getSettingImageBatch: 'settingImage:batch',
   removeSettingImage: 'settingImage:remove',
+  listDisplayImages: 'displayImage:list',
+  chooseDisplayImage: 'displayImage:choose',
+  removeDisplayImage: 'displayImage:remove',
+  selectDisplayImage: 'displayImage:select',
+  generateDisplayImage: 'displayImage:generate',
+  confirmGenerateDisplayImage: 'displayImage:confirmGenerate',
   listSettingCardStyles: 'settingCard:styles',
   designSettingCard: 'settingCard:design',
   renderSettingCardStyle: 'settingCard:renderStyle',

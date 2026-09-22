@@ -339,6 +339,13 @@ function SettingsModal({
     background: 'none',
     check: 'none'
   })
+  const [displayImage, setDisplayImage] = useState({
+    provider: 'openai' as 'openai' | 'openai-compatible' | 'gemini',
+    baseUrl: '',
+    model: 'gpt-image-1',
+    apiKey: ''
+  })
+  const [displayImageCredential, setDisplayImageCredential] = useState<CredentialState>('none')
   const [storage, setStorage] = useState<StorageStatus | null>(null)
   const [appVersion, setAppVersion] = useState('')
   const [updateCheck, setUpdateCheck] = useState<UpdateCheck | null>(null)
@@ -387,6 +394,10 @@ function SettingsModal({
       background: profileState('background'),
       check: profileState('check')
     })
+    const image = config.displayImageProfile
+    setDisplayImageCredential(
+      !image?.hasKey ? 'none' : image.keyStatus === 'unavailable' ? 'unavailable' : 'available'
+    )
   }
 
   const hydrateForms = (config: DesktopConfig, capabilities: ModelCapability[]) => {
@@ -414,6 +425,14 @@ function SettingsModal({
       }
     }
     setProfiles(nextProfiles)
+    const image = config.displayImageProfile
+    const imageProvider = image?.provider ?? 'openai'
+    setDisplayImage({
+      provider: imageProvider,
+      baseUrl: image?.baseUrl ?? defaultDisplayImageBaseUrl(imageProvider),
+      model: image?.model ?? defaultDisplayImageModel(imageProvider),
+      apiKey: ''
+    })
   }
 
   useEffect(() => {
@@ -508,6 +527,32 @@ function SettingsModal({
       }))
       onAIStatus(await bridge.aiStatus())
       setNotice({ tone: 'success', message: `${t(language, profile)}：${t(language, 'aiSettingsSaved')}` })
+    } catch (error) {
+      setNotice({
+        tone: 'danger',
+        message: `${t(language, 'credentialActionFailed')} ${formatDesktopError(error, language)}`
+      })
+    } finally {
+      setBusyAction(null)
+    }
+  }
+
+  const saveDisplayImageProfile = async () => {
+    setBusyAction('save-ai-displayImage')
+    setNotice(null)
+    try {
+      const config = await bridge.saveAIProfile('displayImage', {
+        provider: displayImage.provider,
+        baseUrl: displayImage.baseUrl,
+        model: displayImage.model,
+        apiKey: displayImage.apiKey
+      })
+      updateCredentialMetadata(config)
+      setDisplayImage((current) => ({ ...current, apiKey: '' }))
+      setNotice({
+        tone: 'success',
+        message: language === 'zh' ? '生图凭证已保存。' : 'Image generation credentials saved.'
+      })
     } catch (error) {
       setNotice({
         tone: 'danger',
@@ -820,6 +865,33 @@ function SettingsModal({
       setNotice({
         tone: 'success',
         message: `${t(language, profile)}: ${t(language, 'apiKeyCleared')}`
+      })
+    } catch (error) {
+      setNotice({
+        tone: 'danger',
+        message: `${t(language, 'credentialActionFailed')} ${formatDesktopError(error, language)}`
+      })
+    } finally {
+      setBusyAction(null)
+    }
+  }
+
+  const clearDisplayImageKey = async () => {
+    setBusyAction('clear-ai-displayImage')
+    setNotice(null)
+    try {
+      const config = await bridge.saveAIProfile('displayImage', {
+        provider: displayImage.provider,
+        baseUrl: displayImage.baseUrl,
+        model: displayImage.model,
+        apiKey: '',
+        clearApiKey: true
+      })
+      updateCredentialMetadata(config)
+      setDisplayImage((current) => ({ ...current, apiKey: '' }))
+      setNotice({
+        tone: 'success',
+        message: language === 'zh' ? '生图密钥已清除。' : 'Image generation API key cleared.'
       })
     } catch (error) {
       setNotice({
@@ -1959,6 +2031,85 @@ function SettingsModal({
               ) : null}
             </article>
           ))}
+          <article className="ai-profile-card">
+            <div className="ai-profile-card-head">
+              <strong>{language === 'zh' ? '生图凭证' : 'Image generation'}</strong>
+              <div className="settings-section-actions">
+                <CredentialBadge state={displayImageCredential} language={language} />
+                <button
+                  className="secondary compact-save"
+                  type="button"
+                  onClick={() => void saveDisplayImageProfile()}
+                  disabled={busyAction !== null}
+                >
+                  {busyAction === 'save-ai-displayImage' ? t(language, 'saving') : t(language, 'save')}
+                </button>
+              </div>
+            </div>
+            <label>
+              {t(language, 'provider')}
+              <select
+                value={displayImage.provider}
+                onChange={(event) => {
+                  const provider = event.target.value as 'openai' | 'openai-compatible' | 'gemini'
+                  setDisplayImage((current) => ({
+                    ...current,
+                    provider,
+                    baseUrl: defaultDisplayImageBaseUrl(provider),
+                    model: defaultDisplayImageModel(provider)
+                  }))
+                }}
+              >
+                <option value="openai">OpenAI</option>
+                <option value="openai-compatible">OpenAI Compatible</option>
+                <option value="gemini">Gemini</option>
+              </select>
+            </label>
+            <label>
+              {t(language, 'baseUrl')}
+              <input
+                value={displayImage.baseUrl}
+                onChange={(event) =>
+                  setDisplayImage((current) => ({ ...current, baseUrl: event.target.value }))
+                }
+              />
+            </label>
+            <div className="credential-field ai-credential-field">
+              <span>{t(language, 'apiKey')}</span>
+              <div className="credential-input-row">
+                <input
+                  type="password"
+                  value={displayImage.apiKey}
+                  onChange={(event) =>
+                    setDisplayImage((current) => ({ ...current, apiKey: event.target.value }))
+                  }
+                  placeholder={credentialPlaceholder(language, displayImageCredential, 'ai')}
+                  aria-label={language === 'zh' ? '生图 API 密钥' : 'Image generation API key'}
+                  autoComplete="new-password"
+                  spellCheck={false}
+                />
+                <button
+                  className="credential-clear"
+                  type="button"
+                  onClick={() => void clearDisplayImageKey()}
+                  disabled={displayImageCredential === 'none' || busyAction !== null}
+                  title={t(language, 'clearApiKey')}
+                >
+                  <Trash2 size={14} /> {t(language, 'clear')}
+                </button>
+              </div>
+              <small>{t(language, 'blankKeepsCredential')}</small>
+            </div>
+            <label>
+              {t(language, 'model')}
+              <input
+                value={displayImage.model}
+                onChange={(event) =>
+                  setDisplayImage((current) => ({ ...current, model: event.target.value }))
+                }
+              />
+            </label>
+          </article>
         </div>
         <div className="modal-actions">
           <button className="secondary" onClick={onClose}>
@@ -2116,6 +2267,16 @@ function defaultModel(provider: AIProviderName): string {
     case 'ollama':
       return 'llama3.1'
   }
+}
+
+function defaultDisplayImageBaseUrl(provider: 'openai' | 'openai-compatible' | 'gemini'): string {
+  if (provider === 'gemini') return 'https://generativelanguage.googleapis.com/v1beta'
+  return 'https://api.openai.com/v1'
+}
+
+function defaultDisplayImageModel(provider: 'openai' | 'openai-compatible' | 'gemini'): string {
+  if (provider === 'gemini') return 'gemini-2.0-flash-preview-image-generation'
+  return 'gpt-image-1'
 }
 
 function findModelCapability(

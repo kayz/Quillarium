@@ -4,8 +4,11 @@ import {
   migrateConfigCredentials,
   saveConfig,
   withUpdatedAIProfileApiKey,
+  withUpdatedDisplayImageProfileApiKey,
   withUpdatedGitHubToken,
   type AIProfileConfig,
+  type DisplayImageProfileConfig,
+  type DisplayImageProvider,
   type GitHubConfig,
   type QuillariumConfig
 } from '@quillarium/core'
@@ -16,12 +19,15 @@ import {
   loadAIProfile,
   type AIConfig
 } from '@quillarium/ai'
+import type { DisplayImageProfile } from '@quillarium/ai'
 import type {
   AIKeyStorageStatus,
   AIProfileName,
   DesktopAIProfileConfig,
   DesktopAIProfileInput,
   DesktopConfig,
+  DesktopCredentialProfileName,
+  DesktopDisplayImageProfileConfig,
   DesktopGitHubConfig,
   DesktopGitHubInput
 } from './contract.js'
@@ -114,14 +120,18 @@ export async function loadDesktopConfig(): Promise<DesktopConfig> {
     ...loaded.config,
     aiProfiles,
     github,
+    displayImageProfile: maskDisplayImageProfile(loaded.config.displayImageProfile, (next) => {
+      warning = combineWarnings(warning, next)
+    }),
     aiKeyStorage: { ...loaded.status, warning }
   }
 }
 
 export async function saveDesktopAIProfile(
-  profile: AIProfileName,
+  profile: DesktopCredentialProfileName,
   input: DesktopAIProfileInput
 ): Promise<DesktopConfig> {
+  if (profile === 'displayImage') return saveDesktopDisplayImageProfile(input)
   const { config } = await loadAndMigrateConfig()
   const provider = input.provider ?? 'openai-compatible'
   const model = input.model || defaultModel(provider)
@@ -172,6 +182,37 @@ export async function saveDesktopAIProfile(
   return loadDesktopConfig()
 }
 
+export async function saveDesktopDisplayImageProfile(input: DesktopAIProfileInput): Promise<DesktopConfig> {
+  const { config } = await loadAndMigrateConfig()
+  const provider = displayImageProvider(input.provider)
+  const normalized: DisplayImageProfileConfig = {
+    provider,
+    baseUrl: input.baseUrl || undefined,
+    model: input.model?.trim() || defaultDisplayImageModel(provider)
+  }
+  const submittedKey = input.apiKey === DESKTOP_SECRET_MASK ? undefined : input.apiKey
+  let stored: DisplayImageProfileConfig
+  if (isEncryptionAvailable()) {
+    try {
+      stored = withUpdatedDisplayImageProfileApiKey(normalized, config.displayImageProfile, submittedKey, {
+        encrypt: encryptCredential,
+        clear: input.clearApiKey === true
+      })
+    } catch {
+      throw new Error('Secure credential storage failed to encrypt the AI API key; no key was saved.')
+    }
+  } else {
+    stored = withUpdatedDisplayImageProfileApiKey(normalized, config.displayImageProfile, submittedKey, {
+      clear: input.clearApiKey === true
+    })
+  }
+  await saveConfig({
+    ...config,
+    displayImageProfile: stored
+  })
+  return loadDesktopConfig()
+}
+
 function positiveTokenLimit(value: number, label: string): number {
   const normalized = Math.floor(Number(value))
   if (!Number.isFinite(normalized) || normalized <= 0) {
@@ -215,6 +256,17 @@ export async function loadDesktopAIProfile(
 ): Promise<AIConfig> {
   await loadAndMigrateConfig()
   return loadAIProfile(profile, env, decryptCredential)
+}
+
+export async function loadDesktopDisplayImageProfile(): Promise<DisplayImageProfile> {
+  const { config } = await loadAndMigrateConfig()
+  const stored = config.displayImageProfile
+  return {
+    provider: displayImageProvider(stored?.provider),
+    baseUrl: stored?.baseUrl,
+    model: stored?.model ?? '',
+    apiKey: resolveStoredCredential(undefined, stored?.apiKeyEncrypted, stored?.apiKey, decryptCredential)
+  }
 }
 
 export async function loadDesktopGitHubCredentials(
@@ -309,6 +361,45 @@ function resolveStoredCredential(
     }
   }
   return legacyValue ?? ''
+}
+
+function maskDisplayImageProfile(
+  profile: DisplayImageProfileConfig | undefined,
+  onWarning: (warning: string) => void
+): DesktopDisplayImageProfileConfig | undefined {
+  if (!profile) return undefined
+  const exposed: DesktopDisplayImageProfileConfig = {
+    provider: displayImageProvider(profile.provider),
+    baseUrl: profile.baseUrl,
+    model: profile.model,
+    apiKey: '',
+    hasKey: false,
+    keyStatus: 'none'
+  }
+  if (profile.apiKeyEncrypted !== undefined) {
+    try {
+      exposed.hasKey = Boolean(decryptCredential(profile.apiKeyEncrypted))
+      exposed.keyStatus = exposed.hasKey ? 'available' : 'none'
+    } catch {
+      exposed.hasKey = true
+      exposed.keyStatus = 'unavailable'
+      onWarning(AI_DECRYPTION_FAILED_WARNING)
+    }
+  } else if (profile.apiKey) {
+    exposed.hasKey = true
+    exposed.keyStatus = 'available'
+  }
+  return exposed
+}
+
+function displayImageProvider(value: string | undefined): DisplayImageProvider {
+  if (value === 'gemini' || value === 'openai' || value === 'openai-compatible') return value
+  return 'openai'
+}
+
+function defaultDisplayImageModel(provider: DisplayImageProvider): string {
+  if (provider === 'gemini') return 'gemini-2.0-flash-preview-image-generation'
+  return 'gpt-image-1'
 }
 
 function combineWarnings(current: string | null, next: string): string {

@@ -1,5 +1,16 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
-import { Bot, ChevronLeft, ChevronRight, Download, RefreshCw, Save, Sparkles, X } from 'lucide-react'
+import {
+  Bot,
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  ImagePlus,
+  RefreshCw,
+  Save,
+  Sparkles,
+  Trash2,
+  X
+} from 'lucide-react'
 import { settingCardDocumentTypeSchema, type SettingCardDocumentType } from '@quillarium/core'
 import type { DocEntry, LanguageName } from '../../app/types.js'
 import { bridge } from '../../app/bridge.js'
@@ -16,6 +27,9 @@ type SettingCardStyle = Awaited<ReturnType<typeof bridge.listSettingCardStyles>>
 type SettingCardCandidate = Awaited<ReturnType<typeof bridge.designSettingCard>>['candidate']
 type SettingCardSize = SettingCardCandidate['size']
 type SettingCardTemplate = SettingCardCandidate['template']
+type DisplayImageManifest = Awaited<ReturnType<typeof bridge.listDisplayImages>>
+type DisplayImageCandidate = Awaited<ReturnType<typeof bridge.generateDisplayImage>>
+type GalleryImage = DisplayImageManifest['image_data_urls'][number]
 
 const CARD_SIZES: Array<{ id: string; zh: string; en: string; value: SettingCardSize }> = [
   { id: 'portrait', zh: '竖版 720×1080', en: 'Portrait 720×1080', value: { width: 720, height: 1080 } },
@@ -31,10 +45,15 @@ const BUILTIN_STYLES = [
   { id: 'heraldic', zh: '纹章叙事', en: 'Heraldic' }
 ]
 
+export function defaultDisplayImagePrompt(title: string, content: string): string {
+  return `${title}\n${content.slice(0, 400)}`
+}
+
 export function SettingCardMediaPanel({
   root,
   document,
-  language
+  language,
+  showImageChrome = false
 }: {
   root: string
   document: DocEntry
@@ -43,16 +62,93 @@ export function SettingCardMediaPanel({
   onReloadDocument: () => Promise<void>
   onReloadProject: () => Promise<void>
   language: LanguageName
+  showImageChrome?: boolean
 }) {
   const zh = language === 'zh'
   const parsedType = settingCardDocumentTypeSchema.safeParse(document.data.type)
   const [designerOpen, setDesignerOpen] = useState(false)
+  const [manifest, setManifest] = useState<DisplayImageManifest | null>(null)
+  const [prompt, setPrompt] = useState(() =>
+    defaultDisplayImagePrompt(String(document.data.title), document.content)
+  )
+  const [candidate, setCandidate] = useState<DisplayImageCandidate | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    setPrompt(defaultDisplayImagePrompt(String(document.data.title), document.content))
+  }, [document.content, document.data.title])
+
+  useEffect(() => {
+    if (!showImageChrome || !parsedType.success) return
+    let active = true
+    void bridge
+      .listDisplayImages(root, document.data.id)
+      .then((next) => {
+        if (active) setManifest(next)
+      })
+      .catch((cause) => {
+        if (active) setError(formatDesktopError(cause, language))
+      })
+    return () => {
+      active = false
+    }
+  }, [document.data.id, language, parsedType.success, root, showImageChrome])
 
   if (!parsedType.success) return null
   const documentType = parsedType.data
+  const gallery = manifest?.image_data_urls ?? []
+  const selectedUrl = gallery[0]?.data_url ?? null
 
   return (
     <section className="setting-media-panel">
+      {showImageChrome && (
+        <DisplayImageControls
+          zh={zh}
+          busy={busy}
+          error={error}
+          prompt={prompt}
+          candidate={candidate}
+          gallery={gallery}
+          selectedId={manifest?.selected_id ?? null}
+          onPrompt={setPrompt}
+          onUpload={() =>
+            void runAction(setBusy, setError, language, async () => {
+              const next = await bridge.chooseDisplayImage(
+                root,
+                document.data.id,
+                String(document.data.title)
+              )
+              if (next) setManifest(next)
+            })
+          }
+          onGenerate={() =>
+            void runAction(setBusy, setError, language, async () => {
+              setCandidate(await bridge.generateDisplayImage(root, document.data.id, prompt))
+            })
+          }
+          onConfirm={() =>
+            void runAction(setBusy, setError, language, async () => {
+              if (!candidate) return
+              setManifest(
+                await bridge.confirmGenerateDisplayImage(root, document.data.id, candidate.candidate_id)
+              )
+              setCandidate(null)
+            })
+          }
+          onCancel={() => setCandidate(null)}
+          onSelect={(imageId) =>
+            void runAction(setBusy, setError, language, async () => {
+              setManifest(await bridge.selectDisplayImage(root, document.data.id, imageId))
+            })
+          }
+          onRemove={(imageId) =>
+            void runAction(setBusy, setError, language, async () => {
+              setManifest(await bridge.removeDisplayImage(root, document.data.id, imageId))
+            })
+          }
+        />
+      )}
       <div className="setting-media-actions">
         <button className="primary" type="button" onClick={() => setDesignerOpen(true)}>
           <Bot size={14} /> {zh ? '创建设定卡' : 'Design card'}
@@ -63,7 +159,8 @@ export function SettingCardMediaPanel({
           root={root}
           document={document}
           documentType={documentType}
-          imageDataUrl={null}
+          imageDataUrl={selectedUrl}
+          imageDataUrls={gallery}
           language={language}
           onClose={() => setDesignerOpen(false)}
         />
@@ -84,6 +181,7 @@ function SettingCardDesigner({
   document,
   documentType,
   imageDataUrl,
+  imageDataUrls = [],
   language,
   onClose
 }: {
@@ -91,6 +189,7 @@ function SettingCardDesigner({
   document: DocEntry
   documentType: SettingCardDocumentType
   imageDataUrl: string | null
+  imageDataUrls?: GalleryImage[]
   language: LanguageName
   onClose: () => void
 }) {
@@ -118,9 +217,10 @@ function SettingCardDesigner({
       title: String(document.data.title),
       content: document.content,
       fields: document.data as Record<string, unknown>,
-      image_data_url: imageDataUrl
+      image_data_url: imageDataUrl,
+      image_data_urls: imageDataUrls
     }),
-    [document.content, document.data, documentType, imageDataUrl]
+    [document.content, document.data, documentType, imageDataUrl, imageDataUrls]
   )
 
   useEffect(() => {
@@ -551,4 +651,115 @@ function candidateNotice(
   return zh
     ? `候选 ${index + 1}/${count}；运行快照：${item.runRelativePath}`
     : `Candidate ${index + 1}/${count}; run snapshot: ${item.runRelativePath}`
+}
+
+function DisplayImageControls({
+  zh,
+  busy,
+  error,
+  prompt,
+  candidate,
+  gallery,
+  selectedId,
+  onPrompt,
+  onUpload,
+  onGenerate,
+  onConfirm,
+  onCancel,
+  onSelect,
+  onRemove
+}: {
+  zh: boolean
+  busy: boolean
+  error: string
+  prompt: string
+  candidate: DisplayImageCandidate | null
+  gallery: GalleryImage[]
+  selectedId: string | null
+  onPrompt: (value: string) => void
+  onUpload: () => void
+  onGenerate: () => void
+  onConfirm: () => void
+  onCancel: () => void
+  onSelect: (imageId: string) => void
+  onRemove: (imageId: string) => void
+}) {
+  return (
+    <div className="setting-media-copy">
+      {gallery.length > 0 && (
+        <div className="setting-media-gallery" role="list">
+          {gallery.map((image) => (
+            <div
+              className={`setting-media-thumb${image.id === selectedId ? ' selected' : ''}`}
+              key={image.id}
+              role="listitem"
+            >
+              <button type="button" onClick={() => onSelect(image.id)} disabled={busy}>
+                <img src={image.data_url} alt={image.alt || (zh ? '配图' : 'Display image')} />
+              </button>
+              <button
+                className="icon-button"
+                type="button"
+                onClick={() => onRemove(image.id)}
+                disabled={busy}
+                aria-label={zh ? '删除配图' : 'Remove image'}
+              >
+                <Trash2 size={12} />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      {candidate && (
+        <div className="setting-media-preview">
+          <img src={candidate.data_url} alt={zh ? '生图候选' : 'Generated candidate'} />
+        </div>
+      )}
+      <label>
+        {zh ? '生图提示词' : 'Image prompt'}
+        <textarea
+          value={prompt}
+          onChange={(event) => onPrompt(event.target.value)}
+          rows={3}
+          disabled={busy}
+        />
+      </label>
+      <div className="setting-media-actions">
+        <button type="button" onClick={onUpload} disabled={busy}>
+          <ImagePlus size={14} /> {zh ? '上传图片' : 'Upload image'}
+        </button>
+        <button type="button" onClick={onGenerate} disabled={busy || !prompt.trim()}>
+          <Sparkles size={14} /> {zh ? '生成配图' : 'Generate image'}
+        </button>
+        <button type="button" onClick={onConfirm} disabled={busy || !candidate}>
+          <Save size={14} /> {zh ? '确认保存' : 'Confirm save'}
+        </button>
+        <button type="button" onClick={onCancel} disabled={busy || !candidate}>
+          <X size={14} /> {zh ? '取消' : 'Cancel'}
+        </button>
+      </div>
+      {error && (
+        <p className="settings-notice danger" role="alert">
+          {error}
+        </p>
+      )}
+    </div>
+  )
+}
+
+async function runAction(
+  setBusy: (value: boolean) => void,
+  setError: (value: string) => void,
+  language: LanguageName,
+  action: () => Promise<void>
+): Promise<void> {
+  setBusy(true)
+  setError('')
+  try {
+    await action()
+  } catch (cause) {
+    setError(formatDesktopError(cause, language))
+  } finally {
+    setBusy(false)
+  }
 }

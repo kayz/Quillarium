@@ -602,6 +602,7 @@ export function OutlineHome({
                         onReloadDocument={onReloadDoc}
                         onReloadProject={onReloadProject}
                         language={language}
+                        showImageChrome
                       />
                     )}
                     <PlanningCardSupportPanel

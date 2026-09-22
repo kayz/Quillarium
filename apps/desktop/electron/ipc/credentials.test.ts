@@ -30,6 +30,7 @@ import {
   DESKTOP_SECRET_MASK,
   loadDesktopConfig,
   loadDesktopGitHubCredentials,
+  saveDesktopAIProfile,
   saveDesktopGitHub
 } from './credentials.js'
 
@@ -136,6 +137,51 @@ describe('desktop configuration credential migration and sanitization', () => {
     expect(response.aiKeyStorage.warning).toContain('could not be decrypted')
     expect(JSON.stringify(response)).not.toContain('undecryptable-ciphertext')
     expect(JSON.stringify(response)).not.toContain('tokenEncrypted')
+  })
+})
+
+describe('desktop display image profile persistence', () => {
+  it('masks displayImageProfile like AI keys and never returns ciphertext', async () => {
+    const secret = 'image-secret-that-must-not-reach-renderer'
+    mocks.loadConfig.mockResolvedValue({
+      displayImageProfile: { provider: 'openai', model: 'gpt-image-1', apiKey: secret }
+    })
+
+    const response = await loadDesktopConfig()
+    const savedConfig = mocks.saveConfig.mock.calls[0]?.[0]
+    const serializedResponse = JSON.stringify(response)
+
+    expect(savedConfig.displayImageProfile.apiKey).toBeUndefined()
+    expect(savedConfig.displayImageProfile.apiKeyEncrypted).toBeTruthy()
+    expect(response.displayImageProfile).toMatchObject({
+      provider: 'openai',
+      model: 'gpt-image-1',
+      apiKey: '',
+      hasKey: true,
+      keyStatus: 'available'
+    })
+    expect(serializedResponse).not.toContain(secret)
+    expect(serializedResponse).not.toContain('apiKeyEncrypted')
+  })
+
+  it('serializes a newly saved display image key as ciphertext only', async () => {
+    const secret = 'new-display-image-key'
+    mocks.loadConfig.mockResolvedValue({})
+
+    await saveDesktopAIProfile('displayImage', {
+      provider: 'gemini',
+      baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+      model: 'gemini-2.0-flash-preview-image-generation',
+      apiKey: secret
+    })
+
+    const savedConfig = mocks.saveConfig.mock.calls[0]?.[0]
+    expect(savedConfig.displayImageProfile.apiKey).toBeUndefined()
+    expect(savedConfig.displayImageProfile.apiKeyEncrypted).toBe(
+      Buffer.from(`wrapped:${secret}`).toString('base64')
+    )
+    expect(savedConfig.displayImageProfile.provider).toBe('gemini')
+    expect(JSON.stringify(savedConfig)).not.toContain(secret)
   })
 })
 

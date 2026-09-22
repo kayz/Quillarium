@@ -571,6 +571,7 @@ export function VolumeHome({
                         onReloadDocument={onReloadDoc}
                         onReloadProject={onReloadProject}
                         language={language}
+                        showImageChrome
                       />
                     )}
                     <PlanningCardSupportPanel

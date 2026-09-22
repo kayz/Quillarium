@@ -53,6 +53,13 @@ const api: QuillariumAPI = {
   getSettingImage: (root, documentId) => invoke('settingImage:get', root, documentId),
   getSettingImageBatch: (root, documentIds) => invoke('settingImage:batch', root, documentIds),
   removeSettingImage: (root, documentPath) => invoke('settingImage:remove', root, documentPath),
+  listDisplayImages: (root, cardId) => invoke('displayImage:list', root, cardId),
+  chooseDisplayImage: (root, cardId, altText) => invoke('displayImage:choose', root, cardId, altText),
+  removeDisplayImage: (root, cardId, imageId) => invoke('displayImage:remove', root, cardId, imageId),
+  selectDisplayImage: (root, cardId, imageId) => invoke('displayImage:select', root, cardId, imageId),
+  generateDisplayImage: (root, cardId, prompt) => invoke('displayImage:generate', root, cardId, prompt),
+  confirmGenerateDisplayImage: (root, cardId, candidateId) =>
+    invoke('displayImage:confirmGenerate', root, cardId, candidateId),
   listSettingCardStyles: (root, documentType) => invoke('settingCard:styles', root, documentType),
   designSettingCard: (root, input) => invoke('settingCard:design', root, input),
   renderSettingCardStyle: (root, input) => invoke('settingCard:renderStyle', root, input),

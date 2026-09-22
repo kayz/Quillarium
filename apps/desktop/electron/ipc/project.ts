@@ -47,6 +47,7 @@ import {
   storyStructureConfigV1Schema,
   updateProjectConfig,
   writeMarkdown,
+  removeDisplayImagesForCard,
   type CanonDoc,
   type CharacterDoc,
   type CharacterRelationDoc,
@@ -156,6 +157,8 @@ export function registerProjectHandlers(): void {
     }
     await assertDocumentDeletable(projectRoot, parsed.data)
     await rm(filePath, { force: true })
+    const id = parsed.data['id']
+    if (typeof id === 'string') await removeDisplayImagesForCard(projectRoot, id)
     return true
   })
   typedHandle('doc:openExternal', async (_event, filePath) => {

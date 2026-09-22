@@ -18,6 +18,7 @@ import { registerReferenceHandlers } from './references.js'
 import { registerTimelineHandlers } from './timeline.js'
 import { registerCoverHandlers } from './cover.js'
 import { registerSettingAssetHandlers } from './setting-assets.js'
+import { registerDisplayImageHandlers } from './display-images.js'
 import { registerSettingCardHandlers } from './setting-cards.js'
 
 export function registerAllHandlers(): void {
@@ -26,6 +27,7 @@ export function registerAllHandlers(): void {
   registerProjectHandlers()
   registerCoverHandlers()
   registerSettingAssetHandlers()
+  registerDisplayImageHandlers()
   registerSettingCardHandlers()
   registerStoryOrderHandlers()
   registerReferenceHandlers()
