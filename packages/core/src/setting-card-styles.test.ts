@@ -99,6 +99,37 @@ describe('workspace setting-card styles', () => {
     expect(await pathExists(path.join(root, 'styles', 'setting-cards'))).toBe(false)
   })
 
+  it('saves a display-card template that contains {{images}}', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'quillarium-display-style-images-'))
+    roots.push(root)
+    await ensureWorkspaceAt(root)
+
+    const saved = await saveWorkspaceDisplayCardStyle(root, {
+      name: 'Gallery folio',
+      template: {
+        schema_version: 1,
+        template_html:
+          '<article>{{image}}<div class="gallery">{{images}}</div><h1>{{title}}</h1>{{content}}</article>',
+        css: 'article { color: #111; } .display-gallery { display: grid; }',
+        notes: ''
+      },
+      supported_types: ['canon'],
+      default_size: { width: 720, height: 1080 }
+    })
+
+    expect(saved.value.template_html).toContain('{{images}}')
+    expect(saved.relative_path).toMatch(/^styles\/display-cards\//u)
+    expect(() =>
+      normalizeSettingCardTemplate({
+        schema_version: 1,
+        template_html:
+          '<article>{{image}}{{images}}<h1>{{title}}</h1>{{content}}<script>alert(1)</script></article>',
+        css: 'article { color: #111; }',
+        notes: ''
+      })
+    ).toThrow('SETTING_CARD_SCRIPT_UNSAFE')
+  })
+
   it('lists every spec document type on each builtin so a canon card can pick one', () => {
     const specTypes = settingCardDocumentTypeSchema.options
     expect(specTypes).toContain('canon')
@@ -147,6 +178,36 @@ describe('workspace setting-card styles', () => {
     expect(html).not.toContain('<script')
   })
 
+  it('expands {{images}} into a scriptless radio carousel and keeps {{image}} as the selection', () => {
+    const html = renderSettingCardHtml(
+      {
+        schema_version: 1,
+        template_html:
+          '<article>{{image}}<div class="gallery">{{images}}</div><h1>{{title}}</h1>{{content}}</article>',
+        css: 'article { color: #111; } .display-gallery { display: grid; }',
+        notes: ''
+      },
+      { width: 720, height: 1080 },
+      {
+        id: 'world-lin',
+        type: 'world_entry',
+        title: '林舟',
+        content: '水手。',
+        fields: {},
+        image_data_url: 'data:image/png;base64,AAAA',
+        image_data_urls: [
+          { id: 'one', alt: 'a', data_url: 'data:image/png;base64,AAAA' },
+          { id: 'two', alt: 'b', data_url: 'data:image/png;base64,BBBB' }
+        ]
+      }
+    )
+    expect(html).toContain('data:image/png;base64,AAAA')
+    expect(html).toContain('display-gallery')
+    expect(html).toContain('type="radio"')
+    expect(html).not.toContain('<script')
+    expect(html).not.toContain('onclick')
+  })
+
   it('renders every built-in style locally with a distinct template', () => {
     const templates = BUILTIN_SETTING_CARD_STYLES.map((style) => defaultSettingCardTemplate(style.id))
 
@@ -156,9 +217,30 @@ describe('workspace setting-card styles', () => {
     expect(new Set(templates.map((template) => template.css)).size).toBe(BUILTIN_SETTING_CARD_STYLES.length)
     for (const template of templates) {
       expect(template.template_html).toContain('{{image}}')
+      expect(template.template_html).toContain('{{images}}')
       expect(template.template_html).toContain('{{title}}')
       expect(template.template_html).toContain('{{content}}')
       expect(template.notes).toContain('rendered locally without an Agent call')
+      const html = renderSettingCardHtml(
+        template,
+        { width: 720, height: 1080 },
+        {
+          id: 'world-lin',
+          type: 'world_entry',
+          title: '林舟',
+          content: '水手。',
+          fields: {},
+          image_data_url: 'data:image/png;base64,AAAA',
+          image_data_urls: [
+            { id: 'one', alt: 'a', data_url: 'data:image/png;base64,AAAA' },
+            { id: 'two', alt: 'b', data_url: 'data:image/png;base64,BBBB' }
+          ]
+        }
+      )
+      expect(html).toContain('type="radio"')
+      expect(html).toContain('display-gallery')
+      expect(html).toContain('.display-gallery-input:checked')
+      expect(html).not.toContain('<script')
     }
   })
 

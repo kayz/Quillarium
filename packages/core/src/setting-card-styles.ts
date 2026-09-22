@@ -82,6 +82,7 @@ export interface SettingCardRenderData {
   content: string
   fields: Record<string, unknown>
   image_data_url?: string | null
+  image_data_urls?: Array<{ data_url: string; alt: string; id: string }>
   language?: 'zh' | 'en'
 }
 
@@ -105,8 +106,11 @@ const STATIC_TEMPLATE_TOKENS = new Set([
   ...REQUIRED_TEMPLATE_TOKENS,
   '{{type}}',
   '{{stable_id}}',
-  '{{fields}}'
+  '{{fields}}',
+  '{{images}}'
 ])
+const DISPLAY_GALLERY_CSS =
+  '.display-gallery{display:grid}.display-gallery-input{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}.display-gallery-slide{display:none;grid-area:1/1}.display-gallery-input:checked+.display-gallery-dot+.display-gallery-slide{display:block}.visual:has(>.display-gallery)>.setting-card-image,.visual:has(>.display-gallery)>.setting-card-image-fallback{display:none}'
 const TEMPLATE_TOKEN_PATTERN = /\{\{[^{}]*\}\}/gu
 const FIELD_TEMPLATE_TOKEN_PATTERN = /^\{\{fields\.([a-zA-Z][a-zA-Z0-9_-]{0,63})\}\}$/u
 const SETTING_CARD_STYLE_ROOT = 'styles/setting-cards'
@@ -329,6 +333,7 @@ export function renderSettingCardHtml(
     '{{title}}': escapeHtml(data.title),
     '{{content}}': renderMarkdown(data.content),
     '{{image}}': image,
+    '{{images}}': renderDisplayImageGallery(data),
     '{{type}}': escapeHtml(documentTypeLabel(data.type, language)),
     '{{stable_id}}': escapeHtml(data.id),
     '{{fields}}': renderFields(data.fields, data.type, language)
@@ -349,11 +354,24 @@ export function renderSettingCardHtml(
     '<meta charset="utf-8" />',
     '<meta name="viewport" content="width=device-width, initial-scale=1" />',
     "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; img-src data:; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'\" />",
-    `<style>html,body{margin:0;padding:0;min-height:${size.height}px;background:transparent}body{width:${size.width}px;overflow:auto}${template.css}</style>`,
+    `<style>html,body{margin:0;padding:0;min-height:${size.height}px;background:transparent}body{width:${size.width}px;overflow:auto}${template.css}${DISPLAY_GALLERY_CSS}</style>`,
     '</head>',
     `<body>${body}</body>`,
     '</html>'
   ].join('')
+}
+
+function renderDisplayImageGallery(data: SettingCardRenderData): string {
+  const images = data.image_data_urls ?? []
+  if (images.length === 0) return ''
+  const name = `display-gallery-${escapeHtml(data.id)}`
+  const items = images
+    .map((image, index) => {
+      const checked = index === 0 ? ' checked' : ''
+      return `<input class="display-gallery-input" type="radio" name="${name}" id="${name}-${escapeHtml(image.id)}"${checked} /><label class="display-gallery-dot" for="${name}-${escapeHtml(image.id)}"></label><figure class="display-gallery-slide"><img class="setting-card-image" src="${image.data_url}" alt="${escapeHtml(image.alt || data.title)}" /></figure>`
+    })
+    .join('')
+  return `<div class="display-gallery">${items}</div>`
 }
 
 export function defaultSettingCardTemplate(direction: string): SettingCardTemplateV1 {
@@ -377,32 +395,32 @@ function builtinTemplateVariant(direction: BuiltinSettingCardStyleId): {
     case 'modern-dossier':
       return {
         template:
-          '<article class="setting-card modern-card"><section class="hero"><figure class="visual">{{image}}</figure><header><small>{{type}} · {{stable_id}}</small><h1>{{title}}</h1><span class="rule"></span></header></section><section class="content-grid"><section class="body">{{content}}</section><section class="facts"><h2>PROFILE</h2>{{fields}}</section></section></article>',
+          '<article class="setting-card modern-card"><section class="hero"><figure class="visual">{{image}}{{images}}</figure><header><small>{{type}} · {{stable_id}}</small><h1>{{title}}</h1><span class="rule"></span></header></section><section class="content-grid"><section class="body">{{content}}</section><section class="facts"><h2>PROFILE</h2>{{fields}}</section></section></article>',
         css: '.setting-card{--accent:#295b73;--ink:#17242c;--paper:#f7f8f7;padding:6.5%;background:linear-gradient(135deg,#f7f8f7,#eef2f2);color:var(--ink);font-family:Inter,"Noto Sans SC",sans-serif}.hero{display:grid;grid-template-columns:minmax(190px,36%) 1fr;gap:5%;align-items:end}.visual{aspect-ratio:4/5;border-radius:2px;box-shadow:14px 14px 0 #dbe4e6}header small{color:var(--accent);font-weight:700;letter-spacing:.13em}header h1{margin:.4rem 0;font:700 3.2rem/1.05 Georgia,"Noto Serif SC",serif}.rule{display:block;width:72px;height:5px;margin-top:1.2rem;background:var(--accent)}.content-grid{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(220px,.8fr);gap:7%;margin-top:3.6rem}.facts{padding-left:1.4rem;border-left:1px solid #cbd7da}.facts>h2{font-size:.78rem;letter-spacing:.2em;color:var(--accent)}'
       }
     case 'editorial':
       return {
         template:
-          '<article class="setting-card editorial-card"><header><small>{{type}} / {{stable_id}}</small><h1>{{title}}</h1></header><figure class="visual">{{image}}</figure><section class="editorial-columns"><section class="body">{{content}}</section><section class="facts">{{fields}}</section></section></article>',
+          '<article class="setting-card editorial-card"><header><small>{{type}} / {{stable_id}}</small><h1>{{title}}</h1></header><figure class="visual">{{image}}{{images}}</figure><section class="editorial-columns"><section class="body">{{content}}</section><section class="facts">{{fields}}</section></section></article>',
         css: '.setting-card{--accent:#c04a34;--ink:#1d1b19;--paper:#f8f3eb;padding:5.5%;background:var(--paper);color:var(--ink);font-family:Georgia,"Noto Serif SC",serif;border-top:18px solid var(--accent)}header{display:grid;grid-template-columns:1fr auto;align-items:end;border-bottom:2px solid var(--ink);padding-bottom:1rem}header small{grid-column:2;grid-row:1;color:var(--accent);font-family:Inter,"Noto Sans SC",sans-serif;letter-spacing:.12em}header h1{grid-column:1;grid-row:1;margin:0;font-size:4rem;line-height:1}.visual{margin:1.5rem 0;aspect-ratio:21/9}.editorial-columns{display:grid;grid-template-columns:minmax(0,1.5fr) minmax(220px,1fr);gap:5%;align-items:start}.body>p:first-of-type:first-letter{float:left;margin:.05em .12em 0 0;color:var(--accent);font-size:4.4em;line-height:.72}.facts{border-top:5px solid var(--ink);padding-top:1rem}'
       }
     case 'minimal':
       return {
         template:
-          '<article class="setting-card minimal-card"><header><small>{{type}} · {{stable_id}}</small><h1>{{title}}</h1></header><figure class="visual">{{image}}</figure><section class="body">{{content}}</section><section class="facts">{{fields}}</section></article>',
+          '<article class="setting-card minimal-card"><header><small>{{type}} · {{stable_id}}</small><h1>{{title}}</h1></header><figure class="visual">{{image}}{{images}}</figure><section class="body">{{content}}</section><section class="facts">{{fields}}</section></article>',
         css: '.setting-card{--accent:#111;--ink:#161616;--paper:#fff;padding:8%;background:#fff;color:var(--ink);font-family:Inter,"Noto Sans SC",sans-serif}header{max-width:82%;margin-bottom:2.8rem}header small{color:#777;letter-spacing:.16em;text-transform:uppercase}header h1{margin:.55rem 0 0;font-size:3.4rem;font-weight:560;line-height:1.1}.visual{aspect-ratio:16/9;filter:grayscale(1);border-radius:1px}.body{max-width:78%;margin:3rem 0}.facts{padding-top:2rem;border-top:1px solid #bbb}.field-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.field-item{display:block}.field-item dt{margin-bottom:.35rem;color:#777;font-size:.72rem;letter-spacing:.1em;text-transform:uppercase}'
       }
     case 'heraldic':
       return {
         template:
-          '<article class="setting-card heraldic-card"><header><small>{{type}}</small><h1>{{title}}</h1><span>{{stable_id}}</span></header><figure class="visual">{{image}}</figure><section class="facts">{{fields}}</section><section class="body">{{content}}</section></article>',
+          '<article class="setting-card heraldic-card"><header><small>{{type}}</small><h1>{{title}}</h1><span>{{stable_id}}</span></header><figure class="visual">{{image}}{{images}}</figure><section class="facts">{{fields}}</section><section class="body">{{content}}</section></article>',
         css: '.setting-card{--accent:#8b5c22;--ink:#2c2015;--paper:#efe2c4;padding:7%;background:linear-gradient(135deg,#f8efd9,#e7d4ae);color:var(--ink);font-family:Georgia,"Noto Serif SC",serif;border:18px double var(--accent);outline:3px solid #d0ae72;outline-offset:-30px}header{text-align:center;margin:0 auto 1.8rem}header small{display:block;color:var(--accent);font-weight:700;letter-spacing:.22em}header h1{margin:.45rem 0 .2rem;font-size:3.5rem}header span{font-size:.78rem;color:#806b54}.visual{width:min(68%,520px);margin:0 auto 2.4rem;aspect-ratio:1;border-radius:50%;border:8px double var(--accent);box-shadow:0 0 0 10px #f5ead1}.setting-card-image{border-radius:50%}.setting-card-image-fallback{border-radius:50%}.facts{max-width:92%;margin:0 auto 2.5rem;padding:1.4rem;border-top:1px solid var(--accent);border-bottom:1px solid var(--accent)}.body{max-width:88%;margin:0 auto}'
       }
     case 'ink-archive':
     default:
       return {
         template:
-          '<article class="setting-card ink-card"><header><small>{{type}} · {{stable_id}}</small><h1>{{title}}</h1></header><figure class="visual">{{image}}</figure><section class="facts">{{fields}}</section><section class="body">{{content}}</section></article>',
+          '<article class="setting-card ink-card"><header><small>{{type}} · {{stable_id}}</small><h1>{{title}}</h1></header><figure class="visual">{{image}}{{images}}</figure><section class="facts">{{fields}}</section><section class="body">{{content}}</section></article>',
         css: '.setting-card{--accent:#694b32;--ink:#241c16;--paper:#f0e5cf;padding:6.5%;background:linear-gradient(90deg,rgba(104,75,50,.06) 1px,transparent 1px),linear-gradient(#f3ead7,#eadabd);background-size:28px 28px,auto;color:var(--ink);font-family:Georgia,"Noto Serif SC",serif;border:14px solid #5f4634;box-shadow:inset 0 0 0 4px #c9a979}header{padding:0 0 1.25rem;border-bottom:3px double var(--accent)}header small{color:var(--accent);font-weight:700;letter-spacing:.14em}header h1{margin:.4rem 0 0;font-size:3.25rem}.visual{margin:1.6rem 0;aspect-ratio:16/9;border:1px solid var(--accent);padding:8px;background:#ddc9a5}.facts{margin-bottom:2rem;padding:1.2rem 0;border-bottom:1px solid #a98862}.body h2,.body h3{font-weight:600}'
       }
   }
