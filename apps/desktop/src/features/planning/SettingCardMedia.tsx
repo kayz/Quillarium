@@ -49,6 +49,25 @@ export function defaultDisplayImagePrompt(title: string, content: string): strin
   return `${title}\n${content.slice(0, 400)}`
 }
 
+export function nextDisplayImagePrompt({
+  previousCardId,
+  cardId,
+  title,
+  content,
+  currentPrompt
+}: {
+  previousCardId: string | null | undefined
+  cardId: string
+  title: string
+  content: string
+  currentPrompt: string
+}): string {
+  if (previousCardId === cardId) {
+    return currentPrompt
+  }
+  return defaultDisplayImagePrompt(title, content)
+}
+
 export function SettingCardMediaPanel({
   root,
   document,
@@ -77,7 +96,7 @@ export function SettingCardMediaPanel({
 
   useEffect(() => {
     setPrompt(defaultDisplayImagePrompt(String(document.data.title), document.content))
-  }, [document.content, document.data.title])
+  }, [document.data.id])
 
   useEffect(() => {
     if (!showImageChrome || !parsedType.success) return

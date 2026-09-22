@@ -1,7 +1,11 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
 import type { DocEntry } from '../../app/types.js'
-import { SettingCardMediaPanel } from './SettingCardMedia.js'
+import {
+  defaultDisplayImagePrompt,
+  nextDisplayImagePrompt,
+  SettingCardMediaPanel
+} from './SettingCardMedia.js'
 
 vi.mock('../../app/bridge.js', () => ({ bridge: {} }))
 
@@ -10,6 +14,33 @@ const document: DocEntry = {
   data: { id: 'character-lin', type: 'character', title: '林澜' },
   content: '水手。'
 }
+
+describe('nextDisplayImagePrompt', () => {
+  it('keeps a custom prompt when title and content change on the same card', () => {
+    const custom = 'custom prompt for generation'
+    expect(
+      nextDisplayImagePrompt({
+        previousCardId: 'character-lin',
+        cardId: 'character-lin',
+        title: 'Updated title',
+        content: 'Updated body text.',
+        currentPrompt: custom
+      })
+    ).toBe(custom)
+  })
+
+  it('reseeds from title and excerpt when the card id changes', () => {
+    expect(
+      nextDisplayImagePrompt({
+        previousCardId: 'character-lin',
+        cardId: 'character-mei',
+        title: '梅雪',
+        content: '学者。',
+        currentPrompt: 'custom prompt for generation'
+      })
+    ).toBe(defaultDisplayImagePrompt('梅雪', '学者。'))
+  })
+})
 
 describe('SettingCardMediaPanel', () => {
   it('shows upload and generate controls when display chrome is on without writing card image', () => {
