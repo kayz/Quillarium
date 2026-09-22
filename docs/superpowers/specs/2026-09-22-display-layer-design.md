@@ -13,17 +13,17 @@ Scope: 把卡片视觉外壳从设定事实里拆出来，做成项目级可选�
 
 ## 已锁定的决策
 
-| 主题 | 选择 |
-| ---- | ---- |
-| 开关位置 | `ProjectConfig.display_layer`，不放进 `story_structure`。 |
-| 新项目 | `enabled: false`，`migrated: true`（和节模块一样，作家默认关）。 |
-| 旧项目 | 若仍有旧图则打开时询问。确认后清盘并 `enabled: true`；取消则本会话不碰磁盘。 |
-| 清盘 | 删除项目内 `assets/settings/`，并从卡片去掉 `image`。破坏性，不可恢复。 |
-| 新卡面 | 替换 `setting-card-design`。内置样式 + 作者保存的模板；Agent 只出候选，确认后才保存。 |
-| 配图 | 预留空槽 `{{image}}`。本轮无上传、无生图。 |
-| 写作字段 | 展示不得要求新的事实 frontmatter 才能工作。新图以后也不写回设定卡 `image`。 |
-| CCv3 | 导入/导出当数据交换，本轮不动。 |
-| 工作区旧样式 | `styles/setting-cards/` 先留着不删；新渲染器不读它们。 |
+| 主题         | 选择                                                                                  |
+| ------------ | ------------------------------------------------------------------------------------- |
+| 开关位置     | `ProjectConfig.display_layer`，不放进 `story_structure`。                             |
+| 新项目       | `enabled: false`，`migrated: true`（和节模块一样，作家默认关）。                      |
+| 旧项目       | 若仍有旧图则打开时询问。确认后清盘并 `enabled: true`；取消则本会话不碰磁盘。          |
+| 清盘         | 删除项目内 `assets/settings/`，并从卡片去掉 `image`。破坏性，不可恢复。               |
+| 新卡面       | 替换 `setting-card-design`。内置样式 + 作者保存的模板；Agent 只出候选，确认后才保存。 |
+| 配图         | 预留空槽 `{{image}}`。本轮无上传、无生图。                                            |
+| 写作字段     | 展示不得要求新的事实 frontmatter 才能工作。新图以后也不写回设定卡 `image`。           |
+| CCv3         | 导入/导出当数据交换，本轮不动。                                                       |
+| 工作区旧样式 | `styles/setting-cards/` 先留着不删；新渲染器不读它们。                                |
 
 ## 配置
 
@@ -99,12 +99,12 @@ faction, faction_relation, faction_membership, foreshadowing, narrative
 
 ### 何时渲染
 
-| 状态 | UI |
-| ---- | -- |
-| `migrated && enabled` | 新 HTML 卡面（模块列表、详情）。 |
-| `migrated && !enabled` | 只显示事实字段和 Markdown，无卡面、无旧缩略图。 |
+| 状态                         | UI                                                                       |
+| ---------------------------- | ------------------------------------------------------------------------ |
+| `migrated && enabled`        | 新 HTML 卡面（模块列表、详情）。                                         |
+| `migrated && !enabled`       | 只显示事实字段和 Markdown，无卡面、无旧缩略图。                          |
 | `!migrated` 且本会话取消清盘 | 旧缩略图兼容（读 frontmatter `image`）。不跑新卡面，不跑旧 HTML 设计师。 |
-| `!migrated` 且尚未回答 | 清盘对话框挡住主界面。 |
+| `!migrated` 且尚未回答       | 清盘对话框挡住主界面。                                                   |
 
 ### 模板从哪来
 

@@ -75,11 +75,7 @@ import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createWorldEntry, listDocs } from './documents.js'
 import { pathExists, writeMarkdown, writeText } from './fs.js'
-import {
-  WRITER_DEFAULT_DISPLAY_LAYER,
-  needsDisplayMigration,
-  resetDisplayLayer
-} from './display-layer.js'
+import { WRITER_DEFAULT_DISPLAY_LAYER, needsDisplayMigration, resetDisplayLayer } from './display-layer.js'
 import { createProjectAt, loadProject } from './project.js'
 
 const roots: string[] = []
@@ -212,11 +208,10 @@ Add `display_layer: DisplayLayerConfigV1` to `ProjectConfig` and optional `displ
 In `schema.ts` both `projectConfigV1Schema` (omit — v1 has no field) and `projectConfigSchema`:
 
 ```ts
-display_layer: z
-  .object({
-    enabled: z.boolean(),
-    migrated: z.boolean()
-  })
+display_layer: z.object({
+  enabled: z.boolean(),
+  migrated: z.boolean()
+})
   .strict()
   .optional()
 ```
