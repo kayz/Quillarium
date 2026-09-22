@@ -1,20 +1,9 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
-import {
-  Bot,
-  ChevronLeft,
-  ChevronRight,
-  Download,
-  ImagePlus,
-  RefreshCw,
-  Save,
-  Sparkles,
-  Trash2,
-  X
-} from 'lucide-react'
+import { Bot, ChevronLeft, ChevronRight, Download, RefreshCw, Save, Sparkles, X } from 'lucide-react'
 import type { DocEntry, LanguageName } from '../../app/types.js'
 import { bridge } from '../../app/bridge.js'
 import { formatDesktopError } from '../../shared/errors.js'
-import { SETTING_CARD_TYPES, SETTING_IMAGE_TYPES, SettingThumbnail } from './SettingThumbnail.js'
+import { SETTING_CARD_TYPES } from './SettingThumbnail.js'
 import {
   appendSettingCardCandidate,
   moveSettingCardCandidateIndex,
@@ -23,7 +12,6 @@ import {
 
 export { SETTING_CARD_TYPES, SETTING_IMAGE_TYPES, SettingThumbnail } from './SettingThumbnail.js'
 
-type SettingImageResult = NonNullable<Awaited<ReturnType<typeof bridge.getSettingImage>>>
 type SettingCardStyle = Awaited<ReturnType<typeof bridge.listSettingCardStyles>>[number]
 type SettingCardCandidate = Awaited<ReturnType<typeof bridge.designSettingCard>>['candidate']
 type SettingCardSize = SettingCardCandidate['size']
@@ -46,10 +34,6 @@ const BUILTIN_STYLES = [
 export function SettingCardMediaPanel({
   root,
   document,
-  dirty,
-  onSave,
-  onReloadDocument,
-  onReloadProject,
   language
 }: {
   root: string
@@ -62,119 +46,22 @@ export function SettingCardMediaPanel({
 }) {
   const zh = language === 'zh'
   const type = String(document.data.type)
-  const [image, setImage] = useState<SettingImageResult | null>(null)
   const [designerOpen, setDesignerOpen] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
 
-  useEffect(() => {
-    let active = true
-    void bridge
-      .getSettingImage(root, document.data.id)
-      .then((result) => {
-        if (active) setImage(result)
-      })
-      .catch((cause) => {
-        if (active) setError(formatDesktopError(cause, language))
-      })
-    return () => {
-      active = false
-    }
-  }, [document.data.id, language, root])
-
-  if (!SETTING_IMAGE_TYPES.has(type)) return null
-
-  const refresh = async () => {
-    await onReloadProject()
-    await onReloadDocument()
-    setImage(await bridge.getSettingImage(root, document.data.id))
-  }
-  const chooseImage = async () => {
-    setBusy(true)
-    setError('')
-    try {
-      if (dirty) await onSave()
-      const result = await bridge.chooseSettingImage(root, document.path, String(document.data.title))
-      if (result) {
-        setImage(result)
-        await refresh()
-      }
-    } catch (cause) {
-      setError(formatDesktopError(cause, language))
-    } finally {
-      setBusy(false)
-    }
-  }
-  const removeImage = async () => {
-    if (
-      !window.confirm(
-        zh
-          ? '移除这张卡片当前使用的图片？原资源文件会保留以便恢复。'
-          : 'Remove the image from this card? Existing asset files are retained for recovery.'
-      )
-    )
-      return
-    setBusy(true)
-    setError('')
-    try {
-      if (dirty) await onSave()
-      await bridge.removeSettingImage(root, document.path)
-      setImage(null)
-      await refresh()
-    } catch (cause) {
-      setError(formatDesktopError(cause, language))
-    } finally {
-      setBusy(false)
-    }
-  }
+  if (!SETTING_CARD_TYPES.has(type)) return null
 
   return (
     <section className="setting-media-panel">
-      <div className="setting-media-preview">
-        <SettingThumbnail preview={image} title={String(document.data.title)} type={type} />
-        {!image && type !== 'faction' && (
-          <div className="setting-media-empty">
-            <ImagePlus size={22} />
-            <span>{zh ? '尚未上传图片' : 'No image yet'}</span>
-          </div>
-        )}
-      </div>
-      <div className="setting-media-copy">
-        <strong>
-          {type === 'faction' ? (zh ? '势力标志' : 'Faction emblem') : zh ? '设定图片' : 'Setting image'}
-        </strong>
-        <small>
-          {zh
-            ? '原图与缩略图保存在项目 assets/settings 中；项目文档只记录相对路径。'
-            : 'The original and thumbnail live under project assets/settings; the document stores relative paths only.'}
-        </small>
-        {image?.warning && <span className="warning-text">{image.warning}</span>}
-        {error && (
-          <span className="warning-text" role="alert">
-            {error}
-          </span>
-        )}
-        <div className="setting-media-actions">
-          <button type="button" onClick={() => void chooseImage()} disabled={busy}>
-            <ImagePlus size={14} /> {image ? (zh ? '替换图片' : 'Replace') : zh ? '上传图片' : 'Upload'}
-          </button>
-          {image && (
-            <button type="button" onClick={() => void removeImage()} disabled={busy}>
-              <Trash2 size={14} /> {zh ? '移除' : 'Remove'}
-            </button>
-          )}
-          {SETTING_CARD_TYPES.has(type) && (
-            <button className="primary" type="button" onClick={() => setDesignerOpen(true)} disabled={busy}>
-              <Bot size={14} /> {zh ? '创建设定卡' : 'Design card'}
-            </button>
-          )}
-        </div>
+      <div className="setting-media-actions">
+        <button className="primary" type="button" onClick={() => setDesignerOpen(true)}>
+          <Bot size={14} /> {zh ? '创建设定卡' : 'Design card'}
+        </button>
       </div>
       {designerOpen && (
         <SettingCardDesigner
           root={root}
           document={document}
-          imageDataUrl={image?.previewDataUrl ?? null}
+          imageDataUrl={null}
           language={language}
           onClose={() => setDesignerOpen(false)}
         />

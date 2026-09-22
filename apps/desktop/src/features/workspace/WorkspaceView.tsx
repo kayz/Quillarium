@@ -55,6 +55,7 @@ import {
   type PlanningCheckPanelOutcome
 } from '../agents/PlanningCheckPanel.js'
 import { selectionAfterSpecialize } from './selection-after-specialize.js'
+import type { DisplayLayerChrome } from '../planning/display-chrome.js'
 
 type EditableDoc = { data: Record<string, unknown>; content: string; path: string }
 
@@ -109,6 +110,7 @@ interface WorkspaceViewProps {
     actionError: string
     assembledPrompt: string
     planningCheck: PlanningCheckPanelOutcome | null
+    displayLayer: DisplayLayerChrome
   }
   actions: {
     createGitHubRepo: () => Promise<void>
@@ -231,7 +233,8 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
     gitMessage,
     actionError,
     assembledPrompt,
-    planningCheck
+    planningCheck,
+    displayLayer
   } = state
   const {
     createGitHubRepo,
@@ -646,6 +649,7 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
                   }}
                   onReload={load}
                   language={language}
+                  displayLayer={displayLayer}
                 />
               )}
             </main>
@@ -737,6 +741,7 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
           onSave={save}
           onImport={() => openAIImport()}
           language={language}
+          displayLayer={displayLayer}
         />
       ) : (
         <OutlineHome
@@ -818,6 +823,7 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
           onSave={save}
           onImport={() => openAIImport()}
           language={language}
+          displayLayer={displayLayer}
         />
       )}
       {importOpen && (

@@ -63,6 +63,7 @@ function renderOutlineHome(
       onSave={noopAsync}
       onImport={noop}
       language="zh"
+      displayLayer={{ enabled: false, migrated: true }}
     />
   )
 }
@@ -108,7 +109,7 @@ describe('OutlineHome issue workflow', () => {
     expect(html).toContain('人物所属')
     expect(html).toContain('AI 讨论新增')
     expect(html.match(/class="outline-item/g)).toHaveLength(3)
-    expect(html).toContain('setting-thumbnail-fallback')
+    expect(html).not.toContain('setting-thumbnail-fallback')
   })
 
   it('renders the dedicated selection and batch actions in the planning issue section', () => {

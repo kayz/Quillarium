@@ -18,7 +18,8 @@ const baseProps = {
   onAIExtractReference: vi.fn(),
   selectedTarget: null,
   onSelect: vi.fn(),
-  onReload: noopAsync
+  onReload: noopAsync,
+  displayLayer: { enabled: false, migrated: true }
 }
 
 describe('ModuleView localized summaries', () => {
@@ -102,5 +103,42 @@ describe('ModuleView localized summaries', () => {
     expect(html).toContain('AI 讨论生卡')
     expect(html).toContain('只读来源')
     expect(html).not.toContain('与 AI 对话新增')
+  })
+
+  it('hides legacy setting thumbnails when display layer is migrated', () => {
+    const docs: DocEntry[] = [
+      {
+        path: 'factions/guild.md',
+        data: { id: 'faction-a', type: 'faction', title: '海灯会' },
+        content: ''
+      }
+    ]
+    const html = renderToStaticMarkup(
+      <ModuleView {...baseProps} module="factions" docs={docs} language="zh" />
+    )
+
+    expect(html).not.toContain('setting-thumbnail-fallback')
+  })
+
+  it('keeps legacy setting thumbnails when display layer is unmigrated', () => {
+    const docs: DocEntry[] = [
+      {
+        path: 'factions/guild.md',
+        data: { id: 'faction-a', type: 'faction', title: '海灯会' },
+        content: ''
+      }
+    ]
+    const html = renderToStaticMarkup(
+      <ModuleView
+        {...baseProps}
+        module="factions"
+        docs={docs}
+        language="zh"
+        displayLayer={{ enabled: false, migrated: false }}
+      />
+    )
+
+    expect(html).toContain('setting-thumbnail-fallback')
+    expect(html).toContain('>海灯<')
   })
 })

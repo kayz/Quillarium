@@ -40,6 +40,7 @@ import {
   outlineItemsForLevel
 } from '../../shared/outline.js'
 import { applyDisplayResetOnLoad } from './apply-display-reset-on-load.js'
+import { displayLayerForChrome } from '../planning/display-chrome.js'
 import { deleteConfirmationMessage } from './delete-confirmation.js'
 import { WorkspaceView } from './WorkspaceView.js'
 import type {
@@ -108,6 +109,7 @@ export function Workspace({
   const planningStream = useAIStreamPreview('planning-check')
   const planningCancelRequested = useRef(false)
   const displayResetPromptedRoot = useRef<string | null>(null)
+  const [displayLayer, setDisplayLayer] = useState({ enabled: false, migrated: true })
 
   const load = async () => {
     const session: {
@@ -117,9 +119,10 @@ export function Workspace({
       loaded: undefined,
       promptedRoot: displayResetPromptedRoot.current
     }
+    let needsMigration = false
     try {
       session.loaded = await bridge.loadProject(root)
-      const needsMigration = await bridge.needsDisplayMigration(root)
+      needsMigration = await bridge.needsDisplayMigration(root)
       await applyDisplayResetOnLoad(session, {
         root,
         language,
@@ -131,6 +134,12 @@ export function Workspace({
       displayResetPromptedRoot.current = session.promptedRoot
       const loaded = session.loaded
       if (!loaded) return
+      setDisplayLayer(
+        displayLayerForChrome({
+          displayLayer: loaded.project.display_layer,
+          needsMigration
+        })
+      )
       setData({ ...loaded, project: { ...loaded.project, root } })
       setActionError('')
       if (loaded.project.default_theme) onTheme(loaded.project.default_theme)
@@ -148,7 +157,15 @@ export function Workspace({
       } else if (!selectedTarget && scenes[0]) setSelectedTarget({ type: 'scene', id: scenes[0].data.id })
     } catch (error) {
       setActionError(formatDesktopError(error, language))
-      if (session.loaded) setData({ ...session.loaded, project: { ...session.loaded.project, root } })
+      if (session.loaded) {
+        setDisplayLayer(
+          displayLayerForChrome({
+            displayLayer: session.loaded.project.display_layer,
+            needsMigration
+          })
+        )
+        setData({ ...session.loaded, project: { ...session.loaded.project, root } })
+      }
     }
   }
 
@@ -753,7 +770,8 @@ export function Workspace({
           gitMessage,
           actionError,
           assembledPrompt,
-          planningCheck
+          planningCheck,
+          displayLayer
         }}
         actions={{
           createGitHubRepo,

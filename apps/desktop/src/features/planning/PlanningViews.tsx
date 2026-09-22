@@ -25,6 +25,7 @@ import {
   resolveEgoCharacterId
 } from './character-relation-graph.js'
 import { SETTING_IMAGE_TYPES, SettingThumbnail } from './SettingThumbnail.js'
+import { showLegacySettingThumbnails, type DisplayLayerChrome } from './display-chrome.js'
 
 export interface TimelineLane {
   node: DocEntry
@@ -989,7 +990,8 @@ export function CharacterRelationView({
   onSelect,
   onCreateRelation,
   onCreateTimelineNode,
-  language
+  language,
+  displayLayer = { enabled: false, migrated: true }
 }: {
   items: DocEntry[]
   allDocs?: DocEntry[]
@@ -1000,6 +1002,7 @@ export function CharacterRelationView({
   onCreateRelation?: (initial: CharacterRelationCreateRequest) => void
   onCreateTimelineNode?: () => void
   language: LanguageName
+  displayLayer?: DisplayLayerChrome
 }) {
   const zh = language === 'zh'
   const nodes = useMemo(
@@ -1086,7 +1089,9 @@ export function CharacterRelationView({
       ),
     [items]
   )
+  const showLegacyThumbnails = showLegacySettingThumbnails(displayLayer)
   const settingImageKey = useMemo(() => {
+    if (!showLegacyThumbnails) return ''
     const ids = new Set<string>()
     for (const item of items.filter((candidate) => SETTING_IMAGE_TYPES.has(candidate.data.type))) {
       ids.add(item.data.id)
@@ -1095,7 +1100,7 @@ export function CharacterRelationView({
       for (const membership of memberships) ids.add(membership.faction.data.id)
     }
     return [...ids].sort().join('\n')
-  }, [factionMemberships, items])
+  }, [factionMemberships, items, showLegacyThumbnails])
   useEffect(() => {
     let active = true
     if (!projectRoot || !settingImageKey) {
@@ -1276,12 +1281,14 @@ export function CharacterRelationView({
                     }}
                   >
                     <span className="relationship-person-main">
-                      <SettingThumbnail
-                        preview={settingImages[node.id]}
-                        title={person.character.data.title}
-                        type="character"
-                        compact
-                      />
+                      {showLegacyThumbnails && (
+                        <SettingThumbnail
+                          preview={settingImages[node.id]}
+                          title={person.character.data.title}
+                          type="character"
+                          compact
+                        />
+                      )}
                       <strong>{person.character.data.title}</strong>
                     </span>
                     <small>{absent ? (zh ? '此时未在场' : 'Not present at this time') : role}</small>
@@ -1293,12 +1300,14 @@ export function CharacterRelationView({
                             className={`relationship-faction-badge ${untimed ? 'untimed' : ''}`}
                             title={`${faction.data.title} · ${String(membership.data.role || '')}${untimed ? (zh ? ' · 未绑定时间' : ' · no time bound') : ''}`}
                           >
-                            <SettingThumbnail
-                              preview={settingImages[faction.data.id]}
-                              title={faction.data.title}
-                              type="faction"
-                              compact
-                            />
+                            {showLegacyThumbnails && (
+                              <SettingThumbnail
+                                preview={settingImages[faction.data.id]}
+                                title={faction.data.title}
+                                type="faction"
+                                compact
+                              />
+                            )}
                           </span>
                         ))}
                       </span>
@@ -1323,12 +1332,14 @@ export function CharacterRelationView({
                   className={`relationship-edge-card ${selectedTarget?.id === edge.relation.data.id ? 'active' : ''}`}
                   onClick={() => onSelect({ type: 'character_relation', id: edge.relation.data.id })}
                 >
-                  <SettingThumbnail
-                    preview={settingImages[edge.relation.data.id]}
-                    title={edge.relation.data.title}
-                    type="character_relation"
-                    compact
-                  />
+                  {showLegacyThumbnails && (
+                    <SettingThumbnail
+                      preview={settingImages[edge.relation.data.id]}
+                      title={edge.relation.data.title}
+                      type="character_relation"
+                      compact
+                    />
+                  )}
                   <Link2 size={13} />
                   <span>{edge.relation.data.title}</span>
                   <small>{String(edge.relation.data.relation_type)}</small>

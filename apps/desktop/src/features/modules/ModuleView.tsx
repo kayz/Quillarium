@@ -19,6 +19,7 @@ import { BoundedPager } from '../layout/BoundedPager.js'
 import { boundedPage } from '../layout/bounded-page.js'
 import { OutlineCreateDialog } from '../outline/OutlineCreateDialog.js'
 import { SETTING_IMAGE_TYPES, SettingThumbnail } from '../planning/SettingCardMedia.js'
+import { showLegacySettingThumbnails, type DisplayLayerChrome } from '../planning/display-chrome.js'
 import {
   blankSettingCardInput,
   PLANNING_KIND_LABELS,
@@ -61,7 +62,8 @@ export function ModuleView({
   onOpenCard,
   onOpenAssistant,
   onReload,
-  language
+  language,
+  displayLayer
 }: {
   root: string
   module: ModuleName
@@ -80,6 +82,7 @@ export function ModuleView({
   onOpenAssistant?: (roleId: string, target: TargetSelection) => void
   onReload: () => Promise<void>
   language: LanguageName
+  displayLayer: DisplayLayerChrome
 }) {
   const [pageIndex, setPageIndex] = useState(0)
   const [blankCreateOpen, setBlankCreateOpen] = useState(false)
@@ -110,13 +113,16 @@ export function ModuleView({
   const [settingImages, setSettingImages] = useState<Awaited<ReturnType<typeof bridge.getSettingImageBatch>>>(
     {}
   )
+  const showLegacyThumbnails = showLegacySettingThumbnails(displayLayer)
   const settingImageKey = useMemo(
     () =>
-      docPage.items
-        .filter((item) => SETTING_IMAGE_TYPES.has(item.data.type))
-        .map((item) => item.data.id)
-        .join('\n'),
-    [docPage.items]
+      showLegacyThumbnails
+        ? docPage.items
+            .filter((item) => SETTING_IMAGE_TYPES.has(item.data.type))
+            .map((item) => item.data.id)
+            .join('\n')
+        : '',
+    [docPage.items, showLegacyThumbnails]
   )
   useEffect(() => {
     const selectedIndex =
@@ -280,11 +286,13 @@ export function ModuleView({
               onOpenCard?.(doc)
             }}
           >
-            <SettingThumbnail
-              preview={settingImages[doc.data.id]}
-              title={doc.data.title}
-              type={doc.data.type}
-            />
+            {showLegacyThumbnails && (
+              <SettingThumbnail
+                preview={settingImages[doc.data.id]}
+                title={doc.data.title}
+                type={doc.data.type}
+              />
+            )}
             <strong>{doc.data.title}</strong>
             {doc.data.type === 'reference' ? (
               <small>

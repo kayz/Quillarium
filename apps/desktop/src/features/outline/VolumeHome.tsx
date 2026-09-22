@@ -57,6 +57,11 @@ import { EditableDocumentTitle } from './EditableDocumentTitle.js'
 import { enumChoiceLabel } from '../metadata/field-presentation.js'
 import { CharacterRelationView, LocationExplorerView, TimelineChainView } from '../planning/PlanningViews.js'
 import { SETTING_IMAGE_TYPES, SettingCardMediaPanel, SettingThumbnail } from '../planning/SettingCardMedia.js'
+import {
+  showDisplayCardChrome,
+  showLegacySettingThumbnails,
+  type DisplayLayerChrome
+} from '../planning/display-chrome.js'
 
 export function VolumeHome({
   docs,
@@ -99,7 +104,8 @@ export function VolumeHome({
   onInspectTag,
   onSave,
   onImport,
-  language
+  language,
+  displayLayer
 }: {
   docs: DocEntry[]
   doc: { data: Record<string, unknown>; content: string; path: string } | null
@@ -142,6 +148,7 @@ export function VolumeHome({
   onSave: () => Promise<void>
   onImport: () => void
   language: LanguageName
+  displayLayer: DisplayLayerChrome
 }) {
   const listPageSize = viewMode === 'tile' ? 24 : 48
   const shellRef = useRef<HTMLDivElement | null>(null)
@@ -181,13 +188,17 @@ export function VolumeHome({
   const items = React.useMemo(() => filterDocs(sectionItems, deferredSearch), [deferredSearch, sectionItems])
   const timelineNodes = React.useMemo(() => docs.filter((item) => item.data.type === 'timeline_node'), [docs])
   const itemPage = boundedPage(items, collectionPage, listPageSize)
+  const showLegacyThumbnails = showLegacySettingThumbnails(displayLayer)
+  const showCardChrome = showDisplayCardChrome(displayLayer)
   const settingImageKey = React.useMemo(
     () =>
-      itemPage.items
-        .filter((item) => SETTING_IMAGE_TYPES.has(item.data.type))
-        .map((item) => item.data.id)
-        .join('\n'),
-    [itemPage.items]
+      showLegacyThumbnails
+        ? itemPage.items
+            .filter((item) => SETTING_IMAGE_TYPES.has(item.data.type))
+            .map((item) => item.data.id)
+            .join('\n')
+        : '',
+    [itemPage.items, showLegacyThumbnails]
   )
   const selected = selectedTarget
     ? docs.find((item) => item.data.id === selectedTarget.id && item.data.type === selectedTarget.type)
@@ -436,6 +447,7 @@ export function VolumeHome({
               selectedTarget={selectedTarget}
               onSelect={onSelect}
               language={language}
+              displayLayer={displayLayer}
             />
           ) : activeSection === 'locations' ? (
             <LocationExplorerView
@@ -458,15 +470,17 @@ export function VolumeHome({
                 {itemPage.items.map((item) => (
                   <button
                     key={item.data.id}
-                    className={`outline-item ${settingImages[item.data.id] || item.data.type === 'faction' ? 'has-setting-image' : ''} ${item.data.enabled === false ? 'disabled-card' : ''} ${selectedTarget?.id === item.data.id ? 'active' : ''}`}
+                    className={`outline-item ${showLegacyThumbnails && (settingImages[item.data.id] || item.data.type === 'faction') ? 'has-setting-image' : ''} ${item.data.enabled === false ? 'disabled-card' : ''} ${selectedTarget?.id === item.data.id ? 'active' : ''}`}
                     onClick={() => onSelect({ type: item.data.type, id: item.data.id })}
                   >
-                    <SettingThumbnail
-                      preview={settingImages[item.data.id]}
-                      title={item.data.title}
-                      type={item.data.type}
-                      compact={viewMode === 'list'}
-                    />
+                    {showLegacyThumbnails && (
+                      <SettingThumbnail
+                        preview={settingImages[item.data.id]}
+                        title={item.data.title}
+                        type={item.data.type}
+                        compact={viewMode === 'list'}
+                      />
+                    )}
                     <span>
                       <b>{item.data.title}</b>
                       <small>
@@ -544,19 +558,21 @@ export function VolumeHome({
                   style={{ gridTemplateRows: `${detailMetadataPct}% 10px minmax(0, 1fr)` }}
                 >
                   <div className="detail-metadata-pane">
-                    <SettingCardMediaPanel
-                      root={project.root}
-                      document={{
-                        path: doc.path,
-                        data: doc.data as DocEntry['data'],
-                        content: doc.content
-                      }}
-                      dirty={dirty}
-                      onSave={onSave}
-                      onReloadDocument={onReloadDoc}
-                      onReloadProject={onReloadProject}
-                      language={language}
-                    />
+                    {showCardChrome && (
+                      <SettingCardMediaPanel
+                        root={project.root}
+                        document={{
+                          path: doc.path,
+                          data: doc.data as DocEntry['data'],
+                          content: doc.content
+                        }}
+                        dirty={dirty}
+                        onSave={onSave}
+                        onReloadDocument={onReloadDoc}
+                        onReloadProject={onReloadProject}
+                        language={language}
+                      />
+                    )}
                     <PlanningCardSupportPanel
                       doc={{ path: doc.path, data: doc.data as DocEntry['data'], content: doc.content }}
                       docs={docs}
