@@ -90,7 +90,10 @@ import {
 } from './display-images.js'
 
 const PNG = Uint8Array.from(
-  Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64')
+  Buffer.from(
+    'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+    'base64'
+  )
 )
 
 const roots: string[] = []
@@ -117,17 +120,23 @@ describe('display image store', () => {
     })
     expect(first.selected_id).toBeTruthy()
     expect(first.images).toHaveLength(1)
-    expect(await pathExists(path.join(root, 'assets', 'display', 'world-lin', first.images[0]!.file))).toBe(true)
+    expect(await pathExists(path.join(root, 'assets', 'display', 'world-lin', first.images[0]!.file))).toBe(
+      true
+    )
     const card = await readText(path.join(root, 'world', 'world-lin.md'))
     expect(card).not.toMatch(/^image:/m)
-    expect(JSON.parse(await readText(path.join(root, 'assets', 'display', 'world-lin', 'manifest.json')))).toMatchObject(
-      { schema_version: 1, selected_id: first.selected_id }
-    )
+    expect(
+      JSON.parse(await readText(path.join(root, 'assets', 'display', 'world-lin', 'manifest.json')))
+    ).toMatchObject({ schema_version: 1, selected_id: first.selected_id })
   })
 
   it('keeps a gallery and lets the author change the selected image', async () => {
     const root = await fixture('gallery')
-    const first = await addDisplayImage(root, 'world-lin', PNG, { mime_type: 'image/png', alt: 'a', source: 'upload' })
+    const first = await addDisplayImage(root, 'world-lin', PNG, {
+      mime_type: 'image/png',
+      alt: 'a',
+      source: 'upload'
+    })
     const second = await addDisplayImage(root, 'world-lin', PNG, {
       mime_type: 'image/png',
       alt: 'b',
@@ -196,8 +205,16 @@ export async function addDisplayImage(
   bytes: Uint8Array,
   meta: { mime_type: DisplayImageMime; alt?: string; source: DisplayImageSource }
 ): Promise<DisplayImageManifest>
-export async function removeDisplayImage(projectRoot: string, cardId: string, imageId: string): Promise<DisplayImageManifest>
-export async function selectDisplayImage(projectRoot: string, cardId: string, imageId: string): Promise<DisplayImageManifest>
+export async function removeDisplayImage(
+  projectRoot: string,
+  cardId: string,
+  imageId: string
+): Promise<DisplayImageManifest>
+export async function selectDisplayImage(
+  projectRoot: string,
+  cardId: string,
+  imageId: string
+): Promise<DisplayImageManifest>
 export async function removeDisplayImagesForCard(projectRoot: string, cardId: string): Promise<void>
 export function displayImageDir(projectRoot: string, cardId: string): string
 ```
@@ -229,9 +246,16 @@ function extensionFor(mime: DisplayImageMime): 'png' | 'jpg' | 'webp' {
 }
 
 function assertMagic(bytes: Uint8Array, mime: DisplayImageMime): void {
-  const png = bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47
+  const png =
+    bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47
   const jpeg = bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff
-  const webp = bytes.length >= 12 && bytes[0] === 0x52 && bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50
+  const webp =
+    bytes.length >= 12 &&
+    bytes[0] === 0x52 &&
+    bytes[8] === 0x57 &&
+    bytes[9] === 0x45 &&
+    bytes[10] === 0x42 &&
+    bytes[11] === 0x50
   if (mime === 'image/png' && png) return
   if (mime === 'image/jpeg' && jpeg) return
   if (mime === 'image/webp' && webp) return
@@ -361,7 +385,8 @@ it('expands {{images}} into a scriptless radio carousel and keeps {{image}} as t
   const html = renderSettingCardHtml(
     {
       schema_version: 1,
-      template_html: '<article>{{image}}<div class="gallery">{{images}}</div><h1>{{title}}</h1>{{content}}</article>',
+      template_html:
+        '<article>{{image}}<div class="gallery">{{images}}</div><h1>{{title}}</h1>{{content}}</article>',
       css: 'article { color: #111; } .display-gallery { display: grid; }'
     },
     { width: 720, height: 1080 },
@@ -412,10 +437,23 @@ Put `{{images}}: renderDisplayImageGallery(data)` in `replacements`.
 Append to every builtin CSS string (or shared CSS concatenated at render):
 
 ```css
-.display-gallery { display: grid; }
-.display-gallery-input { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-.display-gallery-slide { display: none; grid-area: 1 / 1; }
-.display-gallery-input:checked + .display-gallery-dot + .display-gallery-slide { display: block; }
+.display-gallery {
+  display: grid;
+}
+.display-gallery-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+}
+.display-gallery-slide {
+  display: none;
+  grid-area: 1 / 1;
+}
+.display-gallery-input:checked + .display-gallery-dot + .display-gallery-slide {
+  display: block;
+}
 ```
 
 `:checked` sibling selector requires the order `input, label, figure` as above.
@@ -495,8 +533,8 @@ it('does not fetch when the profile is missing an api key', async () => {
 
 it('decodes OpenAI b64_json without writing files', async () => {
   const pngB64 = Buffer.from('png').toString('base64')
-  const fetchFn = vi.fn(async () =>
-    new Response(JSON.stringify({ data: [{ b64_json: pngB64 }] }), { status: 200 })
+  const fetchFn = vi.fn(
+    async () => new Response(JSON.stringify({ data: [{ b64_json: pngB64 }] }), { status: 200 })
   )
   const result = await generateDisplayImageCandidate(
     { prompt: '水手', profile: { provider: 'openai', apiKey: 'sk-test', model: 'gpt-image-1' } },
