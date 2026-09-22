@@ -492,6 +492,7 @@ select:focus-visible,
     .chapter-prose-actions,
     .finalization-card-actions,
     .finalization-apply-bar,
+    .chapter-eval-footer,
     .ai-writing-actions,
     .card-head-actions,
     .assistant-conversation-head,
@@ -518,6 +519,7 @@ select:focus-visible,
     .chapter-prose-actions,
     .finalization-card-actions,
     .finalization-apply-bar,
+    .chapter-eval-footer,
     .ai-writing-actions,
     .card-head-actions,
     .assistant-conversation-head,
@@ -3975,6 +3977,66 @@ body.is-resizing-row * {
 .chapter-prose-note {
   margin: 0;
   padding: 0 22px 14px;
+}
+.chapter-eval-panel {
+  position: absolute;
+  inset: 76px 18px 18px auto;
+  z-index: 15;
+  width: min(620px, calc(100% - 36px));
+  min-height: 260px;
+  max-height: calc(100% - 94px);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  overflow: hidden;
+  border: 1px solid var(--border-strong);
+  border-radius: 12px;
+  background: var(--bg-panel);
+  box-shadow: 0 18px 50px color-mix(in srgb, var(--text-main) 18%, transparent);
+}
+.chapter-eval-panel > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border);
+}
+.chapter-eval-body {
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  gap: 8px;
+  align-content: start;
+  padding: 14px 16px 18px;
+}
+.chapter-eval-body > .finalization-message {
+  margin: -14px -16px 0;
+}
+.chapter-eval-body > label {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 13px 14px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--bg-editor);
+}
+.chapter-eval-body > label > span {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.chapter-eval-body > label small {
+  color: var(--text-muted);
+}
+.chapter-eval-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border-strong);
+  background: var(--bg-panel);
 }
 .finalization-review {
   position: absolute;

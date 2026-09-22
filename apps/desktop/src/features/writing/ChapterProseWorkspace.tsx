@@ -356,44 +356,46 @@ export function ChapterProseWorkspace({
               </button>
             )}
           </header>
-          {evalBusy && <p className="finalization-message">{zh ? '正在评估…' : 'Evaluating…'}</p>}
-          {evalError && <p className="finalization-message error">{evalError}</p>}
-          {evalNotice && <p className="finalization-message ok">{evalNotice}</p>}
+          <div className="chapter-eval-body">
+            {evalBusy && <p className="finalization-message">{zh ? '正在评估…' : 'Evaluating…'}</p>}
+            {evalError && <p className="finalization-message error">{evalError}</p>}
+            {evalNotice && <p className="finalization-message ok">{evalNotice}</p>}
+            {evalProposals?.issues.map((issue) => (
+              <label key={issue.proposal_id}>
+                <input
+                  type="checkbox"
+                  checked={Boolean(selectedIssues[issue.proposal_id])}
+                  onChange={(event) =>
+                    setSelectedIssues({ ...selectedIssues, [issue.proposal_id]: event.target.checked })
+                  }
+                />
+                <span>
+                  <strong>{issue.title}</strong>
+                  <small>{issue.body}</small>
+                </span>
+              </label>
+            ))}
+            {evalProposals?.settings.map((setting) => (
+              <label key={setting.proposal_id}>
+                <input
+                  type="checkbox"
+                  checked={Boolean(selectedSettings[setting.proposal_id])}
+                  onChange={(event) =>
+                    setSelectedSettings({
+                      ...selectedSettings,
+                      [setting.proposal_id]: event.target.checked
+                    })
+                  }
+                />
+                <span>
+                  <strong>{setting.title}</strong>
+                  <small>{setting.content}</small>
+                </span>
+              </label>
+            ))}
+          </div>
           {evalProposals && (
-            <div className="chapter-eval-body">
-              {evalProposals.issues.map((issue) => (
-                <label key={issue.proposal_id}>
-                  <input
-                    type="checkbox"
-                    checked={Boolean(selectedIssues[issue.proposal_id])}
-                    onChange={(event) =>
-                      setSelectedIssues({ ...selectedIssues, [issue.proposal_id]: event.target.checked })
-                    }
-                  />
-                  <span>
-                    <strong>{issue.title}</strong>
-                    <small>{issue.body}</small>
-                  </span>
-                </label>
-              ))}
-              {evalProposals.settings.map((setting) => (
-                <label key={setting.proposal_id}>
-                  <input
-                    type="checkbox"
-                    checked={Boolean(selectedSettings[setting.proposal_id])}
-                    onChange={(event) =>
-                      setSelectedSettings({
-                        ...selectedSettings,
-                        [setting.proposal_id]: event.target.checked
-                      })
-                    }
-                  />
-                  <span>
-                    <strong>{setting.title}</strong>
-                    <small>{setting.content}</small>
-                  </span>
-                </label>
-              ))}
+            <div className="chapter-eval-footer">
               <button className="primary" onClick={applyEval} disabled={evalBusy}>
                 {zh ? '确认写入' : 'Confirm write'}
               </button>
