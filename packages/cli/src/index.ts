@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url'
 import { Command } from 'commander'
 import dotenv from 'dotenv'
 import {
+  WRITER_DEFAULT_DISPLAY_LAYER,
   WRITER_DEFAULT_STORY_STRUCTURE,
   appendTimelineEvent,
   answerFinalizeQuestion,
@@ -137,7 +138,8 @@ export function buildProgram(): Command {
         id,
         title,
         genre: opts.genre,
-        story_structure: WRITER_DEFAULT_STORY_STRUCTURE
+        story_structure: WRITER_DEFAULT_STORY_STRUCTURE,
+        display_layer: WRITER_DEFAULT_DISPLAY_LAYER
       })
       await registerWorkspaceProject(loaded.root, { id, path: relative })
       await setWorkspaceDir(loaded.root, id)
@@ -363,7 +365,8 @@ export function buildProgram(): Command {
         chapter_words: opts.chapterWords,
         section_words: opts.sectionWords,
         default_theme: opts.defaultTheme,
-        story_structure: WRITER_DEFAULT_STORY_STRUCTURE
+        story_structure: WRITER_DEFAULT_STORY_STRUCTURE,
+        display_layer: WRITER_DEFAULT_DISPLAY_LAYER
       })
       await registerWorkspaceProject(workspace.root, { id, path: relative })
       await setWorkspaceDir(workspace.root, id)

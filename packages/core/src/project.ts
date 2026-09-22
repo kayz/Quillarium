@@ -61,6 +61,7 @@ export interface ProjectConfigInput {
   writing_preset?: string | null
   default_theme?: ProjectConfig['default_theme']
   story_structure?: ProjectConfig['story_structure']
+  display_layer?: ProjectConfig['display_layer']
   cover?: ProjectConfig['cover']
   schema_version?: 2
 }

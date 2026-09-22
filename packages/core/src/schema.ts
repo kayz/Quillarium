@@ -56,7 +56,7 @@ export const planningCardSchema = baseDocSchema.extend({
   enabled: z.boolean().default(true),
   source_refs: z.array(z.string().min(1)).default([]),
   relations: z.array(cardRelationSchema).default([]),
-  image: settingImageAssetV1Schema.nullable().default(null)
+  image: settingImageAssetV1Schema.nullable().optional()
 })
 
 export const storyStructureConfigV1Schema = z
@@ -115,6 +115,13 @@ export const projectConfigSchema = z.object({
     act_enabled: true,
     scene_enabled: true
   }),
+  display_layer: z
+    .object({
+      enabled: z.boolean(),
+      migrated: z.boolean()
+    })
+    .strict()
+    .optional(),
   cover: z
     .object({
       original_path: z.string().min(1),

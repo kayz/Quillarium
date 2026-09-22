@@ -100,6 +100,11 @@ export interface StoryStructureConfigV1 {
   scene_enabled: boolean
 }
 
+export interface DisplayLayerConfigV1 {
+  enabled: boolean
+  migrated: boolean
+}
+
 export interface ProjectConfig {
   id: string
   aliases: string[]
@@ -114,6 +119,7 @@ export interface ProjectConfig {
   writing_preset: string | null
   default_theme: 'paper' | 'ink' | 'mist' | 'bamboo'
   story_structure: StoryStructureConfigV1
+  display_layer?: DisplayLayerConfigV1
   cover: {
     original_path: string
     thumbnail_path: string

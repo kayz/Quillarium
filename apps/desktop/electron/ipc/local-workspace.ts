@@ -1,5 +1,6 @@
 import path from 'node:path'
 import {
+  WRITER_DEFAULT_DISPLAY_LAYER,
   WRITER_DEFAULT_STORY_STRUCTURE,
   createProjectAt,
   ensureWorkspaceAt,
@@ -32,7 +33,8 @@ export async function createLocalWorkspaceProject(
     chapter_words: input.chapterWords,
     section_words: input.sectionWords,
     default_theme: input.defaultTheme,
-    story_structure: WRITER_DEFAULT_STORY_STRUCTURE
+    story_structure: WRITER_DEFAULT_STORY_STRUCTURE,
+    display_layer: WRITER_DEFAULT_DISPLAY_LAYER
   })
   await registerWorkspaceProject(workspace.root, { id, path: relativePath })
   return { root: paths.root, ...(await loadProject(paths.root)) }
