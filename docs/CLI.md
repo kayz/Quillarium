@@ -94,6 +94,16 @@ pnpm cli project set-structure --project "./writing-workspace/projects/my-novel"
 The same command turns it off again with `--no-scene-enabled`, and prints the resulting
 `story_structure`. While the module is off, `scene create` refuses and names this command.
 
+Legacy setting-card images stay on disk until the author confirms a display reset. Missing
+`--confirm` throws and leaves the project unchanged, including `display_layer.migrated`:
+
+```bash
+pnpm cli project reset-display --confirm --project "./writing-workspace/projects/my-novel"
+```
+
+That wipe sets `display_layer` to `enabled=true migrated=true`, strips card `image` fields, and
+deletes leftover files under `assets/settings/`.
+
 The current hierarchy is `book → volume → part → optional act → chapter → scene`. The source-run
 CLI retains the option name `--section` for pre-0.2 compatibility, but the value must be the owning
 **chapter outline ID**; the created document writes both current `chapter_id` and the readable legacy
@@ -413,7 +423,7 @@ and options.
 | `workspace`      | `list`, `create-project`                                                             |
 | `config`         | Workspace configuration plus explicit legacy-vault compatibility                     |
 | `init`           | Create/register `projects/<id>`; `--vault` is legacy-only                            |
-| `project`        | `set-structure`: turn the scene module on or off for one project                     |
+| `project`        | `set-structure`: scene module on/off; `reset-display --confirm`: wipe setting images |
 | `preset`         | `init`, `list`, `show`, `select`, `create`, `migrate`                                |
 | `canon`          | `add`, `import`, `list`, `search`                                                    |
 | `character`      | `add`, `list`                                                                        |

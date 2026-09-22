@@ -66,6 +66,7 @@ import {
   loadProject,
   loadWorkspace,
   requiredSpecializationFields,
+  resetDisplayLayer,
   registerWorkspaceProject,
   recoverFinalizationApplications,
   specializePlanningCard,
@@ -170,6 +171,18 @@ export function buildProgram(): Command {
     console.log(
       `story_structure: part_enabled=${structure.part_enabled} act_enabled=${structure.act_enabled} scene_enabled=${structure.scene_enabled}`
     )
+  })
+
+  projectOption(
+    projectCmd
+      .command('reset-display')
+      .option('--confirm', 'Delete setting images and strip card image fields')
+      .description('Wipe legacy setting-card display files after author confirm')
+  ).action(async (opts) => {
+    const root = path.resolve(opts.project)
+    if (!opts.confirm) throw new Error('未确认清盘。加上 --confirm 才会删除设定图。')
+    await resetDisplayLayer(root)
+    console.log('display_layer: enabled=true migrated=true')
   })
 
   registerAgentCommands(program, projectOption)

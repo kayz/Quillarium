@@ -1,4 +1,4 @@
-import { readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -20,7 +20,10 @@ import {
   listRuns,
   loadProject,
   pathExists,
+  readMarkdown,
   readRunFile,
+  writeMarkdown,
+  writeText,
   type CanonDoc,
   type CharacterDoc,
   type ForeshadowingDoc,
@@ -522,6 +525,40 @@ describe('CLI smoke flow', () => {
     await expect(run('project', 'set-structure', '--project', root)).rejects.toThrow(
       'Pass --scene-enabled or --no-scene-enabled.'
     )
+  })
+
+  it('refuses display reset without --confirm then deletes setting files when confirmed', async () => {
+    const { root } = await initWorkspaceProject()
+    const sampleImage = {
+      schema_version: 1 as const,
+      original_path: 'assets/settings/world_entry/world-lin/original.png',
+      thumbnail_path: 'assets/settings/world_entry/world-lin/thumb.png',
+      mime_type: 'image/png' as const,
+      sha256: 'a'.repeat(64),
+      width: 8,
+      height: 8,
+      palette: ['#111111'],
+      focus_x: 0.5,
+      focus_y: 0.5,
+      alt_text: '林舟'
+    }
+    const file = await createWorldEntry(root, '林舟', { id: 'world-lin' }, '水手。')
+    const current = await readMarkdown<Record<string, unknown>>(file)
+    await writeMarkdown(file, { ...current.data, image: sampleImage }, current.content)
+    const asset = path.join(root, sampleImage.original_path)
+    await mkdir(path.dirname(asset), { recursive: true })
+    await writeText(asset, 'png')
+    const projectYaml = await readFile(path.join(root, 'project.yaml'), 'utf8')
+
+    await expect(run('project', 'reset-display', '--project', root)).rejects.toThrow(
+      '未确认清盘。加上 --confirm 才会删除设定图。'
+    )
+    expect(await pathExists(asset)).toBe(true)
+    expect(await readFile(path.join(root, 'project.yaml'), 'utf8')).toBe(projectYaml)
+
+    await run('project', 'reset-display', '--confirm', '--project', root)
+    expect(await pathExists(asset)).toBe(false)
+    expect(output.at(-1)).toBe('display_layer: enabled=true migrated=true')
   })
 
   it('creates, selects, and snapshots one portable writing preset through the CLI', async () => {
