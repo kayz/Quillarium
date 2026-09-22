@@ -12,6 +12,7 @@ vi.mock('@quillarium/core', async (importOriginal) => {
 
 import {
   createCanon,
+  createChapterProse,
   createForeshadowing,
   createOutline,
   createScene,
@@ -35,6 +36,7 @@ import {
   type TimelineEventDoc,
   type WorldEntryDoc
 } from '@quillarium/core'
+import * as agentRuntime from '@quillarium/agent-runtime'
 import { buildProgram } from './index.js'
 
 const temporaryVaults: string[] = []
@@ -441,6 +443,70 @@ describe('CLI smoke flow', () => {
     const application = JSON.parse(output.join('\n')) as { created_issue_ids: string[] }
     expect(application.created_issue_ids).toHaveLength(1)
     expect(await listDocs<IssueDoc>(root, 'issue')).toHaveLength(1)
+  })
+
+  it('exposes expert evaluate-chapter without an apply subcommand', () => {
+    const expert = buildProgram().commands.find((command) => command.name() === 'expert')
+
+    expect(expert?.commands.map((command) => command.name())).toEqual(['evaluate-chapter'])
+    expect(
+      expert?.commands.find((command) => command.name() === 'evaluate-chapter')?.helpInformation()
+    ).toContain('--chapter-id')
+  })
+
+  it('refuses expert evaluate-chapter when chapter prose is missing', async () => {
+    const { root } = await initProject()
+    await createOutline(root, 'book', 'Eval Book', { id: 'book' })
+    await createOutline(root, 'volume', 'Eval Volume', { id: 'volume', parent: 'book' })
+    await createOutline(root, 'part', 'Eval Part', { id: 'part', parent: 'volume' })
+    await createOutline(root, 'chapter', 'Eval Chapter', { id: 'chapter', parent: 'part' })
+
+    await expect(
+      run('expert', 'evaluate-chapter', '--chapter-id', 'chapter', '--project', root)
+    ).rejects.toThrow('没有章正文，不能评估。')
+  })
+
+  it('prints chapter-eval counts without writing issue files when prose exists', async () => {
+    const { root } = await initProject()
+    await createOutline(root, 'book', 'Eval Book', { id: 'book' })
+    await createOutline(root, 'volume', 'Eval Volume', { id: 'volume', parent: 'book' })
+    await createOutline(root, 'part', 'Eval Part', { id: 'part', parent: 'volume' })
+    await createOutline(root, 'chapter', 'Eval Chapter', { id: 'chapter', parent: 'part' })
+    const prosePath = await createChapterProse(root, 'chapter', '第一章正文')
+    const existing = await readMarkdown(prosePath)
+    await writeMarkdown(prosePath, existing.data, '章正文内容。')
+
+    const spy = vi.spyOn(agentRuntime, 'executeExpertTask').mockResolvedValue({
+      status: 'completed',
+      execution_id: 'eval-cli-1',
+      task_id: 'continuity-check',
+      result: {
+        eval_id: 'eval-cli-1',
+        chapter_id: 'chapter',
+        issues: [{ proposal_id: 'issue-1', title: '冲突', body: '细节' }],
+        settings: [
+          {
+            proposal_id: 'setting-1',
+            title: '北港',
+            content: '港口',
+            type: 'world_entry',
+            fields: {}
+          }
+        ]
+      },
+      run_path: 'runs/eval-cli-1'
+    })
+
+    output = []
+    await run('expert', 'evaluate-chapter', '--chapter-id', 'chapter', '--project', root)
+
+    expect(output.at(-1)).toBe('chapter-eval: issues=1 settings=1')
+    expect(await listDocs<IssueDoc>(root, 'issue')).toHaveLength(0)
+    expect(spy.mock.calls.at(-1)?.[0]).toMatchObject({
+      projectRoot: expect.any(String),
+      task_id: 'continuity-check',
+      input: { chapter_id: 'chapter' }
+    })
   })
 
   it('keeps explicit legacy-vault creation available without making it the default', async () => {

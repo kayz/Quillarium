@@ -274,6 +274,16 @@ Rejected, expired, reused, stale, or unauditable decisions fail closed. The CLI 
 arguments and loads the machine-local AI profile; prompt construction, structured-response parsing,
 audit persistence, and issue application remain inside the shared runtime and domain service.
 
+#### Expert chapter evaluation
+
+Evaluate existing chapter prose through the expert facade. Missing or empty prose refuses with
+`没有章正文，不能评估。` A successful run prints proposal counts only; it does not create issue or
+world files and has no apply flag in this slice:
+
+```bash
+pnpm cli expert evaluate-chapter --chapter-id <chapter-id> --project "./writing-workspace/projects/my-novel"
+```
+
 The CLI exposes the same finalization review and atomic continuity service as Desktop. First create
 and inspect a review, then confirm or reject each impact and resolve or defer every question:
 
@@ -459,6 +469,7 @@ and options.
 | `generate`       | Generate a scene; optional `--dry-run`                                               |
 | `check`          | Scene/outline checks via `--type`; scenes allow `--semantic`; optional `--run`       |
 | `agent`          | Auditable `check-planning`, `decide-planning`, and `apply-planning` lifecycle        |
+| `expert`         | `evaluate-chapter`: chapter-prose eval counts only (no apply)                        |
 | `st`             | `import-card`, `export-card`, `export-lorebook`                                      |
 | `finalize`       | `review-plan`, `show`, `confirm`, `answer`, `apply`, `recover`                       |
 | `chapter-plan`   | Build ordered scene-writing prompts for a chapter                                    |
