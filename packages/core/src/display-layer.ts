@@ -37,7 +37,7 @@ function imageIsSet(value: unknown): boolean {
 export async function needsDisplayMigration(projectRoot: string): Promise<boolean> {
   const leftovers = await leftoverSettingFiles(projectRoot)
   const cards = await listDocs(projectRoot)
-  const imaged = cards.some((doc) => imageIsSet((doc.data as Record<string, unknown>).image))
+  const imaged = cards.some((doc) => imageIsSet((doc.data as unknown as Record<string, unknown>).image))
   return leftovers.length > 0 || imaged
 }
 
@@ -53,7 +53,7 @@ export async function resetDisplayLayer(projectRoot: string): Promise<ProjectCon
     })
     const docs = await listDocs(projectRoot)
     for (const doc of docs) {
-      const data = doc.data as Record<string, unknown>
+      const data = doc.data as unknown as Record<string, unknown>
       if (!Object.hasOwn(data, 'image')) continue
       const { image: _dropped, ...rest } = data
       await writeMarkdown(doc.path, rest, doc.content)
