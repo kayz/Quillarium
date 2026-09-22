@@ -130,9 +130,7 @@ export function ChapterProseWorkspace({
       setEvalProposals(proposals)
       setSelectedIssues(Object.fromEntries(proposals.issues.map((item) => [item.proposal_id, true])))
       setSelectedSettings(Object.fromEntries(proposals.settings.map((item) => [item.proposal_id, true])))
-      setSettingTypes(
-        Object.fromEntries(proposals.settings.map((item) => [item.proposal_id, 'world_entry']))
-      )
+      setSettingTypes(Object.fromEntries(proposals.settings.map((item) => [item.proposal_id, 'world_entry'])))
       setSettingFields(Object.fromEntries(proposals.settings.map((item) => [item.proposal_id, {}])))
     })
   }
@@ -484,11 +482,7 @@ export function ChapterProseWorkspace({
           </div>
           {evalProposals && (
             <div className="chapter-eval-footer">
-              <button
-                className="primary"
-                onClick={applyEval}
-                disabled={evalBusy || !evalConfirmReady}
-              >
+              <button className="primary" onClick={applyEval} disabled={evalBusy || !evalConfirmReady}>
                 {zh ? '确认写入' : 'Confirm write'}
               </button>
             </div>
