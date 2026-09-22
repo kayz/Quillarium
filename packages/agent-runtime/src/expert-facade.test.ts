@@ -6,8 +6,10 @@ import {
   createChapterProse,
   createOutline,
   createProjectAt,
+  listDocs,
   readMarkdown,
-  writeMarkdown
+  writeMarkdown,
+  type ChapterEvalProposalSet
 } from '@quillarium/core'
 import { EXPERT_LANE_ONLY, executeExpertTask } from './expert-facade.js'
 import type { AgentRuntimeDependencies } from './contracts.js'
@@ -50,10 +52,7 @@ describe('executeExpertTask fail-closed gate', () => {
     const root = await fixture()
     const invokeProvider = vi.fn()
     await expect(
-      executeExpertTask(
-        { projectRoot: root, task_id: 'scene-generation', input: {} },
-        deps(invokeProvider)
-      )
+      executeExpertTask({ projectRoot: root, task_id: 'scene-generation', input: {} }, deps(invokeProvider))
     ).rejects.toThrow(EXPERT_LANE_ONLY)
     expect(invokeProvider).toHaveBeenCalledTimes(0)
   })
@@ -95,5 +94,37 @@ describe('executeExpertTask fail-closed gate', () => {
       )
     ).rejects.toThrow('没有章正文，不能评估。')
     expect(invokeProvider).toHaveBeenCalledTimes(0)
+  })
+})
+
+describe('executeExpertTask continuity-check', () => {
+  it('returns chapter eval proposals without writing issue or world files', async () => {
+    const root = await fixture()
+    const prosePath = await createChapterProse(root, 'chapter', '第一章正文')
+    const existing = await readMarkdown(prosePath)
+    await writeMarkdown(prosePath, existing.data, '章正文内容。')
+    const invokeProvider = vi.fn(async () =>
+      JSON.stringify({
+        issues: [{ title: '时间线冲突', body: '...' }],
+        settings: [{ title: '北港', content: '...' }]
+      })
+    )
+
+    const outcome = await executeExpertTask(
+      { projectRoot: root, task_id: 'continuity-check', input: { chapter_id: 'chapter' } },
+      { ...deps(invokeProvider), executionId: () => 'continuity-eval-1' }
+    )
+    if (outcome.status === 'failed') {
+      throw new Error(`${outcome.error.code}: ${outcome.error.technical_detail}`)
+    }
+
+    expect(outcome.status).toBe('completed')
+    const result = outcome.result as ChapterEvalProposalSet
+    expect(result.eval_id).toBe('continuity-eval-1')
+    expect(result.chapter_id).toBe('chapter')
+    expect(result.issues.map((item) => item.title)).toContain('时间线冲突')
+    expect(result.settings.map((item) => item.title)).toContain('北港')
+    expect(await listDocs(root, 'issue')).toEqual([])
+    expect(await listDocs(root, 'world_entry')).toEqual([])
   })
 })

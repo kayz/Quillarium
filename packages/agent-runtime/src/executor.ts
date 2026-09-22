@@ -44,6 +44,7 @@ import {
   type AgentRuntimeErrorV1
 } from './errors.js'
 import { AgentTaskRegistry } from './registry.js'
+import { CONTINUITY_CHECK_DEFINITION, createContinuityCheckHandler } from './tasks/continuity-check.js'
 import {
   createPlanningIntegrityReviewHandler,
   PLANNING_INTEGRITY_REVIEW_DEFINITION
@@ -56,9 +57,15 @@ import {
 
 const settingCardDesignHandler = createSettingCardDesignHandler()
 const runtimeRegistry = new AgentTaskRegistry(
-  [PLANNING_INTEGRITY_REVIEW_DEFINITION, SETTING_CARD_DESIGN_DEFINITION, DISPLAY_CARD_DESIGN_DEFINITION],
+  [
+    PLANNING_INTEGRITY_REVIEW_DEFINITION,
+    CONTINUITY_CHECK_DEFINITION,
+    SETTING_CARD_DESIGN_DEFINITION,
+    DISPLAY_CARD_DESIGN_DEFINITION
+  ],
   [
     createPlanningIntegrityReviewHandler(),
+    createContinuityCheckHandler(),
     settingCardDesignHandler,
     { ...settingCardDesignHandler, definition: DISPLAY_CARD_DESIGN_DEFINITION }
   ]
