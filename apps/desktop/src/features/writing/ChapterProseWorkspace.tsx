@@ -4,6 +4,7 @@ import type {
   FinalizationApplicationReport,
   FinalizeReviewSession
 } from '@quillarium/core'
+import { requiredSpecializationFields, specializationTargets } from '@quillarium/core'
 import {
   CheckCircle2,
   ClipboardCheck,
@@ -16,9 +17,13 @@ import {
   Sparkles,
   XCircle
 } from 'lucide-react'
-import type { LanguageName } from '../../app/types.js'
+import type { LanguageName, PlanningDocumentKind } from '../../app/types.js'
 import { t } from '../../app/i18n.js'
 import { formatDesktopError } from '../../shared/errors.js'
+import { fieldLabel } from '../metadata/field-presentation.js'
+import { PLANNING_KIND_LABELS } from '../planning/planning-model.js'
+
+const CHAPTER_EVAL_SETTING_TYPES = ['world_entry', ...specializationTargets('world_entry')] as const
 
 type EditableDoc = { data: Record<string, unknown>; content: string; path: string }
 
@@ -71,6 +76,17 @@ export function ChapterProseWorkspace({
   const [evalNotice, setEvalNotice] = useState('')
   const [selectedIssues, setSelectedIssues] = useState<Record<string, boolean>>({})
   const [selectedSettings, setSelectedSettings] = useState<Record<string, boolean>>({})
+  const [settingTypes, setSettingTypes] = useState<Record<string, string>>({})
+  const [settingFields, setSettingFields] = useState<Record<string, Record<string, string>>>({})
+
+  const evalConfirmReady =
+    !evalProposals ||
+    evalProposals.settings.every((setting) => {
+      if (!selectedSettings[setting.proposal_id]) return true
+      const type = settingTypes[setting.proposal_id] ?? 'world_entry'
+      const fields = settingFields[setting.proposal_id] ?? {}
+      return requiredSpecializationFields(type).every((key) => Boolean(fields[key]?.trim()))
+    })
 
   const runReviewAction = async (action: () => Promise<void>) => {
     setReviewBusy(true)
@@ -104,6 +120,8 @@ export function ChapterProseWorkspace({
     setEvalNotice('')
     setSelectedIssues({})
     setSelectedSettings({})
+    setSettingTypes({})
+    setSettingFields({})
   }
 
   const evaluateChapter = async () => {
@@ -112,11 +130,15 @@ export function ChapterProseWorkspace({
       setEvalProposals(proposals)
       setSelectedIssues(Object.fromEntries(proposals.issues.map((item) => [item.proposal_id, true])))
       setSelectedSettings(Object.fromEntries(proposals.settings.map((item) => [item.proposal_id, true])))
+      setSettingTypes(
+        Object.fromEntries(proposals.settings.map((item) => [item.proposal_id, 'world_entry']))
+      )
+      setSettingFields(Object.fromEntries(proposals.settings.map((item) => [item.proposal_id, {}])))
     })
   }
 
   const applyEval = async () => {
-    if (!evalProposals) return
+    if (!evalProposals || !evalConfirmReady) return
     await runEvalAction(async () => {
       const result = await window.quillarium.applyChapterEval(root, evalProposals, {
         confirmed: true,
@@ -125,7 +147,15 @@ export function ChapterProseWorkspace({
           .map((item) => item.proposal_id),
         settings: evalProposals.settings
           .filter((item) => selectedSettings[item.proposal_id])
-          .map((item) => ({ proposal_id: item.proposal_id }))
+          .map((item) => {
+            const type = settingTypes[item.proposal_id] ?? 'world_entry'
+            const fields = settingFields[item.proposal_id] ?? {}
+            const payload: Record<string, unknown> = {}
+            for (const key of requiredSpecializationFields(type)) {
+              payload[key] = fields[key]?.trim() ?? ''
+            }
+            return { proposal_id: item.proposal_id, type, fields: payload }
+          })
       })
       setEvalNotice(
         zh
@@ -133,6 +163,8 @@ export function ChapterProseWorkspace({
           : `Wrote ${result.issue_ids.length} issue(s) and ${result.setting_ids.length} setting(s).`
       )
       setEvalProposals(null)
+      setSettingTypes({})
+      setSettingFields({})
       await onContinuityApplied()
     })
   }
@@ -383,28 +415,80 @@ export function ChapterProseWorkspace({
                 </span>
               </label>
             ))}
-            {evalProposals?.settings.map((setting) => (
-              <label key={setting.proposal_id}>
-                <input
-                  type="checkbox"
-                  checked={Boolean(selectedSettings[setting.proposal_id])}
-                  onChange={(event) =>
-                    setSelectedSettings({
-                      ...selectedSettings,
-                      [setting.proposal_id]: event.target.checked
-                    })
-                  }
-                />
-                <span>
-                  <strong>{setting.title}</strong>
-                  <small>{setting.content}</small>
-                </span>
-              </label>
-            ))}
+            {evalProposals?.settings.map((setting) => {
+              const type = settingTypes[setting.proposal_id] ?? 'world_entry'
+              const fields = settingFields[setting.proposal_id] ?? {}
+              const required = requiredSpecializationFields(type)
+              return (
+                <div className="chapter-eval-setting" key={setting.proposal_id}>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(selectedSettings[setting.proposal_id])}
+                      onChange={(event) =>
+                        setSelectedSettings({
+                          ...selectedSettings,
+                          [setting.proposal_id]: event.target.checked
+                        })
+                      }
+                    />
+                    <span>
+                      <strong>{setting.title}</strong>
+                      <small>{setting.content}</small>
+                    </span>
+                  </label>
+                  <label>
+                    {zh ? '类型' : 'Type'}
+                    <select
+                      value={type}
+                      aria-label={zh ? `${setting.title} 类型` : `${setting.title} type`}
+                      onChange={(event) => {
+                        setSettingTypes({
+                          ...settingTypes,
+                          [setting.proposal_id]: event.target.value
+                        })
+                        setSettingFields({
+                          ...settingFields,
+                          [setting.proposal_id]: {}
+                        })
+                      }}
+                    >
+                      {CHAPTER_EVAL_SETTING_TYPES.map((kind) => (
+                        <option key={kind} value={kind}>
+                          {PLANNING_KIND_LABELS[kind as PlanningDocumentKind]?.[language] ?? kind}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  {required.map((key) => (
+                    <label key={key}>
+                      {fieldLabel(key, language)}
+                      <input
+                        value={fields[key] ?? ''}
+                        aria-label={fieldLabel(key, language)}
+                        onChange={(event) =>
+                          setSettingFields({
+                            ...settingFields,
+                            [setting.proposal_id]: {
+                              ...fields,
+                              [key]: event.target.value
+                            }
+                          })
+                        }
+                      />
+                    </label>
+                  ))}
+                </div>
+              )
+            })}
           </div>
           {evalProposals && (
             <div className="chapter-eval-footer">
-              <button className="primary" onClick={applyEval} disabled={evalBusy}>
+              <button
+                className="primary"
+                onClick={applyEval}
+                disabled={evalBusy || !evalConfirmReady}
+              >
                 {zh ? '确认写入' : 'Confirm write'}
               </button>
             </div>

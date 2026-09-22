@@ -56,45 +56,57 @@ export async function applyChapterEval(
   if (!decisions.confirmed) throw new Error(UNCONFIRMED_EVAL)
 
   return withProjectWriteLock(projectRoot, async () => {
+    const createdPaths: string[] = []
     const issueIds: string[] = []
     const settingIds: string[] = []
 
-    for (const proposalId of decisions.issues) {
-      const proposal = proposals.issues.find((item) => item.proposal_id === proposalId)
-      if (!proposal) throw new Error(`找不到问题提案：${proposalId}`)
-      const file = await createIssue(
-        projectRoot,
-        proposal.title,
-        { related_docs: [proposals.chapter_id] },
-        proposal.body
-      )
-      const written = await readMarkdown<{ id: string }>(file)
-      issueIds.push(written.data.id)
+    const rollbackCreated = async () => {
+      for (const file of [...createdPaths].reverse()) {
+        if (await pathExists(file)) await rm(file, { force: true })
+      }
     }
 
-    for (const decision of decisions.settings) {
-      const proposal = proposals.settings.find((item) => item.proposal_id === decision.proposal_id)
-      if (!proposal) throw new Error(`找不到设定提案：${decision.proposal_id}`)
-
-      const targetType = decision.type ?? proposal.type
-      const fields = decision.fields ?? proposal.fields
-      const file = await createWorldEntry(projectRoot, proposal.title, {}, proposal.content)
-      const created = await readMarkdown<{ id: string }>(file)
-      let settingId = created.data.id
-
-      if (targetType && targetType !== 'world_entry') {
-        try {
-          const specialized = await specializePlanningCard(projectRoot, settingId, targetType, fields)
-          settingId = specialized.data.id
-        } catch (error) {
-          if (await pathExists(file)) await rm(file, { force: true })
-          throw error
-        }
+    try {
+      for (const proposalId of decisions.issues) {
+        const proposal = proposals.issues.find((item) => item.proposal_id === proposalId)
+        if (!proposal) throw new Error(`找不到问题提案：${proposalId}`)
+        const file = await createIssue(
+          projectRoot,
+          proposal.title,
+          { related_docs: [proposals.chapter_id] },
+          proposal.body
+        )
+        createdPaths.push(file)
+        const written = await readMarkdown<{ id: string }>(file)
+        issueIds.push(written.data.id)
       }
 
-      settingIds.push(settingId)
-    }
+      for (const decision of decisions.settings) {
+        const proposal = proposals.settings.find((item) => item.proposal_id === decision.proposal_id)
+        if (!proposal) throw new Error(`找不到设定提案：${decision.proposal_id}`)
 
-    return { issue_ids: issueIds, setting_ids: settingIds }
+        const targetType = decision.type ?? proposal.type
+        const fields = decision.fields ?? proposal.fields
+        const file = await createWorldEntry(projectRoot, proposal.title, {}, proposal.content)
+        createdPaths.push(file)
+        const created = await readMarkdown<{ id: string }>(file)
+        let settingId = created.data.id
+
+        if (targetType && targetType !== 'world_entry') {
+          const specialized = await specializePlanningCard(projectRoot, settingId, targetType, fields)
+          const trackedIndex = createdPaths.lastIndexOf(file)
+          if (trackedIndex >= 0) createdPaths.splice(trackedIndex, 1)
+          createdPaths.push(specialized.path)
+          settingId = specialized.data.id
+        }
+
+        settingIds.push(settingId)
+      }
+
+      return { issue_ids: issueIds, setting_ids: settingIds }
+    } catch (error) {
+      await rollbackCreated()
+      throw error
+    }
   })
 }

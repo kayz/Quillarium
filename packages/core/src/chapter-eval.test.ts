@@ -134,6 +134,27 @@ describe('chapter prose gate + apply API', () => {
     expect(await listDocs(root, 'character_relation')).toEqual([])
   })
 
+  it('rolls back the whole confirm when an issue then bad typed setting fails', async () => {
+    const root = await fixture()
+    const prosePath = await createChapterProse(root, 'chapter', '第一章正文')
+    const existing = await readMarkdown(prosePath)
+    await writeMarkdown(prosePath, existing.data, '章正文内容。')
+
+    expect(requiredSpecializationFields('character_relation').length).toBeGreaterThan(0)
+
+    await expect(
+      applyChapterEval(root, baseProposals(), {
+        confirmed: true,
+        issues: ['issue-prop-1'],
+        settings: [{ proposal_id: 'setting-prop-1', type: 'character_relation', fields: {} }]
+      })
+    ).rejects.toThrow('特化缺少必填字段：')
+
+    expect(await listDocs(root, 'issue')).toEqual([])
+    expect(await listDocs(root, 'world_entry')).toEqual([])
+    expect(await listDocs(root, 'character_relation')).toEqual([])
+  })
+
   it('specializes confirmed setting to character when fields are valid', async () => {
     const root = await fixture()
     const prosePath = await createChapterProse(root, 'chapter', '第一章正文')
