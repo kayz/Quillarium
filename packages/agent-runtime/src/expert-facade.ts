@@ -1,0 +1,67 @@
+import { getAgentTaskDefinition, loadChapterProseForEval } from '@quillarium/core'
+import type {
+  AgentExecutionOutcome,
+  AgentRuntimeDependencies,
+  AgentRuntimeExecutionRequest
+} from './contracts.js'
+import type { AgentRuntimeErrorV1 } from './errors.js'
+import { executeAgentTask } from './executor.js'
+
+export const EXPERT_LANE_ONLY = '专家门面只接受专家任务。'
+export const EXPERT_NO_PROSE_GEN = '专家模式不能生成正文。'
+
+export async function executeExpertTask(
+  request: {
+    projectRoot: string
+    task_id: string
+    input: Record<string, unknown>
+  },
+  dependencies?: AgentRuntimeDependencies
+): Promise<AgentExecutionOutcome<unknown, AgentRuntimeErrorV1>> {
+  if (request.task_id === 'planning-integrity-review') {
+    return executeAgentTask(
+      {
+        schema_version: 1,
+        task_id: 'planning-integrity-review',
+        projectRoot: request.projectRoot,
+        target: { type: 'project', id: 'project' },
+        input: request.input,
+        language: 'zh',
+        requested_by: 'author'
+      } satisfies AgentRuntimeExecutionRequest,
+      dependencies
+    )
+  }
+
+  let definition
+  try {
+    definition = getAgentTaskDefinition(request.task_id)
+  } catch {
+    throw new Error(EXPERT_LANE_ONLY)
+  }
+  if (definition.lane !== 'expert') throw new Error(EXPERT_LANE_ONLY)
+  if (definition.capability_ceiling.includes('generate_candidate')) {
+    throw new Error(EXPERT_NO_PROSE_GEN)
+  }
+  if (request.task_id === 'continuity-check') {
+    const chapterId = String(request.input.chapter_id ?? '')
+    const prose = await loadChapterProseForEval(request.projectRoot, chapterId)
+    if (!prose) throw new Error('没有章正文，不能评估。')
+  }
+
+  return executeAgentTask(
+    {
+      schema_version: 1,
+      task_id: request.task_id,
+      projectRoot: request.projectRoot,
+      target:
+        request.task_id === 'continuity-check'
+          ? { type: 'chapter_prose', id: String(request.input.chapter_id ?? '') }
+          : null,
+      input: request.input,
+      language: 'zh',
+      requested_by: 'author'
+    } satisfies AgentRuntimeExecutionRequest,
+    dependencies
+  )
+}
