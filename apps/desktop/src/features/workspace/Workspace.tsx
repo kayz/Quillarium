@@ -109,39 +109,46 @@ export function Workspace({
   const displayResetPromptedRoot = useRef<string | null>(null)
 
   const load = async () => {
-    let loaded = await bridge.loadProject(root)
-    const needsMigration = await bridge.needsDisplayMigration(root)
-    if (needsMigration && loaded.project.display_layer?.migrated === true) {
-      await bridge.resetDisplayLayer(root)
+    let loaded: Awaited<ReturnType<typeof bridge.loadProject>> | undefined
+    try {
       loaded = await bridge.loadProject(root)
-    } else if (needsMigration && loaded.project.display_layer?.migrated !== true) {
-      if (displayResetPromptedRoot.current !== root) {
-        displayResetPromptedRoot.current = root
-        const confirmed = window.confirm(
-          language === 'zh'
-            ? '将删除本项目 assets/settings 下的设定图，并从卡片去掉配图字段。此操作不能恢复。继续？'
-            : 'This deletes setting images under assets/settings and removes image fields from cards. It cannot be undone. Continue?'
-        )
-        if (confirmed) {
-          await bridge.resetDisplayLayer(root)
-          loaded = await bridge.loadProject(root)
+      const needsMigration = await bridge.needsDisplayMigration(root)
+      if (needsMigration && loaded.project.display_layer?.migrated === true) {
+        await bridge.resetDisplayLayer(root)
+        loaded = await bridge.loadProject(root)
+      } else if (needsMigration && loaded.project.display_layer?.migrated !== true) {
+        if (displayResetPromptedRoot.current !== root) {
+          displayResetPromptedRoot.current = root
+          const confirmed = window.confirm(
+            language === 'zh'
+              ? '将删除本项目 assets/settings 下的设定图，并从卡片去掉配图字段。此操作不能恢复。继续？'
+              : 'This deletes setting images under assets/settings and removes image fields from cards. It cannot be undone. Continue?'
+          )
+          if (confirmed) {
+            await bridge.resetDisplayLayer(root)
+            loaded = await bridge.loadProject(root)
+          }
         }
       }
+      setData({ ...loaded, project: { ...loaded.project, root } })
+      setActionError('')
+      if (loaded.project.default_theme) onTheme(loaded.project.default_theme)
+      setGit(await bridge.gitStatus(root))
+      const scenes = loaded.docs.filter((item: DocEntry) => item.data.type === 'scene')
+      const outlines = loaded.docs.filter((item: DocEntry) => item.data.type === 'outline')
+      const initialOutline =
+        outlines.find((item: DocEntry) => item.data.level === 'overview') ??
+        outlines.find((item: DocEntry) => item.data.level === 'book') ??
+        outlines[0]
+      if (!selectedTarget && initialOutline) {
+        setSelectedTarget({ type: 'outline', id: initialOutline.data.id })
+        const level = String(initialOutline.data.level)
+        if (isWorkLevel(level)) setWorkLevel(level)
+      } else if (!selectedTarget && scenes[0]) setSelectedTarget({ type: 'scene', id: scenes[0].data.id })
+    } catch (error) {
+      setActionError(formatDesktopError(error, language))
+      if (loaded) setData({ ...loaded, project: { ...loaded.project, root } })
     }
-    setData({ ...loaded, project: { ...loaded.project, root } })
-    if (loaded.project.default_theme) onTheme(loaded.project.default_theme)
-    setGit(await bridge.gitStatus(root))
-    const scenes = loaded.docs.filter((item: DocEntry) => item.data.type === 'scene')
-    const outlines = loaded.docs.filter((item: DocEntry) => item.data.type === 'outline')
-    const initialOutline =
-      outlines.find((item: DocEntry) => item.data.level === 'overview') ??
-      outlines.find((item: DocEntry) => item.data.level === 'book') ??
-      outlines[0]
-    if (!selectedTarget && initialOutline) {
-      setSelectedTarget({ type: 'outline', id: initialOutline.data.id })
-      const level = String(initialOutline.data.level)
-      if (isWorkLevel(level)) setWorkLevel(level)
-    } else if (!selectedTarget && scenes[0]) setSelectedTarget({ type: 'scene', id: scenes[0].data.id })
   }
 
   useEffect(() => {
@@ -256,7 +263,15 @@ export function Workspace({
     void openTarget()
   }, [root, selectedTarget?.type, selectedTarget?.id, selectedEntry?.path])
 
-  if (!data) return <div className="loading">加载中...</div>
+  if (!data) {
+    if (actionError)
+      return (
+        <div className="loading" role="alert">
+          {actionError}
+        </div>
+      )
+    return <div className="loading">加载中...</div>
+  }
 
   const docs = data.docs
   const volumes = docs
