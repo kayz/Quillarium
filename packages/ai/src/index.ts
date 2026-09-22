@@ -35,6 +35,13 @@ import type { ZodType } from 'zod'
 import { DEEPSEEK_DEFAULT_MODEL, getOfficialModelCapabilities } from './model-capabilities.js'
 
 export * from './model-capabilities.js'
+export {
+  DISPLAY_IMAGE_UNSUPPORTED,
+  generateDisplayImageCandidate,
+  type DisplayImageMime,
+  type DisplayImageProfile,
+  type DisplayImageProvider
+} from './display-image-generate.js'
 
 export interface AIConfig {
   provider: 'openai-compatible' | 'openai' | 'claude' | 'gemini' | 'deepseek' | 'ollama'

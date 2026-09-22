@@ -8,6 +8,16 @@ import type { UISkinPreferencesV1 } from './ui-skins.js'
 
 const execFileAsync = promisify(execFile)
 
+export type DisplayImageProvider = 'openai' | 'openai-compatible' | 'gemini'
+
+export interface DisplayImageProfileConfig {
+  provider: DisplayImageProvider
+  baseUrl?: string
+  apiKey?: string
+  apiKeyEncrypted?: string
+  model: string
+}
+
 export interface QuillariumConfig {
   workspaceDir?: string
   recentProjectId?: string
@@ -19,6 +29,8 @@ export interface QuillariumConfig {
   /** Optional user customizations for the four compatible UI skin slots. */
   uiSkins?: UISkinPreferencesV1
   aiProfiles?: Partial<Record<'prose' | 'background' | 'check', AIProfileConfig>>
+  /** Separate image-generation credentials. Never stored on ProjectConfig. */
+  displayImageProfile?: DisplayImageProfileConfig
   github?: GitHubConfig
 }
 
@@ -120,6 +132,47 @@ export function migrateAIProfileApiKeys(
   return changed ? { ...config, aiProfiles } : config
 }
 
+export function withStoredDisplayImageProfileApiKey(
+  profile: DisplayImageProfileConfig,
+  apiKey: string | undefined,
+  encrypt?: (value: string) => string
+): DisplayImageProfileConfig {
+  return applyDisplayImageProfileCredential(profile, withStoredCredential(apiKey, encrypt))
+}
+
+export function withUpdatedDisplayImageProfileApiKey(
+  profile: DisplayImageProfileConfig,
+  previous: DisplayImageProfileConfig | undefined,
+  apiKey: string | undefined,
+  options: StoredCredentialUpdateOptions = {}
+): DisplayImageProfileConfig {
+  return applyDisplayImageProfileCredential(
+    profile,
+    withUpdatedStoredCredential(
+      previous ? { plaintext: previous.apiKey, encrypted: previous.apiKeyEncrypted } : undefined,
+      apiKey,
+      options
+    )
+  )
+}
+
+export function migrateDisplayImageProfileApiKey(
+  config: QuillariumConfig,
+  encrypt: (value: string) => string
+): QuillariumConfig {
+  const profile = config.displayImageProfile
+  if (!profile || !Object.prototype.hasOwnProperty.call(profile, 'apiKey')) return config
+  if (profile.apiKeyEncrypted !== undefined) {
+    const withoutPlaintext = { ...profile }
+    delete withoutPlaintext.apiKey
+    return { ...config, displayImageProfile: withoutPlaintext }
+  }
+  return {
+    ...config,
+    displayImageProfile: withStoredDisplayImageProfileApiKey(profile, profile.apiKey, encrypt)
+  }
+}
+
 export function withUpdatedGitHubToken(
   github: GitHubConfig,
   previous: GitHubConfig | undefined,
@@ -151,10 +204,25 @@ export function migrateConfigCredentials(
   config: QuillariumConfig,
   encrypt: (value: string) => string
 ): QuillariumConfig {
-  return migrateGitHubToken(migrateAIProfileApiKeys(config, encrypt), encrypt)
+  return migrateGitHubToken(
+    migrateDisplayImageProfileApiKey(migrateAIProfileApiKeys(config, encrypt), encrypt),
+    encrypt
+  )
 }
 
 function applyAIProfileCredential(profile: AIProfileConfig, credential: StoredCredential): AIProfileConfig {
+  const stored = { ...profile }
+  delete stored.apiKey
+  delete stored.apiKeyEncrypted
+  if (credential.encrypted !== undefined) stored.apiKeyEncrypted = credential.encrypted
+  else if (credential.plaintext !== undefined) stored.apiKey = credential.plaintext
+  return stored
+}
+
+function applyDisplayImageProfileCredential(
+  profile: DisplayImageProfileConfig,
+  credential: StoredCredential
+): DisplayImageProfileConfig {
   const stored = { ...profile }
   delete stored.apiKey
   delete stored.apiKeyEncrypted
