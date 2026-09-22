@@ -33,6 +33,9 @@ const api = {
   loadProject: (root) => ipcRenderer.invoke('project:load', root),
   updateProjectStoryStructure: (root, structure) =>
     ipcRenderer.invoke('project:updateStoryStructure', root, structure),
+  needsDisplayMigration: (root) => ipcRenderer.invoke('display:needsMigration', root),
+  resetDisplayLayer: (root) => ipcRenderer.invoke('display:reset', root),
+  setDisplayLayerEnabled: (root, enabled) => ipcRenderer.invoke('display:setEnabled', root, enabled),
   chooseProjectCover: (root) => ipcRenderer.invoke('cover:choose', root),
   getProjectCover: (root) => ipcRenderer.invoke('cover:get', root),
   updateProjectCoverFocus: (root, focusX, focusY) => ipcRenderer.invoke('cover:focus', root, focusX, focusY),

@@ -106,9 +106,28 @@ export function Workspace({
   const [planningCheck, setPlanningCheck] = useState<PlanningCheckPanelOutcome | null>(null)
   const planningStream = useAIStreamPreview('planning-check')
   const planningCancelRequested = useRef(false)
+  const displayResetPromptedRoot = useRef<string | null>(null)
 
   const load = async () => {
-    const loaded = await bridge.loadProject(root)
+    let loaded = await bridge.loadProject(root)
+    const needsMigration = await bridge.needsDisplayMigration(root)
+    if (needsMigration && loaded.project.display_layer?.migrated === true) {
+      await bridge.resetDisplayLayer(root)
+      loaded = await bridge.loadProject(root)
+    } else if (needsMigration && loaded.project.display_layer?.migrated !== true) {
+      if (displayResetPromptedRoot.current !== root) {
+        displayResetPromptedRoot.current = root
+        const confirmed = window.confirm(
+          language === 'zh'
+            ? '将删除本项目 assets/settings 下的设定图，并从卡片去掉配图字段。此操作不能恢复。继续？'
+            : 'This deletes setting images under assets/settings and removes image fields from cards. It cannot be undone. Continue?'
+        )
+        if (confirmed) {
+          await bridge.resetDisplayLayer(root)
+          loaded = await bridge.loadProject(root)
+        }
+      }
+    }
     setData({ ...loaded, project: { ...loaded.project, root } })
     if (loaded.project.default_theme) onTheme(loaded.project.default_theme)
     setGit(await bridge.gitStatus(root))

@@ -39,10 +39,11 @@ import { gitActionFor } from './git-presentation.js'
 import { BUILTIN_UI_SKINS, UI_SKIN_IDS, cloneUISkin, resolveUISkin } from '@quillarium/core/ui-skins'
 import { applyUISkin } from '../../app/ui-skin.js'
 import { ActionBar, ActionButton, FormGrid, SurfacePanel } from '../../shared/UIPrimitives.js'
-import type {
-  BookGenerationHeaderState,
-  StoryStructureConfigV1,
-  WritingPresetListItem
+import {
+  resolveDisplayLayer,
+  type BookGenerationHeaderState,
+  type StoryStructureConfigV1,
+  type WritingPresetListItem
 } from '@quillarium/core'
 
 type CoverResult = NonNullable<Awaited<ReturnType<typeof bridge.getProjectCover>>>
@@ -358,6 +359,7 @@ function SettingsModal({
     act_enabled: true,
     scene_enabled: true
   })
+  const [displayLayer, setDisplayLayer] = useState({ enabled: false, migrated: true })
   const [projectDocs, setProjectDocs] = useState<DocEntry[]>([])
   const [busyAction, setBusyAction] = useState<string | null>(null)
   const [notice, setNotice] = useState<SettingsNotice | null>(null)
@@ -466,6 +468,9 @@ function SettingsModal({
               scene_enabled: loadedProject.project.story_structure.scene_enabled
             })
           }
+          setDisplayLayer(
+            loadedProject ? resolveDisplayLayer(loadedProject.project) : { enabled: false, migrated: true }
+          )
         }
       } catch (error) {
         if (!cancelled) {
@@ -582,6 +587,20 @@ function SettingsModal({
             ? '章节树设置已保存。被停用层级的文件仍保留在项目中。'
             : 'Story tree settings saved. Files at disabled levels remain in the project.'
       })
+    } catch (error) {
+      setNotice({ tone: 'danger', message: formatDesktopError(error, language) })
+    } finally {
+      setBusyAction(null)
+    }
+  }
+
+  const toggleDisplayLayer = async (enabled: boolean) => {
+    if (!root) return
+    setBusyAction('toggle-display-layer')
+    setNotice(null)
+    try {
+      setDisplayLayer(resolveDisplayLayer(await bridge.setDisplayLayerEnabled(root, enabled)))
+      await onProjectChanged?.()
     } catch (error) {
       setNotice({ tone: 'danger', message: formatDesktopError(error, language) })
     } finally {
@@ -1346,6 +1365,17 @@ function SettingsModal({
                       ? '关闭后隐藏节与绑定在节上的 AI 生文入口。'
                       : 'Hides scenes and the scene-bound AI writing entry.'}
                   </small>
+                </span>
+              </label>
+              <label className="story-structure-option">
+                <input
+                  type="checkbox"
+                  checked={displayLayer.enabled}
+                  disabled={busyAction !== null}
+                  onChange={(event) => void toggleDisplayLayer(event.target.checked)}
+                />
+                <span>
+                  <strong>{language === 'zh' ? '展示层' : 'Display layer'}</strong>
                 </span>
               </label>
             </div>

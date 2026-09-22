@@ -5,6 +5,7 @@ import { registerGitHandlers } from './git.js'
 import { registerImportHandlers } from './import.js'
 import { registerProjectHandlers } from './project.js'
 import { registerPlanningHandlers } from './planning.js'
+import { registerDisplayHandlers } from './display.js'
 import { registerPresetHandlers } from './preset.js'
 import { registerRunHandlers } from './run.js'
 import { registerSceneHandlers } from './scene.js'
@@ -30,6 +31,7 @@ export function registerAllHandlers(): void {
   registerReferenceHandlers()
   registerTimelineHandlers()
   registerPlanningHandlers()
+  registerDisplayHandlers()
   registerPresetHandlers()
   registerImportHandlers()
   registerCanonHandlers()

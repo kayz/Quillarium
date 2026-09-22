@@ -584,6 +584,9 @@ export interface IpcContract {
     request: [root: string, structure: StoryStructureConfigV1]
     response: ProjectConfig
   }
+  'display:needsMigration': { request: [root: string]; response: boolean }
+  'display:reset': { request: [root: string]; response: ProjectConfig }
+  'display:setEnabled': { request: [root: string, enabled: boolean]; response: ProjectConfig }
   'cover:choose': { request: [root: string]; response: ProjectCoverResult | null }
   'cover:get': { request: [root: string]; response: ProjectCoverResult | null }
   'cover:focus': {
@@ -1112,6 +1115,9 @@ export const QUILLARIUM_API_CHANNELS = {
   chooseProject: 'project:choose',
   loadProject: 'project:load',
   updateProjectStoryStructure: 'project:updateStoryStructure',
+  needsDisplayMigration: 'display:needsMigration',
+  resetDisplayLayer: 'display:reset',
+  setDisplayLayerEnabled: 'display:setEnabled',
   chooseProjectCover: 'cover:choose',
   getProjectCover: 'cover:get',
   updateProjectCoverFocus: 'cover:focus',
