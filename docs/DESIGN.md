@@ -609,6 +609,12 @@ moves from `world/` to the destination module directory. Direct typed creates an
 creates remain unchanged. AI `card-conversion` proposals use the same core in-place write path as
 manual specialization; the display layer and setting-card HTML rendering are unchanged by the move.
 
+Optional setting-card HTML chrome is controlled by a `display_layer` project module. New writer
+projects default to off. When a project still holds leftover setting images, Quillarium asks once on
+open, then deletes `assets/settings/` and clears each card's `image` field. New HTML faces live in
+workspace `styles/display-cards` and may be designed with Agent `display-card-design`. CCv3 import
+and export remain unchanged.
+
 ### Project-local setting images
 
 `world_entry`, `character`, `location`, `character_relation`, and `faction` documents may carry one
