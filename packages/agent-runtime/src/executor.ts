@@ -46,6 +46,14 @@ import {
 import { AgentTaskRegistry } from './registry.js'
 import { CONTINUITY_CHECK_DEFINITION, createContinuityCheckHandler } from './tasks/continuity-check.js'
 import {
+  ORGANIZE_OUTLINE_DEFINITION,
+  createOrganizeOutlineHandler
+} from './tasks/organize-outline.js'
+import {
+  ORGANIZE_WORLDBOOK_DEFINITION,
+  createOrganizeWorldbookHandler
+} from './tasks/organize-worldbook.js'
+import {
   createPlanningIntegrityReviewHandler,
   PLANNING_INTEGRITY_REVIEW_DEFINITION
 } from './tasks/planning-integrity-review.js'
@@ -60,12 +68,16 @@ const runtimeRegistry = new AgentTaskRegistry(
   [
     PLANNING_INTEGRITY_REVIEW_DEFINITION,
     CONTINUITY_CHECK_DEFINITION,
+    ORGANIZE_OUTLINE_DEFINITION,
+    ORGANIZE_WORLDBOOK_DEFINITION,
     SETTING_CARD_DESIGN_DEFINITION,
     DISPLAY_CARD_DESIGN_DEFINITION
   ],
   [
     createPlanningIntegrityReviewHandler(),
     createContinuityCheckHandler(),
+    createOrganizeOutlineHandler(),
+    createOrganizeWorldbookHandler(),
     settingCardDesignHandler,
     { ...settingCardDesignHandler, definition: DISPLAY_CARD_DESIGN_DEFINITION }
   ]

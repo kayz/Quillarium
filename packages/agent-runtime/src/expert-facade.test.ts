@@ -9,7 +9,9 @@ import {
   listDocs,
   readMarkdown,
   writeMarkdown,
-  type ChapterEvalProposalSet
+  type ChapterEvalProposalSet,
+  type OutlineOrganizeProposalSet,
+  type WorldOrganizeProposalSet
 } from '@quillarium/core'
 import { EXPERT_LANE_ONLY, executeExpertTask } from './expert-facade.js'
 import type { AgentRuntimeDependencies } from './contracts.js'
@@ -126,5 +128,75 @@ describe('executeExpertTask continuity-check', () => {
     expect(result.settings.map((item) => item.title)).toContain('北港')
     expect(await listDocs(root, 'issue')).toEqual([])
     expect(await listDocs(root, 'world_entry')).toEqual([])
+  })
+})
+
+describe('executeExpertTask organize-outline pre-gates', () => {
+  it('refuses organize-outline without a selected node', async () => {
+    const root = await fixture()
+    const invokeProvider = vi.fn()
+    await expect(
+      executeExpertTask(
+        { projectRoot: root, task_id: 'organize-outline', input: { outline_id: '' } },
+        deps(invokeProvider)
+      )
+    ).rejects.toThrow('没有选中大纲节点，不能整理。')
+    expect(invokeProvider).toHaveBeenCalledTimes(0)
+  })
+
+  it('refuses organize-outline on a chapter leaf', async () => {
+    const root = await fixture()
+    const invokeProvider = vi.fn()
+    await expect(
+      executeExpertTask(
+        { projectRoot: root, task_id: 'organize-outline', input: { outline_id: 'chapter' } },
+        deps(invokeProvider)
+      )
+    ).rejects.toThrow('当前选中的是章，不能再创建下级。')
+    expect(invokeProvider).toHaveBeenCalledTimes(0)
+  })
+})
+
+describe('executeExpertTask organize handlers', () => {
+  it('returns world-book proposals without writing world files', async () => {
+    const root = await fixture()
+    const before = await listDocs(root, 'world_entry')
+    const invokeProvider = vi.fn(async () => JSON.stringify({ creates: [], updates: [] }))
+
+    const outcome = await executeExpertTask(
+      { projectRoot: root, task_id: 'organize-worldbook', input: {} },
+      { ...deps(invokeProvider), executionId: () => 'world-organize-eval-1' }
+    )
+    if (outcome.status === 'failed') {
+      throw new Error(`${outcome.error.code}: ${outcome.error.technical_detail}`)
+    }
+
+    expect(outcome.status).toBe('completed')
+    const result = outcome.result as WorldOrganizeProposalSet
+    expect(result.eval_id).toBe('world-organize-eval-1')
+    expect(result.creates).toEqual([])
+    expect(result.updates).toEqual([])
+    expect(await listDocs(root, 'world_entry')).toHaveLength(before.length)
+  })
+
+  it('returns outline proposals on a volume without creating outline files', async () => {
+    const root = await fixture()
+    const before = await listDocs(root, 'outline')
+    const invokeProvider = vi.fn(async () => JSON.stringify({ creates: [] }))
+
+    const outcome = await executeExpertTask(
+      { projectRoot: root, task_id: 'organize-outline', input: { outline_id: 'volume' } },
+      { ...deps(invokeProvider), executionId: () => 'outline-organize-eval-1' }
+    )
+    if (outcome.status === 'failed') {
+      throw new Error(`${outcome.error.code}: ${outcome.error.technical_detail}`)
+    }
+
+    expect(outcome.status).toBe('completed')
+    const result = outcome.result as OutlineOrganizeProposalSet
+    expect(result.eval_id).toBe('outline-organize-eval-1')
+    expect(result.outline_id).toBe('volume')
+    expect(result.creates).toEqual([])
+    expect(await listDocs(root, 'outline')).toHaveLength(before.length)
   })
 })

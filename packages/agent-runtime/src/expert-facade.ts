@@ -1,4 +1,10 @@
-import { getAgentTaskDefinition, loadChapterProseForEval } from '@quillarium/core'
+import {
+  CHAPTER_IS_LEAF,
+  getAgentTaskDefinition,
+  loadChapterProseForEval,
+  loadOutlineSubtreeForOrganize,
+  NO_OUTLINE_SELECTION
+} from '@quillarium/core'
 import type {
   AgentExecutionOutcome,
   AgentRuntimeDependencies,
@@ -48,16 +54,28 @@ export async function executeExpertTask(
     const prose = await loadChapterProseForEval(request.projectRoot, chapterId)
     if (!prose) throw new Error('没有章正文，不能评估。')
   }
+  if (request.task_id === 'organize-outline') {
+    const outlineId = String(request.input.outline_id ?? '')
+    const subtree = await loadOutlineSubtreeForOrganize(request.projectRoot, outlineId)
+    if (!subtree) throw new Error(NO_OUTLINE_SELECTION)
+    if (subtree.root.level === 'chapter') throw new Error(CHAPTER_IS_LEAF)
+  }
+
+  const target =
+    request.task_id === 'continuity-check'
+      ? { type: 'chapter_prose', id: String(request.input.chapter_id ?? '') }
+      : request.task_id === 'organize-outline'
+        ? { type: 'outline', id: String(request.input.outline_id ?? '') }
+        : request.task_id === 'organize-worldbook'
+          ? { type: 'project', id: 'project' }
+          : null
 
   return executeAgentTask(
     {
       schema_version: 1,
       task_id: request.task_id,
       projectRoot: request.projectRoot,
-      target:
-        request.task_id === 'continuity-check'
-          ? { type: 'chapter_prose', id: String(request.input.chapter_id ?? '') }
-          : null,
+      target,
       input: request.input,
       language: 'zh',
       requested_by: 'author'
