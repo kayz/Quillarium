@@ -1,7 +1,7 @@
 # 展示层模块：可关外壳与新卡面
 
 Date: 2026-09-22  
-Status: draft  
+Status: approved  
 Parent: `docs/superpowers/specs/2026-09-21-chapter-centered-product-design.md`  
 Scope: 把卡片视觉外壳从设定事实里拆出来，做成项目级可选模块；清掉旧图/旧 HTML 卡绑定；换一套新的卡面渲染。不含 Agent 专家模式围栏、不含生图、不含本轮重新上传配图、不含改 CCv3。
 
@@ -39,8 +39,8 @@ display_layer: {
 
 缺省 YAML 里没有 `display_layer` 时：
 
-1. 若存在 `assets/settings/`，或任一规划卡 `image` 非空 → 视为 **未迁移**（`migrated: false`），打开时询问。
-2. 否则视为已迁移、`enabled: false`，不询问。
+1. 若 `assets/settings/` **里有文件**，或任一规划卡 `image` 为非空对象 → 视为 **未迁移**（`migrated: false`），打开时询问。
+2. 否则视为已迁移、`enabled: false`，不询问。空的 `assets/settings/` 目录（新建项目就会建）不算旧图。
 
 不要把缺字段默认成 `migrated: true` 而跳过仍有旧图的项目。
 
@@ -137,7 +137,7 @@ Agent 任务：停用产品面上的 `setting-card-design`。新任务 `display-
 真实项目夹具，不 mock 掉删除：
 
 1. 新建作家项目：`display_layer.enabled === false` 且 `migrated === true`；加载不出现清盘提示。
-2. 带 `assets/settings/` 与卡片 `image` 的旧项目：确认清盘后目录不存在、卡片无 `image`、`migrated === true`、`enabled === true`。
+2. 带 `assets/settings/` 文件与卡片 `image` 的旧项目：确认清盘后目录为空或不存在、卡片无 `image`、`migrated === true`、`enabled === true`。
 3. 同上项目取消：目录和 `image` 仍在；本会话列表仍能读到旧缩略图路径。
 4. `migrated && !enabled`：模块卡片 HTML 不包含新卡面根节点。
 5. CLI 无 `--confirm`：抛错且 `assets/settings/` 仍在。
