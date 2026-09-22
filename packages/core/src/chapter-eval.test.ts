@@ -16,6 +16,7 @@ import {
   writeMarkdown,
   type ChapterEvalProposalSet
 } from './index.js'
+import type { IssueDoc } from './types.js'
 
 const roots: string[] = []
 
@@ -100,7 +101,7 @@ describe('chapter prose gate + apply API', () => {
     expect(result.issue_ids).toHaveLength(1)
     expect(result.setting_ids).toHaveLength(1)
 
-    const issues = await listDocs(root, 'issue')
+    const issues = await listDocs<IssueDoc>(root, 'issue')
     expect(issues).toHaveLength(1)
     expect(issues[0]!.data.title).toBe('时间线冲突')
     expect(issues[0]!.data.related_docs).toEqual(['chapter'])
