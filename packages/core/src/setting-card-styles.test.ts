@@ -197,13 +197,27 @@ describe('workspace setting-card styles', () => {
         image_data_url: 'data:image/png;base64,AAAA',
         image_data_urls: [
           { id: 'one', alt: 'a', data_url: 'data:image/png;base64,AAAA' },
-          { id: 'two', alt: 'b', data_url: 'data:image/png;base64,BBBB' }
+          { id: 'two', alt: 'b', data_url: 'data:image/png;base64,BBBB' },
+          { id: 'bad', alt: 'x', data_url: 'https://example.invalid/x.png' }
         ]
       }
     )
     expect(html).toContain('data:image/png;base64,AAAA')
+    expect(html).toContain('data:image/png;base64,BBBB')
+    expect(html).toMatch(/<article><img class="setting-card-image" src="data:image\/png;base64,AAAA"/)
+    expect(html).not.toMatch(/<article><img class="setting-card-image" src="data:image\/png;base64,BBBB"/)
+    expect(html.match(/type="radio"/g)).toHaveLength(2)
+    expect(html).toMatch(
+      /<input class="display-gallery-input"[^>]*\/><label class="display-gallery-dot"[^>]*><\/label><figure class="display-gallery-slide">/
+    )
     expect(html).toContain('display-gallery')
-    expect(html).toContain('type="radio"')
+    expect(html).not.toContain('https://example.invalid')
+    expect(html).toMatch(/\.visual>\.display-gallery\{[^}]*position:absolute/)
+    expect(html).toMatch(/\.visual>\.display-gallery\{[^}]*inset:0/)
+    expect(html).toMatch(/\.display-gallery-dot\{[^}]*grid-area:1\/1/)
+    expect(html).toMatch(/\.display-gallery-dot\{[^}]*z-index:/)
+    expect(html).toMatch(/\.display-gallery-dot\{[^}]*(?:width|min-width):/)
+    expect(html).not.toContain('.visual:has(>.display-gallery)')
     expect(html).not.toContain('<script')
     expect(html).not.toContain('onclick')
   })

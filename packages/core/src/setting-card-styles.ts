@@ -110,7 +110,7 @@ const STATIC_TEMPLATE_TOKENS = new Set([
   '{{images}}'
 ])
 const DISPLAY_GALLERY_CSS =
-  '.display-gallery{display:grid}.display-gallery-input{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}.display-gallery-slide{display:none;grid-area:1/1}.display-gallery-input:checked+.display-gallery-dot+.display-gallery-slide{display:block}.visual:has(>.display-gallery)>.setting-card-image,.visual:has(>.display-gallery)>.setting-card-image-fallback{display:none}'
+  '.visual{position:relative}.visual>.display-gallery{position:absolute;inset:0}.display-gallery{display:grid}.display-gallery-input{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);pointer-events:none}.display-gallery-dot{grid-area:1/1;z-index:2;align-self:end;justify-self:start;box-sizing:border-box;width:14px;height:14px;margin:0 0 12px 10px;border-radius:50%;background:rgba(255,255,255,.65);cursor:pointer}.display-gallery-input:nth-of-type(1)+.display-gallery-dot{margin-left:10px}.display-gallery-input:nth-of-type(2)+.display-gallery-dot{margin-left:28px}.display-gallery-input:nth-of-type(3)+.display-gallery-dot{margin-left:46px}.display-gallery-input:nth-of-type(4)+.display-gallery-dot{margin-left:64px}.display-gallery-input:nth-of-type(5)+.display-gallery-dot{margin-left:82px}.display-gallery-input:nth-of-type(6)+.display-gallery-dot{margin-left:100px}.display-gallery-input:nth-of-type(7)+.display-gallery-dot{margin-left:118px}.display-gallery-input:nth-of-type(8)+.display-gallery-dot{margin-left:136px}.display-gallery-slide{display:none;grid-area:1/1;margin:0;width:100%;height:100%}.display-gallery-input:checked+.display-gallery-dot+.display-gallery-slide{display:block}.display-gallery-input:checked+.display-gallery-dot{background:rgba(255,255,255,.95)}'
 const TEMPLATE_TOKEN_PATTERN = /\{\{[^{}]*\}\}/gu
 const FIELD_TEMPLATE_TOKEN_PATTERN = /^\{\{fields\.([a-zA-Z][a-zA-Z0-9_-]{0,63})\}\}$/u
 const SETTING_CARD_STYLE_ROOT = 'styles/setting-cards'
@@ -362,7 +362,7 @@ export function renderSettingCardHtml(
 }
 
 function renderDisplayImageGallery(data: SettingCardRenderData): string {
-  const images = data.image_data_urls ?? []
+  const images = (data.image_data_urls ?? []).filter((image) => validImageDataUrl(image.data_url))
   if (images.length === 0) return ''
   const name = `display-gallery-${escapeHtml(data.id)}`
   const items = images
