@@ -25,6 +25,8 @@ export const agentTaskIdSchema = z.enum([
   'continuity-check',
   'finalization-review',
   'organize-setting',
+  'organize-outline',
+  'organize-worldbook',
   'character-rehearsal',
   'continuity-review',
   'setting-card-design',
@@ -135,6 +137,32 @@ const definitions = [
       'propose_configuration_change'
     ],
     allowed_result_types: ['exploration', 'planning_proposal'],
+    lane: 'expert'
+  },
+  {
+    schema_version: 1,
+    id: 'organize-outline',
+    version: '1.0.0',
+    title: '整理大纲',
+    description: '为当前选中大纲节点生成合法下级节点提案，确认后才创建空内容节点。',
+    input_schema_id: 'quillarium.agent.organize-outline-input.v1',
+    output_schema_id: 'quillarium.agent.organize-outline-proposal.v1',
+    context_scopes: ['current-target'],
+    capability_ceiling: ['propose_planning_record'],
+    allowed_result_types: ['planning_proposal'],
+    lane: 'expert'
+  },
+  {
+    schema_version: 1,
+    id: 'organize-worldbook',
+    version: '1.0.0',
+    title: '整理世界书',
+    description: '为已启用世界书提案新建或整段替换正文，确认后才写入。',
+    input_schema_id: 'quillarium.agent.organize-worldbook-input.v1',
+    output_schema_id: 'quillarium.agent.organize-worldbook-proposal.v1',
+    context_scopes: ['project'],
+    capability_ceiling: ['propose_planning_record'],
+    allowed_result_types: ['planning_proposal'],
     lane: 'expert'
   },
   {
