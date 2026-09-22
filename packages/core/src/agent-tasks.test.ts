@@ -10,6 +10,8 @@ describe('agent task lanes', () => {
       'import-material': 'expert',
       'planning-card': 'expert',
       'organize-setting': 'expert',
+      'organize-outline': 'expert',
+      'organize-worldbook': 'expert',
       'continuity-review': 'expert',
       'continuity-check': 'expert',
       'finalization-review': 'expert',
@@ -25,6 +27,16 @@ describe('agent task lanes', () => {
     expect(getAgentTaskDefinition('continuity-check')).toMatchObject({
       capability_ceiling: expect.arrayContaining(['propose_issue', 'propose_planning_record']),
       allowed_result_types: expect.arrayContaining(['issue_proposal', 'planning_proposal'])
+    })
+    expect(getAgentTaskDefinition('organize-outline')).toMatchObject({
+      lane: 'expert',
+      capability_ceiling: expect.not.arrayContaining(['generate_candidate']),
+      allowed_result_types: expect.arrayContaining(['planning_proposal'])
+    })
+    expect(getAgentTaskDefinition('organize-worldbook')).toMatchObject({
+      lane: 'expert',
+      capability_ceiling: expect.not.arrayContaining(['generate_candidate']),
+      allowed_result_types: expect.arrayContaining(['planning_proposal'])
     })
   })
 })
