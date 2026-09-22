@@ -40,7 +40,7 @@ import {
   outlineItemsForLevel
 } from '../../shared/outline.js'
 import { applyDisplayResetOnLoad } from './apply-display-reset-on-load.js'
-import { displayLayerForChrome } from '../planning/display-chrome.js'
+import { displayLayerAfterLoadError, displayLayerForChrome } from '../planning/display-chrome.js'
 import { deleteConfirmationMessage } from './delete-confirmation.js'
 import { WorkspaceView } from './WorkspaceView.js'
 import type {
@@ -119,10 +119,12 @@ export function Workspace({
       loaded: undefined,
       promptedRoot: displayResetPromptedRoot.current
     }
+    let leftoverScanCompleted = false
     let needsMigration = false
     try {
       session.loaded = await bridge.loadProject(root)
       needsMigration = await bridge.needsDisplayMigration(root)
+      leftoverScanCompleted = true
       await applyDisplayResetOnLoad(session, {
         root,
         language,
@@ -157,15 +159,14 @@ export function Workspace({
       } else if (!selectedTarget && scenes[0]) setSelectedTarget({ type: 'scene', id: scenes[0].data.id })
     } catch (error) {
       setActionError(formatDesktopError(error, language))
-      if (session.loaded) {
-        setDisplayLayer(
-          displayLayerForChrome({
-            displayLayer: session.loaded.project.display_layer,
-            needsMigration
-          })
-        )
-        setData({ ...session.loaded, project: { ...session.loaded.project, root } })
-      }
+      const chrome = displayLayerAfterLoadError({
+        displayLayer: session.loaded?.project.display_layer,
+        leftoverScanCompleted,
+        needsMigration
+      })
+      if (!session.loaded || !chrome) return
+      setDisplayLayer(chrome)
+      setData({ ...session.loaded, project: { ...session.loaded.project, root } })
     }
   }
 

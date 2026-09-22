@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  displayLayerAfterLoadError,
   displayLayerForChrome,
   showDisplayCardChrome,
   showLegacySettingThumbnails
@@ -35,5 +36,30 @@ describe('display chrome gating', () => {
         needsMigration: true
       })
     ).toEqual({ enabled: true, migrated: true })
+  })
+
+  it('fails closed when leftover scan did not complete after loadProject', () => {
+    expect(
+      displayLayerAfterLoadError({
+        leftoverScanCompleted: false,
+        needsMigration: false
+      })
+    ).toBeNull()
+    expect(
+      displayLayerAfterLoadError({
+        displayLayer: { enabled: false, migrated: true },
+        leftoverScanCompleted: false,
+        needsMigration: false
+      })
+    ).toBeNull()
+  })
+
+  it('still mounts known leftover state after a later load error', () => {
+    expect(
+      displayLayerAfterLoadError({
+        leftoverScanCompleted: true,
+        needsMigration: true
+      })
+    ).toEqual({ enabled: false, migrated: false })
   })
 })

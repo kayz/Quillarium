@@ -12,6 +12,18 @@ export function displayLayerForChrome(input: {
   return { enabled: false, migrated: true }
 }
 
+export function displayLayerAfterLoadError(input: {
+  displayLayer?: DisplayLayerChrome
+  leftoverScanCompleted: boolean
+  needsMigration: boolean
+}): DisplayLayerChrome | null {
+  if (!input.leftoverScanCompleted) return null
+  return displayLayerForChrome({
+    displayLayer: input.displayLayer,
+    needsMigration: input.needsMigration
+  })
+}
+
 export function showLegacySettingThumbnails(display: DisplayLayerChrome) {
   return !display.migrated
 }

@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { Bot, ChevronLeft, ChevronRight, Download, RefreshCw, Save, Sparkles, X } from 'lucide-react'
+import { settingCardDocumentTypeSchema, type SettingCardDocumentType } from '@quillarium/core'
 import type { DocEntry, LanguageName } from '../../app/types.js'
 import { bridge } from '../../app/bridge.js'
 import { formatDesktopError } from '../../shared/errors.js'
-import { SETTING_CARD_TYPES } from './SettingThumbnail.js'
 import {
   appendSettingCardCandidate,
   moveSettingCardCandidateIndex,
@@ -45,10 +45,11 @@ export function SettingCardMediaPanel({
   language: LanguageName
 }) {
   const zh = language === 'zh'
-  const type = String(document.data.type)
+  const parsedType = settingCardDocumentTypeSchema.safeParse(document.data.type)
   const [designerOpen, setDesignerOpen] = useState(false)
 
-  if (!SETTING_CARD_TYPES.has(type)) return null
+  if (!parsedType.success) return null
+  const documentType = parsedType.data
 
   return (
     <section className="setting-media-panel">
@@ -61,6 +62,7 @@ export function SettingCardMediaPanel({
         <SettingCardDesigner
           root={root}
           document={document}
+          documentType={documentType}
           imageDataUrl={null}
           language={language}
           onClose={() => setDesignerOpen(false)}
@@ -80,19 +82,19 @@ interface SettingCardCandidateHistoryItem {
 function SettingCardDesigner({
   root,
   document,
+  documentType,
   imageDataUrl,
   language,
   onClose
 }: {
   root: string
   document: DocEntry
+  documentType: SettingCardDocumentType
   imageDataUrl: string | null
   language: LanguageName
   onClose: () => void
 }) {
   const zh = language === 'zh'
-  const documentType = String(document.data.type) as
-    'world_entry' | 'character' | 'location' | 'character_relation'
   const [styles, setStyles] = useState<SettingCardStyle[]>([])
   const [styleSelection, setStyleSelection] = useState('builtin:ink-archive')
   const [sizeId, setSizeId] = useState(CARD_SIZES[0].id)

@@ -1,3 +1,5 @@
+import { settingCardDocumentTypeSchema } from '@quillarium/core'
+
 export const SETTING_IMAGE_TYPES = new Set([
   'world_entry',
   'character',
@@ -6,7 +8,7 @@ export const SETTING_IMAGE_TYPES = new Set([
   'faction'
 ])
 
-export const SETTING_CARD_TYPES = new Set(['world_entry', 'character', 'location', 'character_relation'])
+export const SETTING_CARD_TYPES = new Set<string>(settingCardDocumentTypeSchema.options)
 
 export interface SettingThumbnailPreview {
   previewDataUrl: string
