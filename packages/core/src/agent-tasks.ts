@@ -46,7 +46,8 @@ export const agentTaskDefinitionV1Schema = z
     output_schema_id: z.string().min(1),
     context_scopes: z.array(z.string().min(1)).min(1),
     capability_ceiling: z.array(agentOperationSchema).min(1),
-    allowed_result_types: z.array(agentResultTypeSchema).min(1)
+    allowed_result_types: z.array(agentResultTypeSchema).min(1),
+    lane: z.enum(['expert', 'generation', 'display'])
   })
   .strict()
 
@@ -63,7 +64,8 @@ const definitions = [
     output_schema_id: 'quillarium.agent.import-proposal.v1',
     context_scopes: ['provided-material', 'project-index'],
     capability_ceiling: ['propose_planning_record'],
-    allowed_result_types: ['planning_proposal']
+    allowed_result_types: ['planning_proposal'],
+    lane: 'expert'
   },
   {
     schema_version: 1,
@@ -75,7 +77,8 @@ const definitions = [
     output_schema_id: 'quillarium.agent.planning-proposal.v1',
     context_scopes: ['current-target', 'explicit-relations', 'canon'],
     capability_ceiling: ['converse', 'propose_planning_record'],
-    allowed_result_types: ['planning_proposal']
+    allowed_result_types: ['planning_proposal'],
+    lane: 'expert'
   },
   {
     schema_version: 1,
@@ -87,7 +90,8 @@ const definitions = [
     output_schema_id: 'quillarium.agent.prose-candidate.v1',
     context_scopes: ['current-target', 'outline-ancestors', 'timeline', 'accepted-prose', 'canon'],
     capability_ceiling: ['generate_candidate'],
-    allowed_result_types: ['candidate']
+    allowed_result_types: ['candidate'],
+    lane: 'generation'
   },
   {
     schema_version: 1,
@@ -98,8 +102,9 @@ const definitions = [
     input_schema_id: 'quillarium.agent.check-input.v1',
     output_schema_id: 'quillarium.agent.check-report.v1',
     context_scopes: ['current-target', 'timeline', 'character-state', 'location', 'canon'],
-    capability_ceiling: ['propose_issue'],
-    allowed_result_types: ['issue_proposal']
+    capability_ceiling: ['propose_issue', 'propose_planning_record'],
+    allowed_result_types: ['issue_proposal', 'planning_proposal'],
+    lane: 'expert'
   },
   {
     schema_version: 1,
@@ -111,7 +116,8 @@ const definitions = [
     output_schema_id: 'quillarium.agent.finalization-proposal.v1',
     context_scopes: ['final-prose', 'timeline', 'character-state', 'canon'],
     capability_ceiling: ['propose_finalization'],
-    allowed_result_types: ['finalization_proposal']
+    allowed_result_types: ['finalization_proposal'],
+    lane: 'expert'
   },
   {
     schema_version: 1,
@@ -128,7 +134,8 @@ const definitions = [
       'propose_planning_record',
       'propose_configuration_change'
     ],
-    allowed_result_types: ['exploration', 'planning_proposal']
+    allowed_result_types: ['exploration', 'planning_proposal'],
+    lane: 'expert'
   },
   {
     schema_version: 1,
@@ -142,11 +149,11 @@ const definitions = [
     capability_ceiling: [
       'converse',
       'append_exploration',
-      'generate_candidate',
       'propose_planning_record',
       'propose_configuration_change'
     ],
-    allowed_result_types: ['exploration', 'candidate', 'planning_proposal']
+    allowed_result_types: ['exploration', 'planning_proposal'],
+    lane: 'expert'
   },
   {
     schema_version: 1,
@@ -158,7 +165,8 @@ const definitions = [
     output_schema_id: 'quillarium.agent.turn-output.v1',
     context_scopes: ['current-target', 'outline-ancestors', 'timeline', 'accepted-prose', 'canon'],
     capability_ceiling: ['converse', 'append_exploration', 'propose_issue', 'propose_configuration_change'],
-    allowed_result_types: ['exploration', 'issue_proposal']
+    allowed_result_types: ['exploration', 'issue_proposal'],
+    lane: 'expert'
   },
   {
     schema_version: 1,
@@ -170,7 +178,8 @@ const definitions = [
     output_schema_id: 'quillarium.agent.setting-card-template.v1',
     context_scopes: ['current-target'],
     capability_ceiling: ['generate_candidate'],
-    allowed_result_types: ['candidate']
+    allowed_result_types: ['candidate'],
+    lane: 'display'
   },
   {
     schema_version: 1,
@@ -182,7 +191,8 @@ const definitions = [
     output_schema_id: 'quillarium.agent.setting-card-template.v1',
     context_scopes: ['current-target'],
     capability_ceiling: ['generate_candidate'],
-    allowed_result_types: ['candidate']
+    allowed_result_types: ['candidate'],
+    lane: 'display'
   }
 ] as const
 

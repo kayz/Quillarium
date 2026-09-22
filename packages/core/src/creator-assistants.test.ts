@@ -147,7 +147,7 @@ describe('creator assistant schemas and persistence', () => {
         enabled_operations: ['converse', 'append_exploration'],
         output_disposition: 'candidate'
       })
-    ).toThrow('requires operation generate_candidate')
+    ).toThrow(/not allowed by character-rehearsal: candidate/u)
     expect(() =>
       assistantTurnOutputV1Schema.parse({
         reply: 'Legacy proposal.',
