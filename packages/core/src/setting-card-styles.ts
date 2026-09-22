@@ -114,6 +114,7 @@ const styleWriteLocks = new Map<string, Promise<void>>()
 
 export function normalizeSettingCardTemplate(value: unknown): SettingCardTemplateV1 {
   const parsed = settingCardTemplateV1Schema.parse(value)
+  if (/<\s*script\b/iu.test(parsed.template_html)) throw new Error('SETTING_CARD_SCRIPT_UNSAFE')
   assertSafeTemplateCss(parsed.css)
   const templateHtml = sanitizeHtml(parsed.template_html, {
     allowedTags: [

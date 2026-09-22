@@ -77,7 +77,7 @@ describe('workspace setting-card styles', () => {
     expect(await pathExists(path.join(root, 'styles', 'display-cards'))).toBe(true)
   })
 
-  it('rejects saving a display-card template that contains script via the existing sanitizer', async () => {
+  it('rejects saving a display-card template that contains script', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'quillarium-display-style-unsafe-'))
     roots.push(root)
     await ensureWorkspaceAt(root)
@@ -88,13 +88,13 @@ describe('workspace setting-card styles', () => {
         template: {
           schema_version: 1,
           template_html: '<article>{{image}}<h1>{{title}}</h1>{{content}}<script>alert(1)</script></article>',
-          css: '.card{background:url(https://example.invalid/x)}',
+          css: '.card{color:#211d18}',
           notes: ''
         },
         supported_types: ['canon'],
         default_size: { width: 720, height: 1080 }
       })
-    ).rejects.toThrow('SETTING_CARD_CSS_UNSAFE')
+    ).rejects.toThrow('SETTING_CARD_SCRIPT_UNSAFE')
     expect(await pathExists(path.join(root, 'styles', 'display-cards'))).toBe(false)
     expect(await pathExists(path.join(root, 'styles', 'setting-cards'))).toBe(false)
   })
@@ -114,6 +114,14 @@ describe('workspace setting-card styles', () => {
       normalizeSettingCardTemplate({
         schema_version: 1,
         template_html: '<article>{{image}}<h1>{{title}}</h1>{{content}}<script>alert(1)</script></article>',
+        css: '.card{color:#211d18}',
+        notes: ''
+      })
+    ).toThrow('SETTING_CARD_SCRIPT_UNSAFE')
+    expect(() =>
+      normalizeSettingCardTemplate({
+        schema_version: 1,
+        template_html: '<article>{{image}}<h1>{{title}}</h1>{{content}}</article>',
         css: '.card{background:url(https://example.invalid/x)}',
         notes: ''
       })
