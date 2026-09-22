@@ -39,6 +39,7 @@ import {
   parentForNewLevel,
   outlineItemsForLevel
 } from '../../shared/outline.js'
+import { applyDisplayResetOnLoad } from './apply-display-reset-on-load.js'
 import { deleteConfirmationMessage } from './delete-confirmation.js'
 import { WorkspaceView } from './WorkspaceView.js'
 import type {
@@ -109,27 +110,27 @@ export function Workspace({
   const displayResetPromptedRoot = useRef<string | null>(null)
 
   const load = async () => {
-    let loaded: Awaited<ReturnType<typeof bridge.loadProject>> | undefined
+    const session: {
+      loaded: Awaited<ReturnType<typeof bridge.loadProject>> | undefined
+      promptedRoot: string | null
+    } = {
+      loaded: undefined,
+      promptedRoot: displayResetPromptedRoot.current
+    }
     try {
-      loaded = await bridge.loadProject(root)
+      session.loaded = await bridge.loadProject(root)
       const needsMigration = await bridge.needsDisplayMigration(root)
-      if (needsMigration && loaded.project.display_layer?.migrated === true) {
-        await bridge.resetDisplayLayer(root)
-        loaded = await bridge.loadProject(root)
-      } else if (needsMigration && loaded.project.display_layer?.migrated !== true) {
-        if (displayResetPromptedRoot.current !== root) {
-          displayResetPromptedRoot.current = root
-          const confirmed = window.confirm(
-            language === 'zh'
-              ? '将删除本项目 assets/settings 下的设定图，并从卡片去掉配图字段。此操作不能恢复。继续？'
-              : 'This deletes setting images under assets/settings and removes image fields from cards. It cannot be undone. Continue?'
-          )
-          if (confirmed) {
-            await bridge.resetDisplayLayer(root)
-            loaded = await bridge.loadProject(root)
-          }
-        }
-      }
+      await applyDisplayResetOnLoad(session, {
+        root,
+        language,
+        needsMigration,
+        confirm: (message) => window.confirm(message),
+        resetDisplayLayer: (projectRoot) => bridge.resetDisplayLayer(projectRoot),
+        loadProject: (projectRoot) => bridge.loadProject(projectRoot)
+      })
+      displayResetPromptedRoot.current = session.promptedRoot
+      const loaded = session.loaded
+      if (!loaded) return
       setData({ ...loaded, project: { ...loaded.project, root } })
       setActionError('')
       if (loaded.project.default_theme) onTheme(loaded.project.default_theme)
@@ -147,7 +148,7 @@ export function Workspace({
       } else if (!selectedTarget && scenes[0]) setSelectedTarget({ type: 'scene', id: scenes[0].data.id })
     } catch (error) {
       setActionError(formatDesktopError(error, language))
-      if (loaded) setData({ ...loaded, project: { ...loaded.project, root } })
+      if (session.loaded) setData({ ...session.loaded, project: { ...session.loaded.project, root } })
     }
   }
 
