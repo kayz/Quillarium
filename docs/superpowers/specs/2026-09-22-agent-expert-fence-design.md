@@ -15,36 +15,36 @@ Scope: 把专家任务和节-生文拆开；专家入口不能生成正文；把
 
 ## 已锁定的决策
 
-| 主题           | 选择                                                                                          |
-| -------------- | --------------------------------------------------------------------------------------------- |
-| 本轮范围       | 围栏 + 章评估（收口 `continuity-check`）。整理大纲 / 伏笔专家下一轮。                         |
-| 开关           | 专家模式常开，不进 `project.yaml`。节模块仍可选。                                             |
-| 任务分类       | `expert` / `generation` / `display` 三类。                                                    |
-| 专家入口       | 桌面和 CLI 只走专家门面。门面拒绝 `generate_candidate` 和节生文任务。                         |
-| 评估对象       | 只打已有 **章正文**。节草稿不评估。没有章正文则入口不可用。                                   |
-| 触发           | 作者主动点评估。打开章、保存、提交章正文都不自动跑。                                          |
-| 问题提案       | 走现有 issue 确认写入。                                                                       |
-| 补设定提案     | 默认 `world_entry`；表单可选特化类型，字段不齐不能写盘（对齐现有特化）。                      |
-| 定稿反查       | `finalization-review` 仍留给定稿流程，本轮不改它的写入语义。                                  |
-| 展示卡设计     | `setting-card-design` / `display-card-design` 属 `display`，不经专家门面。                    |
-| 人物试戏       | 仍可走专家门面，但本轮去掉其 `generate_candidate` 上限。                                      |
+| 主题       | 选择                                                                       |
+| ---------- | -------------------------------------------------------------------------- |
+| 本轮范围   | 围栏 + 章评估（收口 `continuity-check`）。整理大纲 / 伏笔专家下一轮。      |
+| 开关       | 专家模式常开，不进 `project.yaml`。节模块仍可选。                          |
+| 任务分类   | `expert` / `generation` / `display` 三类。                                 |
+| 专家入口   | 桌面和 CLI 只走专家门面。门面拒绝 `generate_candidate` 和节生文任务。      |
+| 评估对象   | 只打已有 **章正文**。节草稿不评估。没有章正文则入口不可用。                |
+| 触发       | 作者主动点评估。打开章、保存、提交章正文都不自动跑。                       |
+| 问题提案   | 走现有 issue 确认写入。                                                    |
+| 补设定提案 | 默认 `world_entry`；表单可选特化类型，字段不齐不能写盘（对齐现有特化）。   |
+| 定稿反查   | `finalization-review` 仍留给定稿流程，本轮不改它的写入语义。               |
+| 展示卡设计 | `setting-card-design` / `display-card-design` 属 `display`，不经专家门面。 |
+| 人物试戏   | 仍可走专家门面，但本轮去掉其 `generate_candidate` 上限。                   |
 
 ## 任务分类
 
 每个 `AgentTaskDefinition` 增加只读 `lane: 'expert' | 'generation' | 'display'`（实现时可放在定义上或并列注册表，语义不得含糊）。
 
-| `id`                   | lane         | 本轮动作                                      |
-| ---------------------- | ------------ | --------------------------------------------- |
-| `import-material`      | expert       | 只分类；不改流程                              |
-| `planning-card`        | expert       | 只分类；不改流程                              |
-| `organize-setting`     | expert       | 只分类；不改流程                              |
-| `continuity-review`    | expert       | 只分类；不改流程                              |
-| `continuity-check`     | expert       | **收口为章评估**；可附带补设定提案            |
-| `finalization-review`  | expert       | 分类为专家，入口仍在定稿流程，本轮不改语义    |
-| `character-rehearsal`  | expert       | 去掉 `generate_candidate`                     |
-| `scene-generation`     | generation   | 不进专家门面                                  |
-| `setting-card-design`  | display      | 不进专家门面                                  |
-| `display-card-design`  | display      | 不进专家门面                                  |
+| `id`                  | lane       | 本轮动作                                   |
+| --------------------- | ---------- | ------------------------------------------ |
+| `import-material`     | expert     | 只分类；不改流程                           |
+| `planning-card`       | expert     | 只分类；不改流程                           |
+| `organize-setting`    | expert     | 只分类；不改流程                           |
+| `continuity-review`   | expert     | 只分类；不改流程                           |
+| `continuity-check`    | expert     | **收口为章评估**；可附带补设定提案         |
+| `finalization-review` | expert     | 分类为专家，入口仍在定稿流程，本轮不改语义 |
+| `character-rehearsal` | expert     | 去掉 `generate_candidate`                  |
+| `scene-generation`    | generation | 不进专家门面                               |
+| `setting-card-design` | display    | 不进专家门面                               |
+| `display-card-design` | display    | 不进专家门面                               |
 
 规则：
 
@@ -102,13 +102,13 @@ executeExpertTask(input): Promise<ExpertTaskResult>
 
 中文、fail-closed、不写盘：
 
-| 情况                         | 错误                         |
-| ---------------------------- | ---------------------------- |
-| 专家门面接到生文/展示任务    | `专家门面只接受专家任务。`   |
-| 专家任务仍带 `generate_candidate` | `专家模式不能生成正文。` |
-| 章没有正文就评估             | `没有章正文，不能评估。`     |
-| 未确认就写入                 | `提案尚未确认，不能写入。`   |
-| 补设定 typed 字段不齐        | 与特化相同的中文缺字段错误   |
+| 情况                              | 错误                       |
+| --------------------------------- | -------------------------- |
+| 专家门面接到生文/展示任务         | `专家门面只接受专家任务。` |
+| 专家任务仍带 `generate_candidate` | `专家模式不能生成正文。`   |
+| 章没有正文就评估                  | `没有章正文，不能评估。`   |
+| 未确认就写入                      | `提案尚未确认，不能写入。` |
+| 补设定 typed 字段不齐             | 与特化相同的中文缺字段错误 |
 
 打开章、保存、提交章正文、开关节模块：都不得调用评估。
 

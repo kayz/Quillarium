@@ -1,7 +1,4 @@
-import {
-  applyChapterEval,
-  type ChapterEvalProposalSet
-} from '@quillarium/core'
+import { applyChapterEval, type ChapterEvalProposalSet } from '@quillarium/core'
 import { executeExpertTask } from '@quillarium/agent-runtime'
 import { loadDesktopAIProfile } from './credentials.js'
 import { typedHandle } from './contract.js'
@@ -15,10 +12,7 @@ export function registerExpertHandlers(): void {
   )
 }
 
-export async function evaluateChapterProse(
-  root: string,
-  chapterId: string
-): Promise<ChapterEvalProposalSet> {
+export async function evaluateChapterProse(root: string, chapterId: string): Promise<ChapterEvalProposalSet> {
   const outcome = await executeExpertTask(
     {
       projectRoot: root,

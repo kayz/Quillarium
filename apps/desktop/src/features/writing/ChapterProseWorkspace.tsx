@@ -111,9 +111,7 @@ export function ChapterProseWorkspace({
       const proposals = await window.quillarium.evaluateChapter(root, chapterId)
       setEvalProposals(proposals)
       setSelectedIssues(Object.fromEntries(proposals.issues.map((item) => [item.proposal_id, true])))
-      setSelectedSettings(
-        Object.fromEntries(proposals.settings.map((item) => [item.proposal_id, true]))
-      )
+      setSelectedSettings(Object.fromEntries(proposals.settings.map((item) => [item.proposal_id, true])))
     })
   }
 
