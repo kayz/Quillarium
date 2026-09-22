@@ -1,10 +1,11 @@
-import { mkdir, rm } from 'node:fs/promises'
+import { createHash } from 'node:crypto'
+import { rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createWorldEntry } from './documents.js'
 import { pathExists, readMarkdown, readText, writeMarkdown } from './fs.js'
-import { createProjectAt, loadProject } from './project.js'
+import { createProjectAt } from './project.js'
 import { WRITER_DEFAULT_DISPLAY_LAYER } from './display-layer.js'
 import {
   addDisplayImage,
@@ -13,6 +14,10 @@ import {
   removeDisplayImagesForCard,
   selectDisplayImage
 } from './display-images.js'
+
+function displaySegment(cardId: string): string {
+  return `id-${createHash('sha256').update(cardId, 'utf8').digest('hex').slice(0, 24)}`
+}
 
 const PNG = Uint8Array.from(
   Buffer.from(
@@ -85,5 +90,42 @@ describe('display image store', () => {
     expect(await pathExists(path.join(root, 'assets', 'display', 'world-lin'))).toBe(true)
     await removeDisplayImagesForCard(root, 'world-lin')
     expect(await pathExists(path.join(root, 'assets', 'display', 'world-lin'))).toBe(false)
+  })
+
+  it('stores CJK auto-id galleries under a hashed display segment', async () => {
+    const root = path.join(os.tmpdir(), `quillarium-display-images-cjk-${Date.now()}`)
+    roots.push(root)
+    await createProjectAt(root, { id: 'cjk', title: 'cjk', display_layer: WRITER_DEFAULT_DISPLAY_LAYER })
+    const cardFile = await createWorldEntry(root, '林舟', {}, '水手。')
+    const current = await readMarkdown<Record<string, unknown>>(cardFile)
+    delete current.data.image
+    await writeMarkdown(cardFile, current.data, current.content)
+    const cardId = 'world-林舟'
+    const segment = displaySegment(cardId)
+    const galleryDir = path.join(root, 'assets', 'display', segment)
+
+    const added = await addDisplayImage(root, cardId, PNG, {
+      mime_type: 'image/png',
+      alt: '林舟',
+      source: 'upload'
+    })
+    expect(added.images).toHaveLength(1)
+    expect(await pathExists(path.join(galleryDir, added.images[0]!.file))).toBe(true)
+    expect(await listDisplayImages(root, cardId)).toMatchObject({
+      schema_version: 1,
+      selected_id: added.selected_id,
+      images: [{ id: added.images[0]!.id }]
+    })
+    const card = await readText(cardFile)
+    expect(card).toMatch(/^id:\s*world-林舟$/m)
+    expect(card).not.toMatch(/^image:/m)
+
+    await removeDisplayImagesForCard(root, cardId)
+    expect(await pathExists(galleryDir)).toBe(false)
+    expect(await listDisplayImages(root, cardId)).toEqual({
+      schema_version: 1,
+      selected_id: null,
+      images: []
+    })
   })
 })

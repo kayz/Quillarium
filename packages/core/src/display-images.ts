@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { rm } from 'node:fs/promises'
 import path from 'node:path'
 import { ensureDir, pathExists, readText, writeBinary, writeText } from './fs.js'
@@ -23,12 +23,23 @@ export interface DisplayImageManifest {
 }
 
 const MANIFEST = 'manifest.json'
+const WINDOWS_RESERVED_NAME = /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/iu
 
 const emptyManifest = (): DisplayImageManifest => ({ schema_version: 1, selected_id: null, images: [] })
 
+/** Path-safe directory key for a card id. Card id stays unchanged in APIs/YAML. */
+function safeDisplaySegment(cardId: string): string {
+  if (!cardId.trim()) throw new Error('卡片 ID 不能为空。')
+  const canUseVerbatim =
+    /^[a-zA-Z0-9_-][a-zA-Z0-9._-]{0,79}$/u.test(cardId) &&
+    !cardId.endsWith('.') &&
+    !WINDOWS_RESERVED_NAME.test(cardId)
+  if (canUseVerbatim) return cardId
+  return `id-${createHash('sha256').update(cardId, 'utf8').digest('hex').slice(0, 24)}`
+}
+
 export function displayImageDir(projectRoot: string, cardId: string): string {
-  if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/u.test(cardId)) throw new Error('DISPLAY_IMAGE_CARD_ID_UNSAFE')
-  return path.join(projectRoot, 'assets', 'display', cardId)
+  return path.join(projectRoot, 'assets', 'display', safeDisplaySegment(cardId))
 }
 
 function extensionFor(mime: DisplayImageMime): 'png' | 'jpg' | 'webp' {
