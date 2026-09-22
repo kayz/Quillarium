@@ -43,7 +43,7 @@ export async function needsDisplayMigration(projectRoot: string): Promise<boolea
 
 export async function shouldPromptDisplayReset(projectRoot: string): Promise<boolean> {
   if (!(await needsDisplayMigration(projectRoot))) return false
-  return resolveDisplayLayer(await loadProject(projectRoot)).migrated !== true
+  return (await loadProject(projectRoot)).display_layer?.migrated !== true
 }
 
 export async function resetDisplayLayer(projectRoot: string): Promise<ProjectConfig> {
@@ -65,8 +65,14 @@ export async function resetDisplayLayer(projectRoot: string): Promise<ProjectCon
 }
 
 export async function setDisplayLayerEnabled(projectRoot: string, enabled: boolean): Promise<ProjectConfig> {
-  const current = resolveDisplayLayer(await loadProject(projectRoot))
+  const raw = (await loadProject(projectRoot)).display_layer
+  if (raw) {
+    return updateProjectConfig(projectRoot, {
+      display_layer: { ...raw, enabled }
+    })
+  }
+  const migrated = !(await needsDisplayMigration(projectRoot))
   return updateProjectConfig(projectRoot, {
-    display_layer: { ...current, enabled }
+    display_layer: { enabled, migrated }
   })
 }

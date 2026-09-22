@@ -7,7 +7,9 @@ import { pathExists, writeMarkdown, writeText } from './fs.js'
 import {
   WRITER_DEFAULT_DISPLAY_LAYER,
   needsDisplayMigration,
-  resetDisplayLayer
+  resetDisplayLayer,
+  setDisplayLayerEnabled,
+  shouldPromptDisplayReset
 } from './display-layer.js'
 import { createProjectAt, loadProject } from './project.js'
 
@@ -79,5 +81,39 @@ describe('display layer reset', () => {
     const { updateProjectConfig } = await import('./project.js')
     await updateProjectConfig(root, { display_layer: { enabled: true, migrated: true } })
     expect(await needsDisplayMigration(root)).toBe(true)
+  })
+})
+
+describe('display layer prompt and enable', () => {
+  it('prompts when leftovers exist and display_layer is missing', async () => {
+    const root = path.join(os.tmpdir(), `quillarium-display-prompt-missing-${Date.now()}`)
+    roots.push(root)
+    await createProjectAt(root, { id: 'legacy-prompt', title: '旧图' })
+    const asset = path.join(root, 'assets', 'settings', 'world_entry', 'x.png')
+    await mkdir(path.dirname(asset), { recursive: true })
+    await writeText(asset, 'png')
+    expect((await loadProject(root)).display_layer).toBeUndefined()
+    expect(await shouldPromptDisplayReset(root)).toBe(true)
+  })
+
+  it('does not prompt leftovers when display_layer.migrated is true', async () => {
+    const root = await fixture('prompt-migrated')
+    const asset = path.join(root, 'assets', 'settings', 'orphan.png')
+    await mkdir(path.dirname(asset), { recursive: true })
+    await writeText(asset, 'png')
+    expect((await loadProject(root)).display_layer?.migrated).toBe(true)
+    expect(await shouldPromptDisplayReset(root)).toBe(false)
+  })
+
+  it('does not stamp migrated true when enabling on leftover missing field', async () => {
+    const root = path.join(os.tmpdir(), `quillarium-display-enable-missing-${Date.now()}`)
+    roots.push(root)
+    await createProjectAt(root, { id: 'legacy-enable', title: '旧图' })
+    const asset = path.join(root, 'assets', 'settings', 'world_entry', 'x.png')
+    await mkdir(path.dirname(asset), { recursive: true })
+    await writeText(asset, 'png')
+    const next = await setDisplayLayerEnabled(root, true)
+    expect(next.display_layer?.migrated).not.toBe(true)
+    expect((await loadProject(root)).display_layer?.migrated).not.toBe(true)
   })
 })
