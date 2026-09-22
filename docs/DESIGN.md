@@ -615,24 +615,15 @@ open, then deletes `assets/settings/` and clears each card's `image` field. New 
 workspace `styles/display-cards` and may be designed with Agent `display-card-design`. CCv3 import
 and export remain unchanged.
 
-### Project-local setting images
+### Display image gallery
 
-`world_entry`, `character`, `location`, `character_relation`, and `faction` documents may carry one
-nullable `SettingImageAssetV1`. The original PNG/JPEG/WebP and generated PNG thumbnail are stored at
-`assets/settings/<document-type>/<stable-id-key>/`; safe legacy ASCII IDs remain readable in the
-directory name, while Unicode or filename-unsafe IDs use a deterministic SHA-256-derived key.
-Frontmatter contains only project-relative paths,
-MIME type, SHA-256, dimensions, focus, alternative text, and a small code-derived color palette. The
-main process resolves every path inside the project, rejects symlink traversal, rechecks the document
-before-image under the project write lock, and restores the exact Markdown plus any newly created
-asset files on failure. Replacing or removing a current image does not destroy older asset bytes, so
-manual recovery remains possible. Batch thumbnail loading reads the project document set once rather
-than rescanning it per visible card.
-
-The renderer prefers thumbnails in setting lists, detail panes, module cards, and the character-
-relationship workbench. A faction without an emblem uses a deterministic circle plus one or two title
-characters. Existing documents without `image` parse as `null` in memory; opening or listing them does
-not write that default back to disk. No image bytes or asset paths enter CCv3 world-book fields.
+Display-layer images for setting cards live in `assets/display/<card-id>/` with a `manifest.json`
+that records gallery order and the selected image. These assets are not written to card frontmatter
+or CCv3 world-book fields. Authors add images by uploading a file from the desktop or CLI, or by
+click-to-generate in the desktop after preview confirmation. Generation uses a separate display-image
+profile for OpenAI, OpenAI-compatible, or Gemini providers, distinct from prose-writing credentials.
+The HTML renderer exposes the current selection as `{{image}}` and, when templates include it, a
+CSS-only `{{images}}` carousel built without scripts or event handlers.
 
 ### HTML setting-card Agent and workspace styles
 
