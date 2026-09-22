@@ -259,7 +259,10 @@ const api = {
   gitCommit: (root, message) => ipcRenderer.invoke('git:commit', root, message),
   gitSync: (root, message) => ipcRenderer.invoke('git:sync', root, message),
   githubCreateRepoForProject: (root) => ipcRenderer.invoke('github:createRepoForProject', root),
-  gitSetRemote: (root, url) => ipcRenderer.invoke('git:setRemote', root, url)
+  gitSetRemote: (root, url) => ipcRenderer.invoke('git:setRemote', root, url),
+  evaluateChapter: (root, chapterId) => ipcRenderer.invoke('expert:evaluateChapter', root, chapterId),
+  applyChapterEval: (root, proposals, decisions) =>
+    ipcRenderer.invoke('expert:applyChapterEval', root, proposals, decisions)
 }
 
 contextBridge.exposeInMainWorld('quillarium', api)

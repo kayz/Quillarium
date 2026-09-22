@@ -2,7 +2,11 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 import { ChapterProseWorkspace, countProseCharacters } from './ChapterProseWorkspace.js'
 
-function render(status: 'draft' | 'final' | 'published', dirty = false) {
+function render(
+  status: 'draft' | 'final' | 'published',
+  dirty = false,
+  content = '第一段正文。\n\n第二段正文。'
+) {
   return renderToStaticMarkup(
     <ChapterProseWorkspace
       chapterTitle="第一章"
@@ -11,7 +15,7 @@ function render(status: 'draft' | 'final' | 'published', dirty = false) {
       doc={{
         path: 'chapters/prose.md',
         data: { id: 'prose-one', type: 'chapter_prose', title: '第一章 正文', status },
-        content: '第一段正文。\n\n第二段正文。'
+        content
       }}
       targetWords={3000}
       dirty={dirty}
@@ -32,6 +36,7 @@ describe('ChapterProseWorkspace', () => {
     const draft = render('draft')
     expect(draft).toContain('正文 · 纯文字')
     expect(draft).toContain('从正文抽取设定')
+    expect(draft).toContain('评估章')
     expect(draft).toContain('定稿')
     expect(draft).not.toContain('发布并清理节产物')
     expect(draft).toContain('aria-label="章正文纯文字编辑区"')
@@ -48,6 +53,12 @@ describe('ChapterProseWorkspace', () => {
 
     const dirtyDraft = render('draft', true)
     expect(dirtyDraft).toContain('请先保存正文，再从稳定快照抽取设定。')
+  })
+
+  it('shows 评估章 only when chapter prose content is non-empty', () => {
+    expect(render('draft', false, '有正文')).toContain('评估章')
+    expect(render('draft', false, '')).not.toContain('评估章')
+    expect(render('draft', false, '   \n\t')).not.toContain('评估章')
   })
 
   it('counts prose characters without whitespace', () => {

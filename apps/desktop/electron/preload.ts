@@ -219,7 +219,10 @@ const api: QuillariumAPI = {
   gitCommit: (root, message) => invoke('git:commit', root, message),
   gitSync: (root, message) => invoke('git:sync', root, message),
   githubCreateRepoForProject: (root) => invoke('github:createRepoForProject', root),
-  gitSetRemote: (root, url) => invoke('git:setRemote', root, url)
+  gitSetRemote: (root, url) => invoke('git:setRemote', root, url),
+  evaluateChapter: (root, chapterId) => invoke('expert:evaluateChapter', root, chapterId),
+  applyChapterEval: (root, proposals, decisions) =>
+    invoke('expert:applyChapterEval', root, proposals, decisions)
 }
 
 contextBridge.exposeInMainWorld('quillarium', api)

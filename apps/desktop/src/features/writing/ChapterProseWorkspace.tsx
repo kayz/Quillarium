@@ -1,7 +1,12 @@
 import { useState } from 'react'
-import type { FinalizationApplicationReport, FinalizeReviewSession } from '@quillarium/core'
+import type {
+  ChapterEvalProposalSet,
+  FinalizationApplicationReport,
+  FinalizeReviewSession
+} from '@quillarium/core'
 import {
   CheckCircle2,
+  ClipboardCheck,
   FileText,
   LockKeyhole,
   RefreshCcw,
@@ -60,6 +65,12 @@ export function ChapterProseWorkspace({
   const [reviewError, setReviewError] = useState('')
   const [reviewNotice, setReviewNotice] = useState('')
   const [answers, setAnswers] = useState<Record<string, string>>({})
+  const [evalProposals, setEvalProposals] = useState<ChapterEvalProposalSet | null>(null)
+  const [evalBusy, setEvalBusy] = useState(false)
+  const [evalError, setEvalError] = useState('')
+  const [evalNotice, setEvalNotice] = useState('')
+  const [selectedIssues, setSelectedIssues] = useState<Record<string, boolean>>({})
+  const [selectedSettings, setSelectedSettings] = useState<Record<string, boolean>>({})
 
   const runReviewAction = async (action: () => Promise<void>) => {
     setReviewBusy(true)
@@ -72,6 +83,52 @@ export function ChapterProseWorkspace({
     } finally {
       setReviewBusy(false)
     }
+  }
+
+  const runEvalAction = async (action: () => Promise<void>) => {
+    setEvalBusy(true)
+    setEvalError('')
+    setEvalNotice('')
+    try {
+      await action()
+    } catch (error) {
+      setEvalError(formatDesktopError(error, language))
+    } finally {
+      setEvalBusy(false)
+    }
+  }
+
+  const evaluateChapter = async () => {
+    await runEvalAction(async () => {
+      const proposals = await window.quillarium.evaluateChapter(root, chapterId)
+      setEvalProposals(proposals)
+      setSelectedIssues(Object.fromEntries(proposals.issues.map((item) => [item.proposal_id, true])))
+      setSelectedSettings(
+        Object.fromEntries(proposals.settings.map((item) => [item.proposal_id, true]))
+      )
+    })
+  }
+
+  const applyEval = async () => {
+    if (!evalProposals) return
+    await runEvalAction(async () => {
+      const result = await window.quillarium.applyChapterEval(root, evalProposals, {
+        confirmed: true,
+        issues: evalProposals.issues
+          .filter((item) => selectedIssues[item.proposal_id])
+          .map((item) => item.proposal_id),
+        settings: evalProposals.settings
+          .filter((item) => selectedSettings[item.proposal_id])
+          .map((item) => ({ proposal_id: item.proposal_id }))
+      })
+      setEvalNotice(
+        zh
+          ? `已写入问题 ${result.issue_ids.length} 条、设定 ${result.setting_ids.length} 条。`
+          : `Wrote ${result.issue_ids.length} issue(s) and ${result.setting_ids.length} setting(s).`
+      )
+      setEvalProposals(null)
+      await onContinuityApplied()
+    })
   }
 
   const prepareReview = async () => {
@@ -188,6 +245,11 @@ export function ChapterProseWorkspace({
           </div>
         </div>
         <div className="chapter-prose-actions">
+          {Boolean(doc.content.trim()) && (
+            <button onClick={evaluateChapter} disabled={busy || evalBusy || dirty}>
+              <ClipboardCheck size={15} /> {zh ? '评估章' : 'Evaluate chapter'}
+            </button>
+          )}
           <button
             onClick={onExtractSettings}
             disabled={busy || dirty || !doc.content.trim()}
@@ -283,6 +345,62 @@ export function ChapterProseWorkspace({
           aria-label={zh ? '章正文纯文字编辑区' : 'Chapter prose editor'}
         />
       </label>
+
+      {(evalProposals || evalBusy || evalError || evalNotice) && (
+        <section className="chapter-eval-panel" aria-label={zh ? '章评估提案' : 'Chapter eval proposals'}>
+          <header>
+            <strong>{zh ? '章评估提案' : 'Chapter eval proposals'}</strong>
+            {evalProposals && (
+              <button onClick={() => setEvalProposals(null)} aria-label={zh ? '关闭评估提案' : 'Close eval'}>
+                <XCircle size={15} />
+              </button>
+            )}
+          </header>
+          {evalBusy && <p className="finalization-message">{zh ? '正在评估…' : 'Evaluating…'}</p>}
+          {evalError && <p className="finalization-message error">{evalError}</p>}
+          {evalNotice && <p className="finalization-message ok">{evalNotice}</p>}
+          {evalProposals && (
+            <div className="chapter-eval-body">
+              {evalProposals.issues.map((issue) => (
+                <label key={issue.proposal_id}>
+                  <input
+                    type="checkbox"
+                    checked={Boolean(selectedIssues[issue.proposal_id])}
+                    onChange={(event) =>
+                      setSelectedIssues({ ...selectedIssues, [issue.proposal_id]: event.target.checked })
+                    }
+                  />
+                  <span>
+                    <strong>{issue.title}</strong>
+                    <small>{issue.body}</small>
+                  </span>
+                </label>
+              ))}
+              {evalProposals.settings.map((setting) => (
+                <label key={setting.proposal_id}>
+                  <input
+                    type="checkbox"
+                    checked={Boolean(selectedSettings[setting.proposal_id])}
+                    onChange={(event) =>
+                      setSelectedSettings({
+                        ...selectedSettings,
+                        [setting.proposal_id]: event.target.checked
+                      })
+                    }
+                  />
+                  <span>
+                    <strong>{setting.title}</strong>
+                    <small>{setting.content}</small>
+                  </span>
+                </label>
+              ))}
+              <button className="primary" onClick={applyEval} disabled={evalBusy}>
+                {zh ? '确认写入' : 'Confirm write'}
+              </button>
+            </div>
+          )}
+        </section>
+      )}
 
       {reviewOpen && status === 'final' && (
         <FinalizationReviewPanel

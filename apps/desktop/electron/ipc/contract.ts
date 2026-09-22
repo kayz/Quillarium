@@ -85,7 +85,8 @@ import type {
   SettingCardTemplateV1,
   StoryStructureConfigV1,
   DisplayImageManifest,
-  DisplayImageProvider
+  DisplayImageProvider,
+  ChapterEvalProposalSet
 } from '@quillarium/core'
 import { recordIpcFailure } from '../logging.js'
 import type { CheckReport, CheckScore } from '@quillarium/checks'
@@ -1139,6 +1140,22 @@ export interface IpcContract {
   'git:sync': { request: [root: string, message: string]; response: GitStatus }
   'github:createRepoForProject': { request: [root: string]; response: GitStatus }
   'git:setRemote': { request: [root: string, url: string]; response: GitStatus }
+  'expert:evaluateChapter': {
+    request: [root: string, chapterId: string]
+    response: ChapterEvalProposalSet
+  }
+  'expert:applyChapterEval': {
+    request: [
+      root: string,
+      proposals: ChapterEvalProposalSet,
+      decisions: {
+        confirmed: boolean
+        issues: string[]
+        settings: Array<{ proposal_id: string; type?: string; fields?: Record<string, unknown> }>
+      }
+    ]
+    response: { issue_ids: string[]; setting_ids: string[] }
+  }
 }
 
 export type IpcChannel = keyof IpcContract
@@ -1317,7 +1334,9 @@ export const QUILLARIUM_API_CHANNELS = {
   gitCommit: 'git:commit',
   gitSync: 'git:sync',
   githubCreateRepoForProject: 'github:createRepoForProject',
-  gitSetRemote: 'git:setRemote'
+  gitSetRemote: 'git:setRemote',
+  evaluateChapter: 'expert:evaluateChapter',
+  applyChapterEval: 'expert:applyChapterEval'
 } as const satisfies Record<string, IpcChannel>
 
 type AssertNever<Value extends never> = Value

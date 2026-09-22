@@ -20,6 +20,7 @@ import { registerCoverHandlers } from './cover.js'
 import { registerSettingAssetHandlers } from './setting-assets.js'
 import { registerDisplayImageHandlers } from './display-images.js'
 import { registerSettingCardHandlers } from './setting-cards.js'
+import { registerExpertHandlers } from './expert.js'
 
 export function registerAllHandlers(): void {
   registerAIStreamHandlers()
@@ -29,6 +30,7 @@ export function registerAllHandlers(): void {
   registerSettingAssetHandlers()
   registerDisplayImageHandlers()
   registerSettingCardHandlers()
+  registerExpertHandlers()
   registerStoryOrderHandlers()
   registerReferenceHandlers()
   registerTimelineHandlers()
