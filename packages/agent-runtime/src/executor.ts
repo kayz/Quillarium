@@ -50,12 +50,18 @@ import {
 } from './tasks/planning-integrity-review.js'
 import {
   createSettingCardDesignHandler,
+  DISPLAY_CARD_DESIGN_DEFINITION,
   SETTING_CARD_DESIGN_DEFINITION
 } from './tasks/setting-card-design.js'
 
+const settingCardDesignHandler = createSettingCardDesignHandler()
 const runtimeRegistry = new AgentTaskRegistry(
-  [PLANNING_INTEGRITY_REVIEW_DEFINITION, SETTING_CARD_DESIGN_DEFINITION],
-  [createPlanningIntegrityReviewHandler(), createSettingCardDesignHandler()]
+  [PLANNING_INTEGRITY_REVIEW_DEFINITION, SETTING_CARD_DESIGN_DEFINITION, DISPLAY_CARD_DESIGN_DEFINITION],
+  [
+    createPlanningIntegrityReviewHandler(),
+    settingCardDesignHandler,
+    { ...settingCardDesignHandler, definition: DISPLAY_CARD_DESIGN_DEFINITION }
+  ]
 )
 
 const defaultDependencies: AgentRuntimeDependencies = {

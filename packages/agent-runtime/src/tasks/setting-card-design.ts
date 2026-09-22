@@ -90,6 +90,12 @@ export const SETTING_CARD_DESIGN_DEFINITION: AgentTaskDefinitionV2 = {
   approval_policy: 'none'
 }
 
+export const DISPLAY_CARD_DESIGN_DEFINITION: AgentTaskDefinitionV2 = {
+  ...SETTING_CARD_DESIGN_DEFINITION,
+  id: 'display-card-design',
+  target_types: [...settingCardDocumentTypeSchema.options]
+}
+
 interface DesignPreparationData {
   [key: string]: unknown
   document_id: string

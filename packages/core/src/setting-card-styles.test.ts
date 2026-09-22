@@ -2,14 +2,19 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { getAgentTaskDefinition } from './agent-tasks.js'
+import { pathExists } from './fs.js'
 import { ensureWorkspaceAt } from './workspace.js'
 import {
   BUILTIN_SETTING_CARD_STYLES,
   defaultSettingCardTemplate,
+  listWorkspaceDisplayCardStyles,
   listWorkspaceSettingCardStyles,
   normalizeSettingCardTemplate,
   renderSettingCardHtml,
-  saveWorkspaceSettingCardStyle
+  saveWorkspaceDisplayCardStyle,
+  saveWorkspaceSettingCardStyle,
+  settingCardDocumentTypeSchema
 } from './setting-card-styles.js'
 
 const roots: string[] = []
@@ -44,6 +49,64 @@ describe('workspace setting-card styles', () => {
     expect(first.relative_path).toMatch(/^styles\/setting-cards\//u)
     expect(await listWorkspaceSettingCardStyles(root, 'location')).toEqual([])
     expect(await listWorkspaceSettingCardStyles(root, 'character')).toHaveLength(2)
+  })
+
+  it('round-trips display card styles under styles/display-cards and does not create setting-cards', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'quillarium-display-style-'))
+    roots.push(root)
+    await ensureWorkspaceAt(root)
+    const template = defaultSettingCardTemplate('ink-archive')
+
+    const saved = await saveWorkspaceDisplayCardStyle(root, {
+      name: 'Canon folio',
+      template,
+      supported_types: ['canon', 'character'],
+      default_size: { width: 720, height: 1080 },
+      source_execution_id: 'display-card-run-1'
+    })
+    const listed = await listWorkspaceDisplayCardStyles(root, 'canon')
+
+    expect(saved.value.version).toBe('1.0.0')
+    expect(saved.relative_path).toMatch(/^styles\/display-cards\//u)
+    expect(listed).toHaveLength(1)
+    expect(listed[0]?.value.name).toBe('Canon folio')
+    expect(listed[0]?.value.supported_types).toEqual(['canon', 'character'])
+    expect(await listWorkspaceDisplayCardStyles(root, 'faction')).toEqual([])
+    expect(await listWorkspaceSettingCardStyles(root)).toEqual([])
+    expect(await pathExists(path.join(root, 'styles', 'setting-cards'))).toBe(false)
+    expect(await pathExists(path.join(root, 'styles', 'display-cards'))).toBe(true)
+  })
+
+  it('rejects saving a display-card template that contains script via the existing sanitizer', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'quillarium-display-style-unsafe-'))
+    roots.push(root)
+    await ensureWorkspaceAt(root)
+
+    await expect(
+      saveWorkspaceDisplayCardStyle(root, {
+        name: 'Unsafe script card',
+        template: {
+          schema_version: 1,
+          template_html: '<article>{{image}}<h1>{{title}}</h1>{{content}}<script>alert(1)</script></article>',
+          css: '.card{background:url(https://example.invalid/x)}',
+          notes: ''
+        },
+        supported_types: ['canon'],
+        default_size: { width: 720, height: 1080 }
+      })
+    ).rejects.toThrow('SETTING_CARD_CSS_UNSAFE')
+    expect(await pathExists(path.join(root, 'styles', 'display-cards'))).toBe(false)
+    expect(await pathExists(path.join(root, 'styles', 'setting-cards'))).toBe(false)
+  })
+
+  it('lists every spec document type on each builtin so a canon card can pick one', () => {
+    const specTypes = settingCardDocumentTypeSchema.options
+    expect(specTypes).toContain('canon')
+    expect(specTypes).toContain('narrative')
+    for (const style of BUILTIN_SETTING_CARD_STYLES) {
+      expect(style.supported_types).toEqual(specTypes)
+    }
+    expect(getAgentTaskDefinition('display-card-design').id).toBe('display-card-design')
   })
 
   it('rejects active content and renders a sandboxed self-contained document', () => {

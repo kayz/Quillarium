@@ -7,14 +7,25 @@ import { ensureDir, pathExists } from './fs.js'
 import { slugify } from './ids.js'
 import { loadWorkspace, resolveWorkspacePath } from './workspace.js'
 
-export const settingCardDocumentTypeSchema = z.enum([
+export const SETTING_CARD_DOCUMENT_TYPES = [
   'world_entry',
+  'canon',
   'character',
+  'character_relation',
   'location',
-  'character_relation'
-])
+  'timeline_event',
+  'faction',
+  'faction_relation',
+  'faction_membership',
+  'foreshadowing',
+  'narrative'
+] as const
+
+export const settingCardDocumentTypeSchema = z.enum(SETTING_CARD_DOCUMENT_TYPES)
 
 export type SettingCardDocumentType = z.infer<typeof settingCardDocumentTypeSchema>
+
+export const DISPLAY_CARD_STYLE_ROOT = 'styles/display-cards'
 
 export const settingCardSizeV1Schema = z
   .object({
@@ -75,11 +86,16 @@ export interface SettingCardRenderData {
 }
 
 export const BUILTIN_SETTING_CARD_STYLES = [
-  { id: 'ink-archive', zh: '墨色档案', en: 'Ink archive' },
-  { id: 'modern-dossier', zh: '现代资料卡', en: 'Modern dossier' },
-  { id: 'editorial', zh: '杂志编辑页', en: 'Editorial' },
-  { id: 'minimal', zh: '极简信息卡', en: 'Minimal' },
-  { id: 'heraldic', zh: '纹章叙事', en: 'Heraldic' }
+  { id: 'ink-archive', zh: '墨色档案', en: 'Ink archive', supported_types: SETTING_CARD_DOCUMENT_TYPES },
+  {
+    id: 'modern-dossier',
+    zh: '现代资料卡',
+    en: 'Modern dossier',
+    supported_types: SETTING_CARD_DOCUMENT_TYPES
+  },
+  { id: 'editorial', zh: '杂志编辑页', en: 'Editorial', supported_types: SETTING_CARD_DOCUMENT_TYPES },
+  { id: 'minimal', zh: '极简信息卡', en: 'Minimal', supported_types: SETTING_CARD_DOCUMENT_TYPES },
+  { id: 'heraldic', zh: '纹章叙事', en: 'Heraldic', supported_types: SETTING_CARD_DOCUMENT_TYPES }
 ] as const
 
 export type BuiltinSettingCardStyleId = (typeof BUILTIN_SETTING_CARD_STYLES)[number]['id']
@@ -93,7 +109,7 @@ const STATIC_TEMPLATE_TOKENS = new Set([
 ])
 const TEMPLATE_TOKEN_PATTERN = /\{\{[^{}]*\}\}/gu
 const FIELD_TEMPLATE_TOKEN_PATTERN = /^\{\{fields\.([a-zA-Z][a-zA-Z0-9_-]{0,63})\}\}$/u
-const STYLE_ROOT = 'styles/setting-cards'
+const SETTING_CARD_STYLE_ROOT = 'styles/setting-cards'
 const styleWriteLocks = new Map<string, Promise<void>>()
 
 export function normalizeSettingCardTemplate(value: unknown): SettingCardTemplateV1 {
@@ -160,8 +176,34 @@ export async function listWorkspaceSettingCardStyles(
   workspaceRoot: string,
   documentType?: SettingCardDocumentType
 ): Promise<LoadedSettingCardStyle[]> {
+  return listWorkspaceCardStyles(
+    workspaceRoot,
+    SETTING_CARD_STYLE_ROOT,
+    'setting card style root',
+    documentType
+  )
+}
+
+export async function listWorkspaceDisplayCardStyles(
+  workspaceRoot: string,
+  documentType?: SettingCardDocumentType
+): Promise<LoadedSettingCardStyle[]> {
+  return listWorkspaceCardStyles(
+    workspaceRoot,
+    DISPLAY_CARD_STYLE_ROOT,
+    'display card style root',
+    documentType
+  )
+}
+
+async function listWorkspaceCardStyles(
+  workspaceRoot: string,
+  styleRoot: string,
+  rootLabel: string,
+  documentType?: SettingCardDocumentType
+): Promise<LoadedSettingCardStyle[]> {
   const workspace = await loadWorkspace(workspaceRoot)
-  const root = resolveWorkspacePath(workspace.root, STYLE_ROOT, 'setting card style root')
+  const root = resolveWorkspacePath(workspace.root, styleRoot, rootLabel)
   if (!(await pathExists(root))) return []
   await assertNoWorkspaceSymlink(workspace.root, root)
   const styleDirectories = await readdir(root, { withFileTypes: true })
@@ -197,6 +239,39 @@ export async function saveWorkspaceSettingCardStyle(
   input: SaveWorkspaceSettingCardStyleInput,
   now = new Date()
 ): Promise<LoadedSettingCardStyle> {
+  return saveWorkspaceCardStyle(
+    workspaceRoot,
+    SETTING_CARD_STYLE_ROOT,
+    'setting card style root',
+    listWorkspaceSettingCardStyles,
+    input,
+    now
+  )
+}
+
+export async function saveWorkspaceDisplayCardStyle(
+  workspaceRoot: string,
+  input: SaveWorkspaceSettingCardStyleInput,
+  now = new Date()
+): Promise<LoadedSettingCardStyle> {
+  return saveWorkspaceCardStyle(
+    workspaceRoot,
+    DISPLAY_CARD_STYLE_ROOT,
+    'display card style root',
+    listWorkspaceDisplayCardStyles,
+    input,
+    now
+  )
+}
+
+async function saveWorkspaceCardStyle(
+  workspaceRoot: string,
+  styleRoot: string,
+  rootLabel: string,
+  listStyles: (workspaceRoot: string) => Promise<LoadedSettingCardStyle[]>,
+  input: SaveWorkspaceSettingCardStyleInput,
+  now: Date
+): Promise<LoadedSettingCardStyle> {
   const name = input.name.trim()
   if (!name) throw new Error('SETTING_CARD_STYLE_NAME_REQUIRED')
   const template = normalizeSettingCardTemplate(input.template)
@@ -208,14 +283,12 @@ export async function saveWorkspaceSettingCardStyle(
   const id = styleIdentifier(name)
   return withStyleWriteLock(path.resolve(workspaceRoot), async () => {
     const workspace = await loadWorkspace(workspaceRoot)
-    const root = resolveWorkspacePath(workspace.root, STYLE_ROOT, 'setting card style root')
+    const root = resolveWorkspacePath(workspace.root, styleRoot, rootLabel)
     await assertNoWorkspaceSymlink(workspace.root, root)
     const directory = path.join(root, id)
     await ensureDir(directory)
     await assertNoWorkspaceSymlink(workspace.root, directory)
-    const existing = (await listWorkspaceSettingCardStyles(workspace.root)).filter(
-      (style) => style.value.id === id
-    )
+    const existing = (await listStyles(workspace.root)).filter((style) => style.value.id === id)
     const version = nextPatchVersion(existing.map((style) => style.value.version))
     const value = settingCardStyleV1Schema.parse({
       ...template,
@@ -578,9 +651,16 @@ function fieldLabel(key: string, language: 'zh' | 'en'): string {
 function documentTypeLabel(type: string, language: 'zh' | 'en'): string {
   const labels: Record<string, readonly [string, string]> = {
     world_entry: ['世界书', 'World entry'],
+    canon: ['正设', 'Canon'],
     character: ['人物', 'Character'],
     location: ['地点', 'Location'],
-    character_relation: ['人物关系', 'Character relation']
+    character_relation: ['人物关系', 'Character relation'],
+    timeline_event: ['时间线事件', 'Timeline event'],
+    faction: ['势力', 'Faction'],
+    faction_relation: ['势力关系', 'Faction relation'],
+    faction_membership: ['势力成员关系', 'Faction membership'],
+    foreshadowing: ['伏笔', 'Foreshadowing'],
+    narrative: ['叙事', 'Narrative']
   }
   const label = labels[type]
   return label ? (language === 'zh' ? label[0] : label[1]) : type

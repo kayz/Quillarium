@@ -3,6 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { createCharacter, createProjectAt } from '@quillarium/core'
+import { getAgentTaskRegistry } from '../executor.js'
 import { AgentRuntimeError } from '../errors.js'
 import {
   createSettingCardDesignHandler,
@@ -19,6 +20,15 @@ afterEach(async () => {
 })
 
 describe('setting-card design Agent', () => {
+  it('reuses the setting-card handler under display-card-design', () => {
+    const registry = getAgentTaskRegistry()
+    const setting = registry.get('setting-card-design')
+    const display = registry.get('display-card-design')
+    expect(display.definition.id).toBe('display-card-design')
+    expect(display.inputSchema).toBe(setting.inputSchema)
+    expect(display.decode).toBe(setting.decode)
+  })
+
   it('keeps old design requests readable by defaulting the variation index', () => {
     const parsed = settingCardDesignInputSchema.parse({
       document_id: 'char-lin',

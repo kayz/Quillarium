@@ -14,11 +14,11 @@ import {
   findWorkspaceForProject,
   getWorkspaceDir,
   listDocs,
-  listWorkspaceSettingCardStyles,
+  listWorkspaceDisplayCardStyles,
   loadWorkspace,
   normalizeSettingCardTemplate,
   renderSettingCardHtml,
-  saveWorkspaceSettingCardStyle,
+  saveWorkspaceDisplayCardStyle,
   settingCardDocumentTypeSchema,
   settingCardSizeV1Schema,
   type DocumentIdentity,
@@ -75,7 +75,7 @@ export async function listSettingCardStyles(
   documentType: SettingCardDocumentType
 ): Promise<LoadedSettingCardStyle[]> {
   const workspaceRoot = await workspaceRootForProject(projectRoot)
-  return listWorkspaceSettingCardStyles(workspaceRoot, settingCardDocumentTypeSchema.parse(documentType))
+  return listWorkspaceDisplayCardStyles(workspaceRoot, settingCardDocumentTypeSchema.parse(documentType))
 }
 
 export async function designSettingCard(
@@ -98,7 +98,7 @@ export async function designSettingCard(
   const outcome = await executeAgentTask<SettingCardDesignResultV1>(
     {
       schema_version: 1,
-      task_id: 'setting-card-design',
+      task_id: 'display-card-design',
       target: { type: documentType, id: input.document_id },
       input: {
         document_id: input.document_id,
@@ -191,10 +191,10 @@ export async function saveSettingCardStyle(
   input: { name: string; candidate: SettingCardDesignResultV1 }
 ): Promise<LoadedSettingCardStyle> {
   const workspaceRoot = await workspaceRootForProject(projectRoot)
-  return saveWorkspaceSettingCardStyle(workspaceRoot, {
+  return saveWorkspaceDisplayCardStyle(workspaceRoot, {
     name: input.name,
     template: normalizeSettingCardTemplate(input.candidate.template),
-    supported_types: ['world_entry', 'character', 'location', 'character_relation'],
+    supported_types: [...settingCardDocumentTypeSchema.options],
     default_size: input.candidate.size,
     source_execution_id: input.candidate.execution_id
   })
@@ -271,7 +271,7 @@ async function loadStyle(
   projectRoot: string,
   reference: { id: string; version: string }
 ): Promise<LoadedSettingCardStyle> {
-  const styles = await listWorkspaceSettingCardStyles(await workspaceRootForProject(projectRoot))
+  const styles = await listWorkspaceDisplayCardStyles(await workspaceRootForProject(projectRoot))
   const style = styles.find(
     (candidate) => candidate.value.id === reference.id && candidate.value.version === reference.version
   )
