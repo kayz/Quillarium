@@ -40,6 +40,17 @@ and creator-assistant turns retain separate orchestration and old Run compatibil
 explicitly migrated. See
 [ADR-unified-ai-agent-runtime.md](adr/ADR-unified-ai-agent-runtime.md).
 
+Each `AgentTaskDefinitionV1` now carries a read-only lane: `expert`, `generation`, or `display`.
+Expert desktop and CLI entry points call `executeExpertTask`, which accepts expert-lane tasks only
+and rejects any task whose capability ceiling includes prose generation; scene generation and
+display-card design keep separate generation and display paths outside the facade. Chapter evaluation
+(`continuity-check`) is author-initiated from the chapter workspace or `quill expert evaluate-chapter`
+and runs only against existing chapter prose—missing or empty prose refuses without a model call. Eval
+returns unconfirmed issue and setting proposals; project files change only after author confirm through
+`applyChapterEval`, while the CLI evaluates and reports counts but does not apply. The
+planning-integrity check (`planning-integrity-review`) remains a separate expert control and is not
+merged with chapter eval.
+
 The implemented context layer returns one deterministic `ContextPacket` with selected documents,
 warnings, shared guidance, typed `PromptBlock` values, and a complete `ContextTrace`. Selection uses
 explicit links, pins and exclusions, outline ancestry, enabled state, keyword matching, and
