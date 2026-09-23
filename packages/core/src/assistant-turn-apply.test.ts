@@ -196,4 +196,108 @@ describe('applyAssistantTurn', () => {
     const detail = await loadAgentSessionDetail(planted.root, planted.sessionId)
     expect(detail.turns[0]?.proposals[0]?.status).toBe('pending')
   })
+
+  it('creates a world entry then specializes when the author confirms a typed create', async () => {
+    const planted = await plantSettingTurn([
+      {
+        id: 'proposal-tide',
+        kind: 'planning_record',
+        title: 'Tide',
+        document_type: 'character',
+        rationale: 'Personify the tide.',
+        content: 'A tide spirit.'
+      }
+    ])
+    const result = await applyAssistantTurn(
+      planted.root,
+      planted.sessionId,
+      planted.turnId,
+      {
+        confirmed: true,
+        creates: [{ proposal_id: 'proposal-tide', type: 'character' }],
+        updates: [],
+        issues: [],
+        configs: []
+      },
+      planted.sha
+    )
+    expect(await listDocs(planted.root, 'world_entry')).toHaveLength(0)
+    const characters = await listDocs(planted.root, 'character')
+    expect(characters.map((item) => item.data.title)).toContain('Tide')
+    expect(result.created_ids).toEqual([characters.find((item) => item.data.title === 'Tide')?.data.id])
+    const detail = await loadAgentSessionDetail(planted.root, planted.sessionId)
+    expect(detail.turns[0]?.proposals[0]?.status).toBe('applied')
+    expect(detail.turns[0]?.proposals[0]?.applied_document_id).toBe(result.created_ids[0])
+  })
+
+  it('rejects the unselected create in the same confirm', async () => {
+    const planted = await plantSettingTurn([
+      {
+        id: 'proposal-keep',
+        kind: 'planning_record',
+        title: 'Keep',
+        document_type: 'world_entry',
+        rationale: 'Keep this.',
+        content: 'Keep body.'
+      },
+      {
+        id: 'proposal-drop',
+        kind: 'planning_record',
+        title: 'Drop',
+        document_type: 'world_entry',
+        rationale: 'Drop this.',
+        content: 'Drop body.'
+      }
+    ])
+    await applyAssistantTurn(
+      planted.root,
+      planted.sessionId,
+      planted.turnId,
+      {
+        confirmed: true,
+        creates: [{ proposal_id: 'proposal-keep' }],
+        updates: [],
+        issues: [],
+        configs: []
+      },
+      planted.sha
+    )
+    const worlds = await listDocs(planted.root, 'world_entry')
+    expect(worlds.map((item) => item.data.title)).toEqual(['Keep'])
+    const detail = await loadAgentSessionDetail(planted.root, planted.sessionId)
+    const statuses = Object.fromEntries(detail.turns[0]!.proposals.map((item) => [item.id, item.status]))
+    expect(statuses).toEqual({ 'proposal-keep': 'applied', 'proposal-drop': 'rejected' })
+  })
+
+  it('rolls back created files when specialize fails and leaves the turn pending', async () => {
+    const planted = await plantSettingTurn([
+      {
+        id: 'proposal-tide',
+        kind: 'planning_record',
+        title: 'Tide',
+        document_type: 'character',
+        rationale: 'Personify the tide.',
+        content: 'A tide spirit.'
+      }
+    ])
+    await expect(
+      applyAssistantTurn(
+        planted.root,
+        planted.sessionId,
+        planted.turnId,
+        {
+          confirmed: true,
+          creates: [{ proposal_id: 'proposal-tide', type: 'character_relation', fields: {} }],
+          updates: [],
+          issues: [],
+          configs: []
+        },
+        planted.sha
+      )
+    ).rejects.toThrow('特化缺少必填字段：')
+    expect(await listDocs(planted.root, 'world_entry')).toHaveLength(0)
+    expect(await listDocs(planted.root, 'character_relation')).toEqual([])
+    const detail = await loadAgentSessionDetail(planted.root, planted.sessionId)
+    expect(detail.turns[0]?.proposals[0]?.status).toBe('pending')
+  })
 })

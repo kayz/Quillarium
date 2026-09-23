@@ -1070,6 +1070,21 @@ export async function recordAssistantTurnFailure(
   })
 }
 
+export async function replaceAgentTurn(
+  projectRoot: string,
+  sessionId: string,
+  turn: AgentTurnV1
+): Promise<void> {
+  return withProjectWriteLock(projectRoot, async () => {
+    const parsed = agentTurnV1Schema.parse(turn) as AgentTurnV1
+    if (parsed.session_id !== sessionId) {
+      throw new Error(`AGENT_TURN_ID_MISMATCH: ${parsed.id}`)
+    }
+    const turnDirectory = await ensureTurnDirectory(projectRoot, sessionId, parsed.id, false)
+    await writeText(path.join(turnDirectory, 'turn.json'), prettyJson(parsed))
+  })
+}
+
 export async function updateAssistantProposalStatus(
   projectRoot: string,
   sessionId: string,
