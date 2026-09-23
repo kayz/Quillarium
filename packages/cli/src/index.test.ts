@@ -36,6 +36,7 @@ import {
   writeText,
   type CanonDoc,
   type CharacterDoc,
+  type AssistantTurnOutputInputV1,
   type ContextTokenCounter,
   type ForeshadowingDoc,
   type IssueDoc,
@@ -130,7 +131,7 @@ const assistantPlantCounter: ContextTokenCounter = {
 
 async function plantSettingOrganizerTurn(
   root: string,
-  proposals: Array<Record<string, unknown>>
+  proposals: AssistantTurnOutputInputV1['proposals']
 ): Promise<{ sessionId: string; turnId: string; proposalIds: string[] }> {
   const project = await loadProject(root)
   await ensureBuiltinCreatorRoles(root)

@@ -9,7 +9,8 @@ import {
   createAgentPromptEnvelope,
   loadAgentSessionDetail,
   recordAssistantTurn,
-  startAgentSession
+  startAgentSession,
+  type AssistantTurnOutputInputV1
 } from './assistant-sessions.js'
 import {
   applyAssistantTurn,
@@ -68,8 +69,8 @@ const counter: ContextTokenCounter = {
 async function recordPlantedTurn(
   root: string,
   started: Awaited<ReturnType<typeof startAgentSession>>,
-  proposals: Array<Record<string, unknown>>,
-  configurationProposals: Array<Record<string, unknown>>,
+  proposals: AssistantTurnOutputInputV1['proposals'],
+  configurationProposals: AssistantTurnOutputInputV1['configuration_proposals'],
   currentInput: string
 ): Promise<{
   root: string
@@ -131,8 +132,8 @@ async function recordPlantedTurn(
 
 async function plantSettingTurnOn(
   planted: { root: string },
-  proposals: Array<Record<string, unknown>>,
-  configurationProposals: Array<Record<string, unknown>> = []
+  proposals: AssistantTurnOutputInputV1['proposals'],
+  configurationProposals: AssistantTurnOutputInputV1['configuration_proposals'] = []
 ): Promise<{
   root: string
   sessionId: string
@@ -157,8 +158,8 @@ async function plantSettingTurnOn(
 }
 
 async function plantSettingTurn(
-  proposals: Array<Record<string, unknown>>,
-  configurationProposals: Array<Record<string, unknown>> = []
+  proposals: AssistantTurnOutputInputV1['proposals'],
+  configurationProposals: AssistantTurnOutputInputV1['configuration_proposals'] = []
 ): Promise<{
   root: string
   sessionId: string
@@ -171,7 +172,7 @@ async function plantSettingTurn(
   return plantSettingTurnOn({ root }, proposals, configurationProposals)
 }
 
-async function plantContinuityTurn(proposals: Array<Record<string, unknown>>): Promise<{
+async function plantContinuityTurn(proposals: AssistantTurnOutputInputV1['proposals']): Promise<{
   root: string
   sessionId: string
   turnId: string
