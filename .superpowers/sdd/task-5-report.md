@@ -120,7 +120,7 @@ Output (exit code 0):
 ## Commit
 
 - `ae169a5` feat: apply assistant issues and configs in one rollback-safe turn
-- (pending) test: cover config restore when a later config apply fails
+- `a94721f` test: cover config restore when a later config apply fails
 
 ## Self-review
 
