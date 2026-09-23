@@ -448,10 +448,20 @@ describe('CLI smoke flow', () => {
   it('exposes expert evaluate-chapter without an apply subcommand', () => {
     const expert = buildProgram().commands.find((command) => command.name() === 'expert')
 
-    expect(expert?.commands.map((command) => command.name())).toEqual(['evaluate-chapter'])
+    expect(expert?.commands.map((command) => command.name())).toEqual([
+      'evaluate-chapter',
+      'organize-outline',
+      'organize-worldbook'
+    ])
     expect(
       expert?.commands.find((command) => command.name() === 'evaluate-chapter')?.helpInformation()
     ).toContain('--chapter-id')
+    expect(
+      expert?.commands.find((command) => command.name() === 'organize-outline')?.helpInformation()
+    ).toContain('--outline-id')
+    expect(
+      expert?.commands.find((command) => command.name() === 'organize-worldbook')?.helpInformation()
+    ).not.toContain('--apply')
   })
 
   it('refuses expert evaluate-chapter when chapter prose is missing', async () => {
@@ -464,6 +474,26 @@ describe('CLI smoke flow', () => {
     await expect(
       run('expert', 'evaluate-chapter', '--chapter-id', 'chapter', '--project', root)
     ).rejects.toThrow('没有章正文，不能评估。')
+  })
+
+  it('refuses expert organize-outline when outline id is missing', async () => {
+    const { root } = await initProject()
+
+    await expect(
+      run('expert', 'organize-outline', '--outline-id', 'missing', '--project', root)
+    ).rejects.toThrow('没有选中大纲节点，不能整理。')
+  })
+
+  it('refuses expert organize-outline when outline id is a chapter', async () => {
+    const { root } = await initProject()
+    await createOutline(root, 'book', 'Org Book', { id: 'book' })
+    await createOutline(root, 'volume', 'Org Volume', { id: 'volume', parent: 'book' })
+    await createOutline(root, 'part', 'Org Part', { id: 'part', parent: 'volume' })
+    await createOutline(root, 'chapter', 'Org Chapter', { id: 'chapter', parent: 'part' })
+
+    await expect(
+      run('expert', 'organize-outline', '--outline-id', 'chapter', '--project', root)
+    ).rejects.toThrow('当前选中的是章，不能再创建下级。')
   })
 
   it('prints chapter-eval counts without writing issue files when prose exists', async () => {
@@ -506,6 +536,71 @@ describe('CLI smoke flow', () => {
       projectRoot: expect.any(String),
       task_id: 'continuity-check',
       input: { chapter_id: 'chapter' }
+    })
+  })
+
+  it('prints outline-organize creates without writing outline files', async () => {
+    const { root } = await initProject()
+    await createOutline(root, 'book', 'Org Book', { id: 'book' })
+    await createOutline(root, 'volume', 'Org Volume', { id: 'volume', parent: 'book' })
+    const before = await listDocs<OutlineDoc>(root, 'outline')
+
+    const spy = vi.spyOn(agentRuntime, 'executeExpertTask').mockResolvedValue({
+      status: 'completed',
+      execution_id: 'outline-org-cli-1',
+      task_id: 'organize-outline',
+      result: {
+        eval_id: 'outline-org-cli-1',
+        outline_id: 'volume',
+        creates: [
+          {
+            proposal_id: 'create-1',
+            parent_id: 'volume',
+            level: 'part',
+            title: '新篇'
+          }
+        ]
+      },
+      run_path: 'runs/outline-org-cli-1'
+    })
+
+    output = []
+    await run('expert', 'organize-outline', '--outline-id', 'volume', '--project', root)
+
+    expect(output.at(-1)).toBe('outline-organize: creates=1')
+    expect(await listDocs<OutlineDoc>(root, 'outline')).toHaveLength(before.length)
+    expect(spy.mock.calls.at(-1)?.[0]).toMatchObject({
+      projectRoot: expect.any(String),
+      task_id: 'organize-outline',
+      input: { outline_id: 'volume' }
+    })
+  })
+
+  it('prints world-organize counts without writing world files', async () => {
+    const { root } = await initProject()
+    const before = await listDocs<WorldEntryDoc>(root, 'world_entry')
+
+    const spy = vi.spyOn(agentRuntime, 'executeExpertTask').mockResolvedValue({
+      status: 'completed',
+      execution_id: 'world-org-cli-1',
+      task_id: 'organize-worldbook',
+      result: {
+        eval_id: 'world-org-cli-1',
+        creates: [{ proposal_id: 'create-1', title: '北港', content: '港口' }],
+        updates: [{ proposal_id: 'update-1', card_id: 'card-1', content: '更新' }]
+      },
+      run_path: 'runs/world-org-cli-1'
+    })
+
+    output = []
+    await run('expert', 'organize-worldbook', '--project', root)
+
+    expect(output.at(-1)).toBe('world-organize: creates=1 updates=1')
+    expect(await listDocs<WorldEntryDoc>(root, 'world_entry')).toHaveLength(before.length)
+    expect(spy.mock.calls.at(-1)?.[0]).toMatchObject({
+      projectRoot: expect.any(String),
+      task_id: 'organize-worldbook',
+      input: {}
     })
   })
 

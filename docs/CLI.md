@@ -284,6 +284,18 @@ world files and has no apply flag in this slice:
 pnpm cli expert evaluate-chapter --chapter-id <chapter-id> --project "./writing-workspace/projects/my-novel"
 ```
 
+#### Expert outline and world-book organize
+
+Propose outline children or world-book creates/updates through the expert facade. Missing outline
+selection refuses with `没有选中大纲节点，不能整理。`; a chapter leaf refuses with
+`当前选中的是章，不能再创建下级。` Successful runs print proposal counts only; they do not write
+outline or world files and have no apply flag in this slice:
+
+```bash
+pnpm cli expert organize-outline --outline-id <outline-id> --project "./writing-workspace/projects/my-novel"
+pnpm cli expert organize-worldbook --project "./writing-workspace/projects/my-novel"
+```
+
 The CLI exposes the same finalization review and atomic continuity service as Desktop. First create
 and inspect a review, then confirm or reject each impact and resolve or defer every question:
 
@@ -469,7 +481,7 @@ and options.
 | `generate`       | Generate a scene; optional `--dry-run`                                               |
 | `check`          | Scene/outline checks via `--type`; scenes allow `--semantic`; optional `--run`       |
 | `agent`          | Auditable `check-planning`, `decide-planning`, and `apply-planning` lifecycle        |
-| `expert`         | `evaluate-chapter`: chapter-prose eval counts only (no apply)                        |
+| `expert`         | `evaluate-chapter`, `organize-outline`, `organize-worldbook`: eval counts only (no apply) |
 | `st`             | `import-card`, `export-card`, `export-lorebook`                                      |
 | `finalize`       | `review-plan`, `show`, `confirm`, `answer`, `apply`, `recover`                       |
 | `chapter-plan`   | Build ordered scene-writing prompts for a chapter                                    |
