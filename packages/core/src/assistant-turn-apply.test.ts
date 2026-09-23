@@ -22,6 +22,7 @@ import { ensureBuiltinCreatorRoles, listCreatorRoles } from './creator-roles.js'
 import { createCharacter, createOutline, createWorldEntry, listDocs } from './documents.js'
 import { createProjectAt } from './project.js'
 import type { ContextTokenCounter } from './tokenization.js'
+import { StaleProjectWriteError } from './versioned-yaml-store.js'
 import { createWritingPresetSnapshot, loadWritingPreset } from './writing-presets.js'
 
 const roots: string[] = []
@@ -645,6 +646,64 @@ describe('applyAssistantTurn', () => {
     const failDetail = await loadAgentSessionDetail(failPlanted.root, failPlanted.sessionId)
     expect(failDetail.turns[0]?.proposals.every((item) => item.status === 'pending')).toBe(true)
     expect(failDetail.turns[0]?.configuration_proposals.every((item) => item.status === 'pending')).toBe(true)
+  })
+
+  it('restores an earlier applied config when a later config apply fails', async () => {
+    const root = await project()
+    await ensureBuiltinCreatorRoles(root)
+    const originalRole = (await listCreatorRoles(root)).find((role) => role.value.id === 'setting-organizer')!
+    const firstProposed = {
+      ...originalRole.value,
+      version: '1.0.1',
+      description: 'A clearer author-reviewed organizer description.'
+    }
+    const secondProposed = {
+      ...originalRole.value,
+      version: '1.0.2',
+      description: 'A second organizer description that must not stick.'
+    }
+    const planted = await plantSettingTurnOn({ root }, [], [
+      {
+        id: 'config-first',
+        target_kind: 'creator_role',
+        target_id: 'setting-organizer',
+        proposed: firstProposed,
+        rationale: 'Clarifies the author-facing purpose without adding authority.'
+      },
+      {
+        id: 'config-second',
+        target_kind: 'creator_role',
+        target_id: 'setting-organizer',
+        proposed: secondProposed,
+        rationale: 'A second role tweak recorded against the same live hash.'
+      }
+    ])
+    expect(planted.configIds).toEqual(['config-first', 'config-second'])
+    await expect(
+      applyAssistantTurn(
+        planted.root,
+        planted.sessionId,
+        planted.turnId,
+        {
+          confirmed: true,
+          creates: [],
+          updates: [],
+          issues: [],
+          configs: ['config-first', 'config-second']
+        },
+        planted.sha
+      )
+    ).rejects.toThrow(StaleProjectWriteError)
+    const restoredRole = (await listCreatorRoles(planted.root)).find(
+      (role) => role.value.id === 'setting-organizer'
+    )!
+    expect(restoredRole.value.description).toBe(originalRole.value.description)
+    expect(restoredRole.value.version).toBe(originalRole.value.version)
+    const detail = await loadAgentSessionDetail(planted.root, planted.sessionId)
+    expect(detail.turns[0]?.configuration_proposals.map((item) => item.status)).toEqual([
+      'pending',
+      'pending'
+    ])
   })
 
   it('rejects a stale turn hash without writing', async () => {
