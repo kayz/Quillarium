@@ -663,22 +663,26 @@ describe('applyAssistantTurn', () => {
       version: '1.0.2',
       description: 'A second organizer description that must not stick.'
     }
-    const planted = await plantSettingTurnOn({ root }, [], [
-      {
-        id: 'config-first',
-        target_kind: 'creator_role',
-        target_id: 'setting-organizer',
-        proposed: firstProposed,
-        rationale: 'Clarifies the author-facing purpose without adding authority.'
-      },
-      {
-        id: 'config-second',
-        target_kind: 'creator_role',
-        target_id: 'setting-organizer',
-        proposed: secondProposed,
-        rationale: 'A second role tweak recorded against the same live hash.'
-      }
-    ])
+    const planted = await plantSettingTurnOn(
+      { root },
+      [],
+      [
+        {
+          id: 'config-first',
+          target_kind: 'creator_role',
+          target_id: 'setting-organizer',
+          proposed: firstProposed,
+          rationale: 'Clarifies the author-facing purpose without adding authority.'
+        },
+        {
+          id: 'config-second',
+          target_kind: 'creator_role',
+          target_id: 'setting-organizer',
+          proposed: secondProposed,
+          rationale: 'A second role tweak recorded against the same live hash.'
+        }
+      ]
+    )
     expect(planted.configIds).toEqual(['config-first', 'config-second'])
     await expect(
       applyAssistantTurn(

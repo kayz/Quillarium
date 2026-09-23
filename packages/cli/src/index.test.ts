@@ -764,9 +764,7 @@ describe('CLI smoke flow', () => {
       root
     )
 
-    expect(output.at(-1)).toBe(
-      'assistant-turn: creates=1 updates=0 issues=0 configs=0 rejected=0'
-    )
+    expect(output.at(-1)).toBe('assistant-turn: creates=1 updates=0 issues=0 configs=0 rejected=0')
     const worlds = await listDocs<WorldEntryDoc>(root, 'world_entry')
     expect(worlds.map((item) => item.data.title)).toContain('Harbor Law')
     expect(await pathExists(worlds.find((item) => item.data.title === 'Harbor Law')!.path)).toBe(true)
