@@ -33,9 +33,7 @@ async function fixture(): Promise<string> {
   return root
 }
 
-function baseProposals(
-  overrides?: Partial<OutlineOrganizeProposalSet>
-): OutlineOrganizeProposalSet {
+function baseProposals(overrides?: Partial<OutlineOrganizeProposalSet>): OutlineOrganizeProposalSet {
   return {
     eval_id: 'eval-1',
     outline_id: 'volume',

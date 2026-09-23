@@ -106,9 +106,7 @@ async function prepareOrganizeWorldbook(
   }))
   const source = JSON.stringify({ enabled_world_entries: payload }, null, 2)
   const relativePath =
-    entries[0] != null
-      ? path.relative(context.projectRoot, entries[0].path).replace(/\\/gu, '/')
-      : 'world/'
+    entries[0] != null ? path.relative(context.projectRoot, entries[0].path).replace(/\\/gu, '/') : 'world/'
 
   const candidates: PromptBlockCandidate[] = [
     {

@@ -151,7 +151,11 @@ export async function loadOutlineSubtreeForOrganize(
 ): Promise<{
   root: { id: string; level: string; title: string }
   member_ids: string[]
-  members: Array<{ path: string; data: { id: string; level: string; parent: string | null; title: string }; content: string }>
+  members: Array<{
+    path: string
+    data: { id: string; level: string; parent: string | null; title: string }
+    content: string
+  }>
 } | null>
 
 export interface OutlineOrganizeProposalSet {

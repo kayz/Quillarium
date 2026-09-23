@@ -7,9 +7,12 @@ import type {
 } from '@quillarium/core'
 import * as agentRuntime from '@quillarium/agent-runtime'
 
-function throwFailedExpert(outcome: {
-  error: { code: string; technical_detail?: string }
-}, fallback: string): never {
+function throwFailedExpert(
+  outcome: {
+    error: { code: string; technical_detail?: string }
+  },
+  fallback: string
+): never {
   const detail = outcome.error.technical_detail?.trim()
   throw new Error(detail && /[\u4e00-\u9fff]/u.test(detail) ? detail : `${fallback}${outcome.error.code}`)
 }

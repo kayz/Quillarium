@@ -18,7 +18,11 @@ import {
   Upload,
   XCircle
 } from 'lucide-react'
-import { requiredSpecializationFields, specializationTargets, type WorldOrganizeProposalSet } from '@quillarium/core'
+import {
+  requiredSpecializationFields,
+  specializationTargets,
+  type WorldOrganizeProposalSet
+} from '@quillarium/core'
 import type {
   DocEntry,
   LanguageName,
@@ -48,7 +52,11 @@ import {
   StructuredTile
 } from './OutlineShared.js'
 import { MarkdownBodyEditor } from '../markdown/MarkdownBodyEditor.js'
-import { isAIPlanningContext, PLANNING_KIND_LABELS, WORLD_ENTRY_CONVERSION_KINDS } from '../planning/planning-model.js'
+import {
+  isAIPlanningContext,
+  PLANNING_KIND_LABELS,
+  WORLD_ENTRY_CONVERSION_KINDS
+} from '../planning/planning-model.js'
 import { clampPaneSize, SplitHandle } from '../layout/SplitHandle.js'
 import { BoundedPager } from '../layout/BoundedPager.js'
 import { boundedPage } from '../layout/bounded-page.js'
@@ -257,9 +265,7 @@ export function OutlineHome({
     !organizeProposals ||
     [...organizeProposals.creates, ...organizeProposals.updates].every((item) => {
       const selected =
-        'card_id' in item
-          ? selectedUpdates[item.proposal_id]
-          : selectedCreates[item.proposal_id]
+        'card_id' in item ? selectedUpdates[item.proposal_id] : selectedCreates[item.proposal_id]
       if (!selected) return true
       const type = settingTypes[item.proposal_id] ?? 'world_entry'
       const fields = settingFields[item.proposal_id] ?? {}
@@ -338,7 +344,7 @@ export function OutlineHome({
     const heading =
       kind === 'create'
         ? (item.title ?? '')
-        : docs.find((doc) => doc.data.id === item.card_id)?.data.title ?? item.card_id ?? ''
+        : (docs.find((doc) => doc.data.id === item.card_id)?.data.title ?? item.card_id ?? '')
     return (
       <div className="chapter-eval-setting" key={item.proposal_id}>
         <label>
@@ -1016,7 +1022,10 @@ export function OutlineHome({
         />
       )}
       {(organizeProposals || organizeBusy || organizeError || organizeNotice) && (
-        <section className="chapter-eval-panel" aria-label={zh ? '世界书整理提案' : 'World book organize proposals'}>
+        <section
+          className="chapter-eval-panel"
+          aria-label={zh ? '世界书整理提案' : 'World book organize proposals'}
+        >
           <header>
             <strong>{zh ? '世界书整理提案' : 'World book organize proposals'}</strong>
             <button

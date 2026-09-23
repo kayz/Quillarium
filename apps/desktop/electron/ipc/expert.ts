@@ -66,7 +66,9 @@ export async function evaluateOutlineOrganize(
 
   if (outcome.status !== 'completed') {
     const detail = outcome.error.technical_detail?.trim()
-    throw new Error(detail && /[\u4e00-\u9fff]/u.test(detail) ? detail : `大纲整理失败：${outcome.error.code}`)
+    throw new Error(
+      detail && /[\u4e00-\u9fff]/u.test(detail) ? detail : `大纲整理失败：${outcome.error.code}`
+    )
   }
 
   return outcome.result as OutlineOrganizeProposalSet
@@ -86,7 +88,9 @@ export async function evaluateWorldOrganize(root: string): Promise<WorldOrganize
 
   if (outcome.status !== 'completed') {
     const detail = outcome.error.technical_detail?.trim()
-    throw new Error(detail && /[\u4e00-\u9fff]/u.test(detail) ? detail : `世界书整理失败：${outcome.error.code}`)
+    throw new Error(
+      detail && /[\u4e00-\u9fff]/u.test(detail) ? detail : `世界书整理失败：${outcome.error.code}`
+    )
   }
 
   return outcome.result as WorldOrganizeProposalSet

@@ -69,7 +69,10 @@ export async function applyWorldOrganize(
 
         const documents = await listDocs<DocumentIdentity>(projectRoot)
         const card = documents.find((item) => item.data.id === proposal.card_id)
-        const world = card?.data.type === 'world_entry' ? (card as { path: string; data: WorldEntryDoc; content: string }) : null
+        const world =
+          card?.data.type === 'world_entry'
+            ? (card as { path: string; data: WorldEntryDoc; content: string })
+            : null
         if (!world || world.data.enabled === false) {
           throw new Error(WORLD_ENTRY_ONLY)
         }

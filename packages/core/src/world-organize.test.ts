@@ -8,7 +8,6 @@ import {
   createProjectAt,
   createWorldEntry,
   listDocs,
-  readMarkdown,
   UNCONFIRMED_EVAL,
   WORLD_ENTRY_ONLY,
   type WorldEntryDoc,
@@ -59,9 +58,7 @@ describe('world-book create/update apply with rollback', () => {
 
     const after = await listDocs(root, 'world_entry')
     expect(after).toHaveLength(before.length)
-    expect(after.map((item) => item.data.id).sort()).toEqual(
-      before.map((item) => item.data.id).sort()
-    )
+    expect(after.map((item) => item.data.id).sort()).toEqual(before.map((item) => item.data.id).sort())
   })
 
   it('creates a confirmed world_entry', async () => {

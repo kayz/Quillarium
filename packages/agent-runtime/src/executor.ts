@@ -45,14 +45,8 @@ import {
 } from './errors.js'
 import { AgentTaskRegistry } from './registry.js'
 import { CONTINUITY_CHECK_DEFINITION, createContinuityCheckHandler } from './tasks/continuity-check.js'
-import {
-  ORGANIZE_OUTLINE_DEFINITION,
-  createOrganizeOutlineHandler
-} from './tasks/organize-outline.js'
-import {
-  ORGANIZE_WORLDBOOK_DEFINITION,
-  createOrganizeWorldbookHandler
-} from './tasks/organize-worldbook.js'
+import { ORGANIZE_OUTLINE_DEFINITION, createOrganizeOutlineHandler } from './tasks/organize-outline.js'
+import { ORGANIZE_WORLDBOOK_DEFINITION, createOrganizeWorldbookHandler } from './tasks/organize-worldbook.js'
 import {
   createPlanningIntegrityReviewHandler,
   PLANNING_INTEGRITY_REVIEW_DEFINITION

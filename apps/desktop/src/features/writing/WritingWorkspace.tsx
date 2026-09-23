@@ -407,7 +407,10 @@ export function WritingWorkspace({
         </div>
       </div>
       {(organizeProposals || organizeBusy || organizeError || organizeNotice) && (
-        <section className="chapter-eval-panel" aria-label={zh ? '大纲整理提案' : 'Outline organize proposals'}>
+        <section
+          className="chapter-eval-panel"
+          aria-label={zh ? '大纲整理提案' : 'Outline organize proposals'}
+        >
           <header>
             <strong>{zh ? '大纲整理提案' : 'Outline organize proposals'}</strong>
             <button
