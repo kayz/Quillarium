@@ -49,7 +49,15 @@ and runs only against existing chapter prose—missing or empty prose refuses wi
 returns unconfirmed issue and setting proposals; project files change only after author confirm through
 `applyChapterEval`, while the CLI evaluates and reports counts but does not apply. The
 planning-integrity check (`planning-integrity-review`) remains a separate expert control and is not
-merged with chapter eval.
+merged with chapter eval. Two additional expert tasks are author-click only from the story tree and
+world-book surfaces: `organize-outline` and `organize-worldbook`. Outline organize proposes
+create-only child nodes within the selected subtree—empty bodies, no synopses, scene files, reorders,
+or deletes—and stops at chapter; confirm applies through `applyOutlineOrganize`. World-book organize
+proposes new or full-body replacement `world_entry` cards that are enabled at apply time, including
+optional confirm-time specialize; confirm applies through `applyWorldOrganize`. The conversational
+setting organizer (`organize-setting`) is unchanged. CLI exposes `quill expert organize-outline` and
+`quill expert organize-worldbook` as evaluate-only one-liners that print proposal counts and never
+apply.
 
 The implemented context layer returns one deterministic `ContextPacket` with selected documents,
 warnings, shared guidance, typed `PromptBlock` values, and a complete `ContextTrace`. Selection uses
