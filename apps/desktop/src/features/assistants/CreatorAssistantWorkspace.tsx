@@ -11,12 +11,15 @@ import {
   Send,
   Settings2,
   ShieldCheck,
-  X
+  X,
+  XCircle
 } from 'lucide-react'
-import type { DocEntry, LanguageName, TargetSelection } from '../../app/types.js'
+import type { DocEntry, LanguageName, PlanningDocumentKind, TargetSelection } from '../../app/types.js'
 import type {
   AgentPromptEnvelopeV1,
   AgentTaskDefinitionV1,
+  AgentTurnV1,
+  AssistantProposalV1,
   LoadedAgentSession,
   LoadedAgentSessionDetail,
   LoadedAssistantPromptVersion,
@@ -35,8 +38,52 @@ import {
 import { bridge } from '../../app/bridge.js'
 import { formatDesktopError } from '../../shared/errors.js'
 import { clampPaneSize, SplitHandle } from '../layout/SplitHandle.js'
-import { documentTypeLabel } from '../metadata/field-presentation.js'
+import { documentTypeLabel, fieldLabel } from '../metadata/field-presentation.js'
+import { PLANNING_KIND_LABELS } from '../planning/planning-model.js'
 import { PlanningCardSelector } from '../planning/PlanningCardSelector.js'
+
+function requiredSpecializationFields(targetType: string): string[] {
+  if (targetType === 'character_relation') return ['from_character', 'to_character', 'relation_type']
+  if (targetType === 'faction_relation') return ['from_faction', 'to_faction', 'relation_type']
+  if (targetType === 'faction_membership') return ['faction_id', 'character_id']
+  return []
+}
+
+function specializationTargets(sourceType: string): string[] {
+  if (sourceType === 'world_entry') {
+    return [
+      'canon',
+      'character',
+      'character_relation',
+      'location',
+      'timeline_event',
+      'faction',
+      'faction_relation',
+      'faction_membership',
+      'foreshadowing',
+      'narrative'
+    ]
+  }
+  if (
+    [
+      'canon',
+      'character',
+      'character_relation',
+      'location',
+      'timeline_event',
+      'faction',
+      'faction_relation',
+      'faction_membership',
+      'foreshadowing',
+      'narrative'
+    ].includes(sourceType)
+  ) {
+    return ['world_entry']
+  }
+  return []
+}
+
+const ASSISTANT_TURN_SETTING_TYPES = ['world_entry', ...specializationTargets('world_entry')] as const
 
 interface AssistantState {
   tasks: AgentTaskDefinitionV1[]
@@ -75,6 +122,17 @@ interface RunPreview {
   can_do: string[]
   result_destination: string
   temporal_context?: ReturnType<typeof selectCharacterTimePointContext>
+}
+
+export function shouldOpenAssistantTurnOverlay(turn: {
+  proposals: Array<{ status: string }>
+  configuration_proposals: Array<{ status?: string }>
+  candidate?: { title: string; content: string } | null
+}): boolean {
+  return (
+    turn.proposals.some((item) => item.status === 'pending') ||
+    turn.configuration_proposals.some((item) => item.status === 'pending')
+  )
 }
 
 export function CreatorAssistantWorkspace({
@@ -119,6 +177,11 @@ export function CreatorAssistantWorkspace({
   const [rehearsalTimelineId, setRehearsalTimelineId] = useState('')
   const [rehearsalLocationId, setRehearsalLocationId] = useState('')
   const [continuityRangeIds, setContinuityRangeIds] = useState<string[]>([])
+  const [overlayTurn, setOverlayTurn] = useState<AgentTurnV1 | null>(null)
+  const [selectedWrites, setSelectedWrites] = useState<Record<string, boolean>>({})
+  const [selectedConfigs, setSelectedConfigs] = useState<Record<string, boolean>>({})
+  const [settingTypes, setSettingTypes] = useState<Record<string, string>>({})
+  const [settingFields, setSettingFields] = useState<Record<string, Record<string, string>>>({})
 
   const refresh = async () => {
     const next = await bridge.initializeAssistants(root)
@@ -282,6 +345,7 @@ export function CreatorAssistantWorkspace({
       }
       const created = await bridge.startAssistantSession(root, roleId, target, undefined, workflowInput)
       const loaded = await bridge.loadAssistantSession(root, created.session.id)
+      closeAssistantTurnOverlay()
       setSession(loaded)
       setPreview(null)
       setSentPrompt('')
@@ -312,6 +376,7 @@ export function CreatorAssistantWorkspace({
 
   const openSession = (sessionId: string) =>
     run(async () => {
+      closeAssistantTurnOverlay()
       setSession(await bridge.loadAssistantSession(root, sessionId))
       setPreview(null)
       setSentPrompt('')
@@ -349,6 +414,10 @@ export function CreatorAssistantWorkspace({
       setPreview(null)
       setSentPrompt('')
       setPreviewStaleReason('not-previewed')
+      const latestTurn = updated.turns.at(-1)
+      if (latestTurn && shouldOpenAssistantTurnOverlay(latestTurn)) {
+        openAssistantTurnOverlay(latestTurn)
+      }
       await refresh()
     })
 
@@ -356,6 +425,7 @@ export function CreatorAssistantWorkspace({
     run(async () => {
       if (!session) return
       const created = await bridge.forkAssistantSession(root, session.session.id)
+      closeAssistantTurnOverlay()
       setSession(await bridge.loadAssistantSession(root, created.session.id))
       setPreview(null)
       await refresh()
@@ -442,71 +512,81 @@ export function CreatorAssistantWorkspace({
       await refresh()
     })
 
-  const actOnProposal = (turnId: string, proposalId: string, action: 'apply' | 'reject') =>
-    run(async () => {
-      if (!session) return
-      if (
-        action === 'apply' &&
-        !window.confirm(
-          zh
-            ? '确认把这条提案写入项目？AI 不能直接写入，只有本次确认会执行。'
-            : 'Apply this proposal to the project? AI cannot write it without this confirmation.'
-        )
-      ) {
-        return
+  const closeAssistantTurnOverlay = () => {
+    setOverlayTurn(null)
+    setSelectedWrites({})
+    setSelectedConfigs({})
+    setSettingTypes({})
+    setSettingFields({})
+  }
+
+  const openAssistantTurnOverlay = (turn: AgentTurnV1) => {
+    const pending = turn.proposals.filter((item) => item.status === 'pending')
+    setOverlayTurn(turn)
+    setSelectedWrites(Object.fromEntries(pending.map((item) => [item.id, true])))
+    setSelectedConfigs(
+      Object.fromEntries(
+        turn.configuration_proposals
+          .filter((item) => item.status === 'pending')
+          .map((item) => [item.id, true])
+      )
+    )
+    setSettingTypes(
+      Object.fromEntries(
+        pending.filter(isPlanningCreate).map((item) => [item.id, legalSpecializeType(item.document_type)])
+      )
+    )
+    setSettingFields(Object.fromEntries(pending.filter(isPlanningCreate).map((item) => [item.id, {}])))
+  }
+
+  const overlayConfirmReady =
+    !overlayTurn ||
+    overlayTurn.proposals.every((proposal) => {
+      if (!isPlanningCreate(proposal) || proposal.status !== 'pending' || !selectedWrites[proposal.id]) {
+        return true
       }
-      const result =
-        action === 'apply'
-          ? await bridge.applyAssistantProposal(
-              root,
-              session.session.id,
-              turnId,
-              proposalId,
-              session.turn_source_sha256[turnId] ?? ''
-            )
-          : await bridge.rejectAssistantProposal(
-              root,
-              session.session.id,
-              turnId,
-              proposalId,
-              session.turn_source_sha256[turnId] ?? ''
-            )
-      setSession(result.session)
-      if (result.document) await onProjectChanged()
-      await refresh()
+      const type = settingTypes[proposal.id] ?? legalSpecializeType(proposal.document_type)
+      const fields = settingFields[proposal.id] ?? {}
+      return requiredSpecializationFields(type).every((key) => Boolean(fields[key]?.trim()))
     })
 
-  const actOnConfigurationProposal = (turnId: string, proposalId: string, action: 'apply' | 'reject') =>
+  const confirmAssistantTurn = () =>
     run(async () => {
-      if (!session) return
-      if (
-        action === 'apply' &&
-        !window.confirm(
-          zh
-            ? '确认应用这项助手配置变更？它只影响新会话；当前会话仍使用冻结配置。'
-            : 'Apply this creator-assistant configuration change? It affects new sessions only.'
-        )
-      ) {
-        return
+      if (!session || !overlayTurn || !overlayConfirmReady) return
+      const pending = overlayTurn.proposals.filter((item) => item.status === 'pending')
+      const toCreateDecision = (proposal: AssistantProposalV1) => {
+        const type = settingTypes[proposal.id] ?? legalSpecializeType(proposal.document_type)
+        const fields = settingFields[proposal.id] ?? {}
+        const payload: Record<string, unknown> = {}
+        for (const key of requiredSpecializationFields(type)) {
+          payload[key] = fields[key]?.trim() ?? ''
+        }
+        return { proposal_id: proposal.id, type, fields: payload }
       }
-      const expected = session.turn_source_sha256[turnId] ?? ''
-      const result =
-        action === 'apply'
-          ? await bridge.applyAssistantConfigurationProposal(
-              root,
-              session.session.id,
-              turnId,
-              proposalId,
-              expected
-            )
-          : await bridge.rejectAssistantConfigurationProposal(
-              root,
-              session.session.id,
-              turnId,
-              proposalId,
-              expected
-            )
+      const result = await bridge.applyAssistantTurn(
+        root,
+        session.session.id,
+        overlayTurn.id,
+        {
+          confirmed: true,
+          creates: pending
+            .filter((item) => isPlanningCreate(item) && selectedWrites[item.id])
+            .map(toCreateDecision),
+          updates: pending
+            .filter((item) => isPlanningUpdate(item) && selectedWrites[item.id])
+            .map((item) => ({ proposal_id: item.id })),
+          issues: pending
+            .filter((item) => isIssueProposal(item) && selectedWrites[item.id])
+            .map((item) => item.id),
+          configs: overlayTurn.configuration_proposals
+            .filter((item) => item.status === 'pending' && selectedConfigs[item.id])
+            .map((item) => item.id)
+        },
+        session.turn_source_sha256[overlayTurn.id] ?? ''
+      )
       setSession(result.session)
+      closeAssistantTurnOverlay()
+      await onProjectChanged()
       await refresh()
     })
 
@@ -549,6 +629,7 @@ export function CreatorAssistantWorkspace({
                 setSession(null)
                 setPreview(null)
                 setPreviewStaleReason('not-previewed')
+                closeAssistantTurnOverlay()
               }}
             >
               <span className="spine-index">{String(index + 1).padStart(2, '0')}</span>
@@ -863,23 +944,6 @@ export function CreatorAssistantWorkspace({
                           </small>
                           <p>{proposal.rationale}</p>
                         </div>
-                        {proposal.status === 'pending' && (
-                          <div>
-                            <button
-                              className="primary"
-                              onClick={() => void actOnProposal(turn.id, proposal.id, 'apply')}
-                              disabled={busy}
-                            >
-                              <Check size={14} /> {zh ? '确认写入' : 'Apply'}
-                            </button>
-                            <button
-                              onClick={() => void actOnProposal(turn.id, proposal.id, 'reject')}
-                              disabled={busy}
-                            >
-                              <X size={14} /> {zh ? '拒绝' : 'Reject'}
-                            </button>
-                          </div>
-                        )}
                       </div>
                     ))}
                     {turn.configuration_proposals.map((proposal) => (
@@ -919,25 +983,18 @@ export function CreatorAssistantWorkspace({
                             ))}
                           </div>
                         </div>
-                        {proposal.status === 'pending' && (
-                          <div>
-                            <button
-                              className="primary"
-                              onClick={() => void actOnConfigurationProposal(turn.id, proposal.id, 'apply')}
-                              disabled={busy}
-                            >
-                              <Check size={14} /> {zh ? '批准变更' : 'Approve'}
-                            </button>
-                            <button
-                              onClick={() => void actOnConfigurationProposal(turn.id, proposal.id, 'reject')}
-                              disabled={busy}
-                            >
-                              <X size={14} /> {zh ? '拒绝' : 'Reject'}
-                            </button>
-                          </div>
-                        )}
                       </div>
                     ))}
+                    {shouldOpenAssistantTurnOverlay(turn) && overlayTurn?.id !== turn.id && (
+                      <button
+                        type="button"
+                        className="primary"
+                        onClick={() => openAssistantTurnOverlay(turn)}
+                        disabled={busy}
+                      >
+                        <Check size={14} /> {zh ? '确认本轮' : 'Confirm this turn'}
+                      </button>
+                    )}
                   </div>
                 </article>
               ))}
@@ -1219,6 +1276,137 @@ export function CreatorAssistantWorkspace({
           </small>
         </AuditSection>
       </aside>
+      {overlayTurn && (
+        <section className="chapter-eval-panel" aria-label={zh ? '本轮确认' : 'Confirm this turn'}>
+          <header>
+            <strong>{zh ? '确认本轮提案' : 'Confirm this turn'}</strong>
+            <button type="button" onClick={closeAssistantTurnOverlay} aria-label={zh ? '关闭' : 'Close'}>
+              <XCircle size={15} />
+            </button>
+          </header>
+          <div className="chapter-eval-body">
+            {error && <p className="finalization-message error">{error}</p>}
+            <section>
+              <h3>{zh ? '项目写入' : 'Project writes'}</h3>
+              {overlayTurn.proposals
+                .filter((item) => item.status === 'pending')
+                .map((proposal) => {
+                  const create = isPlanningCreate(proposal)
+                  const type = settingTypes[proposal.id] ?? legalSpecializeType(proposal.document_type)
+                  const fields = settingFields[proposal.id] ?? {}
+                  const required = create ? requiredSpecializationFields(type) : []
+                  const heading = isIssueProposal(proposal)
+                    ? `${zh ? '问题' : 'Issue'}: ${proposal.title}`
+                    : create
+                      ? `${zh ? '新建' : 'Create'}: ${proposal.title}`
+                      : `${zh ? '更新' : 'Update'}: ${proposal.title}`
+                  return (
+                    <div className={create ? 'chapter-eval-setting' : undefined} key={proposal.id}>
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={Boolean(selectedWrites[proposal.id])}
+                          onChange={(event) =>
+                            setSelectedWrites({
+                              ...selectedWrites,
+                              [proposal.id]: event.target.checked
+                            })
+                          }
+                        />
+                        <span>
+                          <strong>{heading}</strong>
+                          <small>{proposal.content || proposal.rationale}</small>
+                        </span>
+                      </label>
+                      {create && (
+                        <label>
+                          {zh ? '类型' : 'Type'}
+                          <select
+                            value={type}
+                            aria-label={zh ? `${proposal.title} 类型` : `${proposal.title} type`}
+                            onChange={(event) => {
+                              setSettingTypes({
+                                ...settingTypes,
+                                [proposal.id]: event.target.value
+                              })
+                              setSettingFields({
+                                ...settingFields,
+                                [proposal.id]: {}
+                              })
+                            }}
+                          >
+                            {ASSISTANT_TURN_SETTING_TYPES.map((kind) => (
+                              <option key={kind} value={kind}>
+                                {PLANNING_KIND_LABELS[kind as PlanningDocumentKind]?.[language] ?? kind}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      )}
+                      {required.map((key) => (
+                        <label key={key}>
+                          {fieldLabel(key, language)}
+                          <input
+                            value={fields[key] ?? ''}
+                            aria-label={fieldLabel(key, language)}
+                            onChange={(event) =>
+                              setSettingFields({
+                                ...settingFields,
+                                [proposal.id]: {
+                                  ...fields,
+                                  [key]: event.target.value
+                                }
+                              })
+                            }
+                          />
+                        </label>
+                      ))}
+                    </div>
+                  )
+                })}
+            </section>
+            <section>
+              <h3>{zh ? '助手配置' : 'Assistant configuration'}</h3>
+              {overlayTurn.configuration_proposals
+                .filter((item) => item.status === 'pending')
+                .map((proposal) => (
+                  <label key={proposal.id}>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(selectedConfigs[proposal.id])}
+                      onChange={(event) =>
+                        setSelectedConfigs({
+                          ...selectedConfigs,
+                          [proposal.id]: event.target.checked
+                        })
+                      }
+                    />
+                    <span>
+                      <strong>
+                        {configurationTargetLabel(proposal.plan.target_kind, language)} ·{' '}
+                        {proposal.plan.target_id}
+                      </strong>
+                      <small>{proposal.rationale}</small>
+                    </span>
+                  </label>
+                ))}
+            </section>
+          </div>
+          <div className="chapter-eval-footer">
+            <button
+              type="button"
+              className="primary"
+              onClick={() => void confirmAssistantTurn()}
+              disabled={busy || !overlayConfirmReady}
+            >
+              {zh ? '确认' : 'Confirm'}
+            </button>
+            <button type="button" onClick={closeAssistantTurnOverlay}>
+              {zh ? '关闭' : 'Close'}
+            </button>
+          </div>
+        </section>
+      )}
       {promptEditorOpen && selectedPrompt && (
         <div
           className="modal-backdrop"
@@ -1604,4 +1792,22 @@ function nextPatchVersion(value: string): string {
   const match = /^(\d+)\.(\d+)\.(\d+)/u.exec(value)
   if (!match) return '1.0.1'
   return `${match[1]}.${match[2]}.${Number(match[3]) + 1}`
+}
+
+function isPlanningCreate(proposal: AssistantProposalV1): boolean {
+  return proposal.kind === 'planning_record' && proposal.operation !== 'update'
+}
+
+function isPlanningUpdate(proposal: AssistantProposalV1): boolean {
+  return proposal.kind === 'planning_record' && proposal.operation === 'update'
+}
+
+function isIssueProposal(proposal: AssistantProposalV1): boolean {
+  return proposal.kind === 'issue'
+}
+
+function legalSpecializeType(documentType: string): string {
+  return (ASSISTANT_TURN_SETTING_TYPES as readonly string[]).includes(documentType)
+    ? documentType
+    : 'world_entry'
 }

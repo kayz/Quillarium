@@ -756,6 +756,29 @@ export interface IpcContract {
     ]
     response: LoadedAgentSessionDetail
   }
+  'assistant:applyTurn': {
+    request: [
+      root: string,
+      sessionId: string,
+      turnId: string,
+      decisions: {
+        confirmed: boolean
+        creates: Array<{ proposal_id: string; type?: string; fields?: Record<string, unknown> }>
+        updates: Array<{ proposal_id: string; type?: string; fields?: Record<string, unknown> }>
+        issues: string[]
+        configs: string[]
+      },
+      expectedTurnSha256: string
+    ]
+    response: {
+      session: LoadedAgentSessionDetail
+      created_ids: string[]
+      updated_ids: string[]
+      issue_ids: string[]
+      config_ids: string[]
+      rejected_ids: string[]
+    }
+  }
   'assistant:applyProposal': {
     request: [root: string, sessionId: string, turnId: string, proposalId: string, expectedTurnSha256: string]
     response: AssistantProposalActionResult
@@ -1248,6 +1271,7 @@ export const QUILLARIUM_API_CHANNELS = {
   forkAssistantSession: 'assistant:fork',
   previewAssistantTurn: 'assistant:preview',
   sendAssistantTurn: 'assistant:turn',
+  applyAssistantTurn: 'assistant:applyTurn',
   applyAssistantProposal: 'assistant:applyProposal',
   rejectAssistantProposal: 'assistant:rejectProposal',
   applyAssistantConfigurationProposal: 'assistant:applyConfigurationProposal',

@@ -2,6 +2,7 @@ import path from 'node:path'
 import { rm } from 'node:fs/promises'
 import {
   applyAssistantConfigurationProposal,
+  applyAssistantTurn,
   assistantProposalDocumentTypes,
   assistantTurnOutputV1Schema,
   bundleDocumentTypeSchema,
@@ -369,6 +370,16 @@ export function registerAssistantHandlers(): void {
     'assistant:turn',
     async (_event, root, sessionId, expectedSessionSha256, authorInput, sentUserContent) =>
       sendAssistantTurn(root, sessionId, expectedSessionSha256, authorInput, sentUserContent)
+  )
+  typedHandle(
+    'assistant:applyTurn',
+    async (_event, root, sessionId, turnId, decisions, expectedTurnSha256) => {
+      const result = await applyAssistantTurn(root, sessionId, turnId, decisions, expectedTurnSha256)
+      return {
+        session: await loadAgentSessionDetail(root, sessionId),
+        ...result
+      }
+    }
   )
   typedHandle(
     'assistant:applyProposal',

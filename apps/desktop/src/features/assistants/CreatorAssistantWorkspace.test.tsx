@@ -1,10 +1,12 @@
+import { readFile } from 'node:fs/promises'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
 import {
   auditSourceTypeLabel,
   assistantTargetDocuments,
   CreatorAssistantWorkspace,
-  documentTypeDisplayLabel
+  documentTypeDisplayLabel,
+  shouldOpenAssistantTurnOverlay
 } from './CreatorAssistantWorkspace.js'
 
 vi.mock('../../app/bridge.js', () => ({ bridge: {} }))
@@ -47,5 +49,33 @@ describe('CreatorAssistantWorkspace', () => {
     expect(auditSourceTypeLabel({ source_type: 'project', source_id: 'same-id' }, 'en')).toBe(
       'Current project identity'
     )
+  })
+
+  it('opens the confirm overlay when a turn has pending proposals', () => {
+    expect(
+      shouldOpenAssistantTurnOverlay({
+        proposals: [{ status: 'pending' }],
+        configuration_proposals: [],
+        candidate: null
+      })
+    ).toBe(true)
+  })
+
+  it('does not open the overlay for a rehearsal candidate with no pending proposals', () => {
+    expect(
+      shouldOpenAssistantTurnOverlay({
+        proposals: [],
+        configuration_proposals: [],
+        candidate: { title: 'Take', content: 'A spoken line.' }
+      })
+    ).toBe(false)
+  })
+
+  it('replaces per-item apply with one turn overlay', async () => {
+    const source = await readFile(new URL('./CreatorAssistantWorkspace.tsx', import.meta.url), 'utf8')
+    expect(source).not.toContain('bridge.applyAssistantProposal')
+    expect(source).not.toContain('bridge.applyAssistantConfigurationProposal')
+    expect(source).toContain('applyAssistantTurn')
+    expect(source).toContain('确认本轮')
   })
 })

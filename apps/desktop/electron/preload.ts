@@ -78,6 +78,8 @@ const api: QuillariumAPI = {
     invoke('assistant:preview', root, sessionId, authorInput, sentUserContent),
   sendAssistantTurn: (root, sessionId, expectedSessionSha256, authorInput, sentUserContent) =>
     invoke('assistant:turn', root, sessionId, expectedSessionSha256, authorInput, sentUserContent),
+  applyAssistantTurn: (root, sessionId, turnId, decisions, expectedTurnSha256) =>
+    invoke('assistant:applyTurn', root, sessionId, turnId, decisions, expectedTurnSha256),
   applyAssistantProposal: (root, sessionId, turnId, proposalId, expectedTurnSha256) =>
     invoke('assistant:applyProposal', root, sessionId, turnId, proposalId, expectedTurnSha256),
   rejectAssistantProposal: (root, sessionId, turnId, proposalId, expectedTurnSha256) =>

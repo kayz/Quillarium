@@ -81,6 +81,8 @@ const api = {
       authorInput,
       sentUserContent
     ),
+  applyAssistantTurn: (root, sessionId, turnId, decisions, expectedTurnSha256) =>
+    ipcRenderer.invoke('assistant:applyTurn', root, sessionId, turnId, decisions, expectedTurnSha256),
   applyAssistantProposal: (root, sessionId, turnId, proposalId, expectedTurnSha256) =>
     ipcRenderer.invoke('assistant:applyProposal', root, sessionId, turnId, proposalId, expectedTurnSha256),
   rejectAssistantProposal: (root, sessionId, turnId, proposalId, expectedTurnSha256) =>
