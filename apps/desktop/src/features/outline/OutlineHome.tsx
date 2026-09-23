@@ -13,9 +13,12 @@ import {
   Save,
   Search,
   ShieldCheck,
+  Sparkles,
   Trash2,
-  Upload
+  Upload,
+  XCircle
 } from 'lucide-react'
+import { requiredSpecializationFields, specializationTargets, type WorldOrganizeProposalSet } from '@quillarium/core'
 import type {
   DocEntry,
   LanguageName,
@@ -28,6 +31,7 @@ import type {
 } from '../../app/types.js'
 import { t } from '../../app/i18n.js'
 import { bridge } from '../../app/bridge.js'
+import { formatDesktopError } from '../../shared/errors.js'
 import { compareStoryEntries, filterDocs } from '../../shared/outline.js'
 import {
   countSection,
@@ -44,13 +48,13 @@ import {
   StructuredTile
 } from './OutlineShared.js'
 import { MarkdownBodyEditor } from '../markdown/MarkdownBodyEditor.js'
-import { isAIPlanningContext, WORLD_ENTRY_CONVERSION_KINDS } from '../planning/planning-model.js'
+import { isAIPlanningContext, PLANNING_KIND_LABELS, WORLD_ENTRY_CONVERSION_KINDS } from '../planning/planning-model.js'
 import { clampPaneSize, SplitHandle } from '../layout/SplitHandle.js'
 import { BoundedPager } from '../layout/BoundedPager.js'
 import { boundedPage } from '../layout/bounded-page.js'
 import { OutlineCreateDialog } from './OutlineCreateDialog.js'
 import { EditableDocumentTitle } from './EditableDocumentTitle.js'
-import { enumChoiceLabel } from '../metadata/field-presentation.js'
+import { enumChoiceLabel, fieldLabel } from '../metadata/field-presentation.js'
 import {
   CharacterRelationshipPanel,
   CharacterRelationView,
@@ -70,6 +74,8 @@ import {
   showLegacySettingThumbnails,
   type DisplayLayerChrome
 } from '../planning/display-chrome.js'
+
+const WORLD_ORGANIZE_SETTING_TYPES = ['world_entry', ...specializationTargets('world_entry')] as const
 
 export function OutlineHome({
   docs,
@@ -168,6 +174,14 @@ export function OutlineHome({
   const [settingImages, setSettingImages] = React.useState<
     Awaited<ReturnType<typeof bridge.getSettingImageBatch>>
   >({})
+  const [organizeProposals, setOrganizeProposals] = React.useState<WorldOrganizeProposalSet | null>(null)
+  const [organizeBusy, setOrganizeBusy] = React.useState(false)
+  const [organizeError, setOrganizeError] = React.useState('')
+  const [organizeNotice, setOrganizeNotice] = React.useState('')
+  const [selectedCreates, setSelectedCreates] = React.useState<Record<string, boolean>>({})
+  const [selectedUpdates, setSelectedUpdates] = React.useState<Record<string, boolean>>({})
+  const [settingTypes, setSettingTypes] = React.useState<Record<string, string>>({})
+  const [settingFields, setSettingFields] = React.useState<Record<string, Record<string, string>>>({})
   const zh = language === 'zh'
   const section = OUTLINE_HOME_SECTIONS.find((item) => item.id === activeSection) ?? OUTLINE_HOME_SECTIONS[0]
   const sectionTitle = zh ? section.title : section.enTitle
@@ -227,6 +241,167 @@ export function OutlineHome({
 
   const createCurrent = () => {
     setCreateOpen(true)
+  }
+
+  const closeOrganizePanel = () => {
+    setOrganizeProposals(null)
+    setOrganizeError('')
+    setOrganizeNotice('')
+    setSelectedCreates({})
+    setSelectedUpdates({})
+    setSettingTypes({})
+    setSettingFields({})
+  }
+
+  const organizeConfirmReady =
+    !organizeProposals ||
+    [...organizeProposals.creates, ...organizeProposals.updates].every((item) => {
+      const selected =
+        'card_id' in item
+          ? selectedUpdates[item.proposal_id]
+          : selectedCreates[item.proposal_id]
+      if (!selected) return true
+      const type = settingTypes[item.proposal_id] ?? 'world_entry'
+      const fields = settingFields[item.proposal_id] ?? {}
+      return requiredSpecializationFields(type).every((key) => Boolean(fields[key]?.trim()))
+    })
+
+  const runOrganizeAction = async (action: () => Promise<void>) => {
+    setOrganizeBusy(true)
+    setOrganizeError('')
+    setOrganizeNotice('')
+    try {
+      await action()
+    } catch (error) {
+      setOrganizeError(formatDesktopError(error, language))
+    } finally {
+      setOrganizeBusy(false)
+    }
+  }
+
+  const organizeWorldbook = async () => {
+    await runOrganizeAction(async () => {
+      const proposals = await window.quillarium.organizeWorldbook(project.root)
+      setOrganizeProposals(proposals)
+      setSelectedCreates(Object.fromEntries(proposals.creates.map((item) => [item.proposal_id, true])))
+      setSelectedUpdates(Object.fromEntries(proposals.updates.map((item) => [item.proposal_id, true])))
+      const typed = [...proposals.creates, ...proposals.updates]
+      setSettingTypes(Object.fromEntries(typed.map((item) => [item.proposal_id, 'world_entry'])))
+      setSettingFields(Object.fromEntries(typed.map((item) => [item.proposal_id, {}])))
+    })
+  }
+
+  const applyOrganize = async () => {
+    if (!organizeProposals || !organizeConfirmReady) return
+    await runOrganizeAction(async () => {
+      const toDecision = (proposalId: string) => {
+        const type = settingTypes[proposalId] ?? 'world_entry'
+        const fields = settingFields[proposalId] ?? {}
+        const payload: Record<string, unknown> = {}
+        for (const key of requiredSpecializationFields(type)) {
+          payload[key] = fields[key]?.trim() ?? ''
+        }
+        return { proposal_id: proposalId, type, fields: payload }
+      }
+      const result = await window.quillarium.applyWorldOrganize(project.root, organizeProposals, {
+        confirmed: true,
+        creates: organizeProposals.creates
+          .filter((item) => selectedCreates[item.proposal_id])
+          .map((item) => toDecision(item.proposal_id)),
+        updates: organizeProposals.updates
+          .filter((item) => selectedUpdates[item.proposal_id])
+          .map((item) => toDecision(item.proposal_id))
+      })
+      setOrganizeNotice(
+        zh
+          ? `已新建 ${result.created_ids.length} 条、更新 ${result.updated_ids.length} 条。`
+          : `Created ${result.created_ids.length} and updated ${result.updated_ids.length}.`
+      )
+      setOrganizeProposals(null)
+      setSelectedCreates({})
+      setSelectedUpdates({})
+      setSettingTypes({})
+      setSettingFields({})
+      await onReloadProject()
+    })
+  }
+
+  const renderWorldOrganizeRow = (
+    item: { proposal_id: string; title?: string; content: string; card_id?: string },
+    kind: 'create' | 'update'
+  ) => {
+    const selected = kind === 'create' ? selectedCreates : selectedUpdates
+    const setSelected = kind === 'create' ? setSelectedCreates : setSelectedUpdates
+    const type = settingTypes[item.proposal_id] ?? 'world_entry'
+    const fields = settingFields[item.proposal_id] ?? {}
+    const required = requiredSpecializationFields(type)
+    const heading =
+      kind === 'create'
+        ? (item.title ?? '')
+        : docs.find((doc) => doc.data.id === item.card_id)?.data.title ?? item.card_id ?? ''
+    return (
+      <div className="chapter-eval-setting" key={item.proposal_id}>
+        <label>
+          <input
+            type="checkbox"
+            checked={Boolean(selected[item.proposal_id])}
+            onChange={(event) =>
+              setSelected({
+                ...selected,
+                [item.proposal_id]: event.target.checked
+              })
+            }
+          />
+          <span>
+            <strong>
+              {kind === 'create' ? (zh ? '新建' : 'Create') : zh ? '更新' : 'Update'}: {heading}
+            </strong>
+            <small>{item.content}</small>
+          </span>
+        </label>
+        <label>
+          {zh ? '类型' : 'Type'}
+          <select
+            value={type}
+            aria-label={zh ? `${heading} 类型` : `${heading} type`}
+            onChange={(event) => {
+              setSettingTypes({
+                ...settingTypes,
+                [item.proposal_id]: event.target.value
+              })
+              setSettingFields({
+                ...settingFields,
+                [item.proposal_id]: {}
+              })
+            }}
+          >
+            {WORLD_ORGANIZE_SETTING_TYPES.map((kindOption) => (
+              <option key={kindOption} value={kindOption}>
+                {PLANNING_KIND_LABELS[kindOption as PlanningDocumentKind]?.[language] ?? kindOption}
+              </option>
+            ))}
+          </select>
+        </label>
+        {required.map((key) => (
+          <label key={key}>
+            {fieldLabel(key, language)}
+            <input
+              value={fields[key] ?? ''}
+              aria-label={fieldLabel(key, language)}
+              onChange={(event) =>
+                setSettingFields({
+                  ...settingFields,
+                  [item.proposal_id]: {
+                    ...fields,
+                    [key]: event.target.value
+                  }
+                })
+              }
+            />
+          </label>
+        ))}
+      </div>
+    )
   }
 
   return (
@@ -404,6 +579,15 @@ export function OutlineHome({
                   {isAIPlanningContext(activeSection) && (
                     <button onClick={() => onAIPlanningCreate(activeSection)} disabled={busy}>
                       <Bot size={15} /> {zh ? 'AI 讨论新增' : 'Create with AI'}
+                    </button>
+                  )}
+                  {activeSection === 'world' && (
+                    <button
+                      onClick={() => void organizeWorldbook()}
+                      disabled={busy || organizeBusy}
+                      title={zh ? '整理世界书' : 'Organize world book'}
+                    >
+                      <Sparkles size={15} /> {zh ? '整理世界书' : 'Organize world book'}
                     </button>
                   )}
                 </>
@@ -830,6 +1014,38 @@ export function OutlineHome({
             }
           }}
         />
+      )}
+      {(organizeProposals || organizeBusy || organizeError || organizeNotice) && (
+        <section className="chapter-eval-panel" aria-label={zh ? '世界书整理提案' : 'World book organize proposals'}>
+          <header>
+            <strong>{zh ? '世界书整理提案' : 'World book organize proposals'}</strong>
+            <button
+              onClick={closeOrganizePanel}
+              disabled={organizeBusy}
+              aria-label={zh ? '关闭整理提案' : 'Close organize'}
+            >
+              <XCircle size={15} />
+            </button>
+          </header>
+          <div className="chapter-eval-body">
+            {organizeBusy && <p className="finalization-message">{zh ? '正在整理…' : 'Organizing…'}</p>}
+            {organizeError && <p className="finalization-message error">{organizeError}</p>}
+            {organizeNotice && <p className="finalization-message ok">{organizeNotice}</p>}
+            {organizeProposals?.creates.map((item) => renderWorldOrganizeRow(item, 'create'))}
+            {organizeProposals?.updates.map((item) => renderWorldOrganizeRow(item, 'update'))}
+          </div>
+          {organizeProposals && (
+            <div className="chapter-eval-footer">
+              <button
+                className="primary"
+                onClick={() => void applyOrganize()}
+                disabled={organizeBusy || !organizeConfirmReady}
+              >
+                {zh ? '确认写入' : 'Confirm write'}
+              </button>
+            </div>
+          )}
+        </section>
       )}
     </main>
   )

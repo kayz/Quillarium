@@ -222,7 +222,13 @@ const api: QuillariumAPI = {
   gitSetRemote: (root, url) => invoke('git:setRemote', root, url),
   evaluateChapter: (root, chapterId) => invoke('expert:evaluateChapter', root, chapterId),
   applyChapterEval: (root, proposals, decisions) =>
-    invoke('expert:applyChapterEval', root, proposals, decisions)
+    invoke('expert:applyChapterEval', root, proposals, decisions),
+  organizeOutline: (root, outlineId) => invoke('expert:organizeOutline', root, outlineId),
+  applyOutlineOrganize: (root, proposals, decisions) =>
+    invoke('expert:applyOutlineOrganize', root, proposals, decisions),
+  organizeWorldbook: (root) => invoke('expert:organizeWorldbook', root),
+  applyWorldOrganize: (root, proposals, decisions) =>
+    invoke('expert:applyWorldOrganize', root, proposals, decisions)
 }
 
 contextBridge.exposeInMainWorld('quillarium', api)

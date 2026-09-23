@@ -1,6 +1,17 @@
 import { useRef, useState } from 'react'
-import { CheckCircle2, LayoutGrid, List, Plus, Save, Search, Trash2, Upload } from 'lucide-react'
-import type { StoryStructureConfigV1 } from '@quillarium/core'
+import type { OutlineOrganizeProposalSet, StoryStructureConfigV1 } from '@quillarium/core'
+import {
+  CheckCircle2,
+  LayoutGrid,
+  List,
+  Plus,
+  Save,
+  Search,
+  Sparkles,
+  Trash2,
+  Upload,
+  XCircle
+} from 'lucide-react'
 import type {
   ContextPacketSummary,
   DocEntry,
@@ -11,6 +22,7 @@ import type {
   WorkLevel
 } from '../../app/types.js'
 import { t } from '../../app/i18n.js'
+import { formatDesktopError } from '../../shared/errors.js'
 import {
   buildOutlineHierarchy,
   childWorkLevels,
@@ -23,6 +35,12 @@ import { MarkdownBodyEditor } from '../markdown/MarkdownBodyEditor.js'
 import { clampPaneSize, SplitHandle } from '../layout/SplitHandle.js'
 import { enumChoiceLabel, outlineLevelDisplayLabel } from '../metadata/field-presentation.js'
 import { EditableDocumentTitle } from '../outline/EditableDocumentTitle.js'
+
+const ORGANIZE_OUTLINE_LEVELS = new Set(['overview', 'book', 'volume', 'part', 'act'])
+
+export function shouldShowOrganizeOutline(level: string | undefined): boolean {
+  return Boolean(level && ORGANIZE_OUTLINE_LEVELS.has(level))
+}
 
 export function WritingWorkspace({
   docs,
@@ -40,6 +58,7 @@ export function WritingWorkspace({
   visibleItems,
   finalizedScenes,
   leftMode,
+  root,
   onLevel,
   onSearch,
   onViewMode,
@@ -51,6 +70,7 @@ export function WritingWorkspace({
   onCheck,
   onAcceptScene,
   onImportPanel,
+  onReload,
   language
 }: {
   docs: DocEntry[]
@@ -68,6 +88,7 @@ export function WritingWorkspace({
   visibleItems: DocEntry[]
   finalizedScenes: DocEntry[]
   leftMode: LeftMode
+  root: string
   onLevel: (level: WorkLevel) => void
   onSearch: (value: string) => void
   onViewMode: (mode: ViewMode) => void
@@ -79,10 +100,17 @@ export function WritingWorkspace({
   onCheck: () => Promise<void>
   onAcceptScene: (sceneId: string, content: string) => Promise<void>
   onImportPanel: () => void
+  onReload: () => Promise<void>
   language: LanguageName
 }) {
   const gridRef = useRef<HTMLDivElement | null>(null)
   const [overviewWidth, setOverviewWidth] = useState(48)
+  const [organizeProposals, setOrganizeProposals] = useState<OutlineOrganizeProposalSet | null>(null)
+  const [organizeBusy, setOrganizeBusy] = useState(false)
+  const [organizeError, setOrganizeError] = useState('')
+  const [organizeNotice, setOrganizeNotice] = useState('')
+  const [selectedCreates, setSelectedCreates] = useState<Record<string, boolean>>({})
+  const zh = language === 'zh'
   const selected = selectedScene ?? selectedOutline
   const items = leftMode === 'read' ? finalizedScenes : visibleItems
   const childrenLevels = childWorkLevels(level, storyStructure)
@@ -96,10 +124,61 @@ export function WritingWorkspace({
       (item !== 'ai' || storyStructure.scene_enabled)
   )
   const selectedLevel = String(selectedOutline?.data.level ?? '')
+  const showOrganize = shouldShowOrganizeOutline(selectedOutline?.data.level)
   const canDelete =
     selected?.data.type === 'scene' ||
     (selected?.data.type === 'outline' &&
       ['volume', 'part', 'arc', 'act', 'chapter', 'section'].includes(selectedLevel))
+
+  const closeOrganizePanel = () => {
+    setOrganizeProposals(null)
+    setOrganizeError('')
+    setOrganizeNotice('')
+    setSelectedCreates({})
+  }
+
+  const runOrganizeAction = async (action: () => Promise<void>) => {
+    setOrganizeBusy(true)
+    setOrganizeError('')
+    setOrganizeNotice('')
+    try {
+      await action()
+    } catch (error) {
+      setOrganizeError(formatDesktopError(error, language))
+    } finally {
+      setOrganizeBusy(false)
+    }
+  }
+
+  const organizeOutline = async () => {
+    if (!selectedOutline) return
+    await runOrganizeAction(async () => {
+      const proposals = await window.quillarium.organizeOutline(root, selectedOutline.data.id)
+      setOrganizeProposals(proposals)
+      setSelectedCreates(Object.fromEntries(proposals.creates.map((item) => [item.proposal_id, true])))
+    })
+  }
+
+  const applyOrganize = async () => {
+    if (!organizeProposals) return
+    await runOrganizeAction(async () => {
+      const result = await window.quillarium.applyOutlineOrganize(root, organizeProposals, {
+        confirmed: true,
+        creates: organizeProposals.creates
+          .filter((item) => selectedCreates[item.proposal_id])
+          .map((item) => item.proposal_id)
+      })
+      setOrganizeNotice(
+        zh
+          ? `已创建大纲节点 ${result.outline_ids.length} 个。`
+          : `Created ${result.outline_ids.length} outline node(s).`
+      )
+      setOrganizeProposals(null)
+      setSelectedCreates({})
+      await onReload()
+    })
+  }
+
   return (
     <section className="writing-workspace">
       <div className="level-tabs">
@@ -147,6 +226,16 @@ export function WritingWorkspace({
                   <Plus size={17} /> <span>{outlineLevelLabel(child)}</span>
                 </button>
               ))}
+              {showOrganize && (
+                <button
+                  className="icon-button"
+                  onClick={() => void organizeOutline()}
+                  disabled={!selectedOutline || busy || organizeBusy}
+                  title={zh ? '整理大纲' : 'Organize outline'}
+                >
+                  <Sparkles size={17} /> <span>{zh ? '整理大纲' : 'Organize outline'}</span>
+                </button>
+              )}
             </div>
           </div>
           <div className="overview-tools">
@@ -317,6 +406,48 @@ export function WritingWorkspace({
           )}
         </div>
       </div>
+      {(organizeProposals || organizeBusy || organizeError || organizeNotice) && (
+        <section className="chapter-eval-panel" aria-label={zh ? '大纲整理提案' : 'Outline organize proposals'}>
+          <header>
+            <strong>{zh ? '大纲整理提案' : 'Outline organize proposals'}</strong>
+            <button
+              onClick={closeOrganizePanel}
+              disabled={organizeBusy}
+              aria-label={zh ? '关闭整理提案' : 'Close organize'}
+            >
+              <XCircle size={15} />
+            </button>
+          </header>
+          <div className="chapter-eval-body">
+            {organizeBusy && <p className="finalization-message">{zh ? '正在整理…' : 'Organizing…'}</p>}
+            {organizeError && <p className="finalization-message error">{organizeError}</p>}
+            {organizeNotice && <p className="finalization-message ok">{organizeNotice}</p>}
+            {organizeProposals?.creates.map((item) => (
+              <label key={item.proposal_id}>
+                <input
+                  type="checkbox"
+                  checked={Boolean(selectedCreates[item.proposal_id])}
+                  onChange={(event) =>
+                    setSelectedCreates({ ...selectedCreates, [item.proposal_id]: event.target.checked })
+                  }
+                />
+                <span>
+                  <strong>
+                    {item.title} ({outlineLevelDisplayLabel(item.level, language)})
+                  </strong>
+                </span>
+              </label>
+            ))}
+          </div>
+          {organizeProposals && (
+            <div className="chapter-eval-footer">
+              <button className="primary" onClick={() => void applyOrganize()} disabled={organizeBusy}>
+                {zh ? '确认写入' : 'Confirm write'}
+              </button>
+            </div>
+          )}
+        </section>
+      )}
     </section>
   )
 }

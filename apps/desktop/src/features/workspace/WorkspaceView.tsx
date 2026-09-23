@@ -561,6 +561,7 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
                     visibleItems={filteredItems}
                     finalizedScenes={finalizedScenes}
                     leftMode={leftMode}
+                    root={root}
                     onLevel={selectWorkLevel}
                     onSearch={setSearch}
                     onViewMode={setViewMode}
@@ -588,6 +589,7 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
                       await load()
                     }}
                     onImportPanel={() => openAIImport()}
+                    onReload={load}
                     language={language}
                   />
                 )

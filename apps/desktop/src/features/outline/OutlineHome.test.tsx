@@ -195,4 +195,11 @@ describe('OutlineHome issue workflow', () => {
     expect(html).toContain('新建空白卡')
     expect(html).toContain('AI 讨论新增')
   })
+
+  it('shows organize world book only in the world section', () => {
+    expect(renderOutlineHome([], 'world')).toContain('整理世界书')
+    expect(renderOutlineHome([], 'issues')).not.toContain('整理世界书')
+    expect(renderOutlineHome([], 'factions')).not.toContain('整理世界书')
+    expect(renderOutlineHome([], 'references')).not.toContain('整理世界书')
+  })
 })

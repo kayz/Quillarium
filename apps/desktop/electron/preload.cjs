@@ -262,7 +262,13 @@ const api = {
   gitSetRemote: (root, url) => ipcRenderer.invoke('git:setRemote', root, url),
   evaluateChapter: (root, chapterId) => ipcRenderer.invoke('expert:evaluateChapter', root, chapterId),
   applyChapterEval: (root, proposals, decisions) =>
-    ipcRenderer.invoke('expert:applyChapterEval', root, proposals, decisions)
+    ipcRenderer.invoke('expert:applyChapterEval', root, proposals, decisions),
+  organizeOutline: (root, outlineId) => ipcRenderer.invoke('expert:organizeOutline', root, outlineId),
+  applyOutlineOrganize: (root, proposals, decisions) =>
+    ipcRenderer.invoke('expert:applyOutlineOrganize', root, proposals, decisions),
+  organizeWorldbook: (root) => ipcRenderer.invoke('expert:organizeWorldbook', root),
+  applyWorldOrganize: (root, proposals, decisions) =>
+    ipcRenderer.invoke('expert:applyWorldOrganize', root, proposals, decisions)
 }
 
 contextBridge.exposeInMainWorld('quillarium', api)

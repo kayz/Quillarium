@@ -723,6 +723,7 @@ select {
   grid-template-rows: 46px 1fr;
 }
 .outline-home {
+  position: relative;
   min-height: 0;
   display: grid;
   grid-template-columns: var(--outline-navigation-width, 280px) 10px minmax(0, 1fr);
@@ -862,6 +863,7 @@ select {
   justify-content: center;
 }
 .outline-main {
+  position: relative;
   min-width: 0;
   min-height: 0;
   display: grid;
@@ -3451,6 +3453,7 @@ body.is-resizing-row * {
   background: var(--bg-muted);
 }
 .writing-workspace {
+  position: relative;
   display: grid;
   grid-template-rows: 44px minmax(0, 1fr);
 }

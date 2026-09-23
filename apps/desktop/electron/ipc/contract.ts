@@ -86,7 +86,9 @@ import type {
   StoryStructureConfigV1,
   DisplayImageManifest,
   DisplayImageProvider,
-  ChapterEvalProposalSet
+  ChapterEvalProposalSet,
+  OutlineOrganizeProposalSet,
+  WorldOrganizeProposalSet
 } from '@quillarium/core'
 import { recordIpcFailure } from '../logging.js'
 import type { CheckReport, CheckScore } from '@quillarium/checks'
@@ -1156,6 +1158,34 @@ export interface IpcContract {
     ]
     response: { issue_ids: string[]; setting_ids: string[] }
   }
+  'expert:organizeOutline': {
+    request: [root: string, outlineId: string]
+    response: OutlineOrganizeProposalSet
+  }
+  'expert:applyOutlineOrganize': {
+    request: [
+      root: string,
+      proposals: OutlineOrganizeProposalSet,
+      decisions: { confirmed: boolean; creates: string[] }
+    ]
+    response: { outline_ids: string[] }
+  }
+  'expert:organizeWorldbook': {
+    request: [root: string]
+    response: WorldOrganizeProposalSet
+  }
+  'expert:applyWorldOrganize': {
+    request: [
+      root: string,
+      proposals: WorldOrganizeProposalSet,
+      decisions: {
+        confirmed: boolean
+        creates: Array<{ proposal_id: string; type?: string; fields?: Record<string, unknown> }>
+        updates: Array<{ proposal_id: string; type?: string; fields?: Record<string, unknown> }>
+      }
+    ]
+    response: { created_ids: string[]; updated_ids: string[] }
+  }
 }
 
 export type IpcChannel = keyof IpcContract
@@ -1336,7 +1366,11 @@ export const QUILLARIUM_API_CHANNELS = {
   githubCreateRepoForProject: 'github:createRepoForProject',
   gitSetRemote: 'git:setRemote',
   evaluateChapter: 'expert:evaluateChapter',
-  applyChapterEval: 'expert:applyChapterEval'
+  applyChapterEval: 'expert:applyChapterEval',
+  organizeOutline: 'expert:organizeOutline',
+  applyOutlineOrganize: 'expert:applyOutlineOrganize',
+  organizeWorldbook: 'expert:organizeWorldbook',
+  applyWorldOrganize: 'expert:applyWorldOrganize'
 } as const satisfies Record<string, IpcChannel>
 
 type AssertNever<Value extends never> = Value
