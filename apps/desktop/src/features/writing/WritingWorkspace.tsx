@@ -36,7 +36,7 @@ import { clampPaneSize, SplitHandle } from '../layout/SplitHandle.js'
 import { enumChoiceLabel, outlineLevelDisplayLabel } from '../metadata/field-presentation.js'
 import { EditableDocumentTitle } from '../outline/EditableDocumentTitle.js'
 
-const ORGANIZE_OUTLINE_LEVELS = new Set(['overview', 'book', 'volume', 'part', 'act'])
+const ORGANIZE_OUTLINE_LEVELS = new Set(['book', 'volume', 'part', 'act'])
 
 export function shouldShowOrganizeOutline(level: string | undefined): boolean {
   return Boolean(level && ORGANIZE_OUTLINE_LEVELS.has(level))
