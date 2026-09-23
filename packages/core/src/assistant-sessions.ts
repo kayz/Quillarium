@@ -35,6 +35,7 @@ import {
   configurationChangePlanV1Schema,
   planContextBundleChange,
   planCreatorRoleChange,
+  restoreConfigurationChange,
   type ConfigurationChangePlanV1
 } from './assistant-config-proposals.js'
 import {
@@ -1160,7 +1161,7 @@ export async function applyAssistantConfigurationProposal(
     try {
       await writeText(path.join(turnDirectory, 'turn.json'), prettyJson(updated))
     } catch (cause) {
-      await rollbackAppliedConfiguration(projectRoot, proposal.plan.target_kind, before, applied)
+      await restoreConfigurationChange(projectRoot, proposal.plan.target_kind, before, applied)
       throw cause
     }
     return { turn: updated, applied }
@@ -1488,27 +1489,6 @@ function assertExecutionArtifactConsistency(
 
 function assertUniqueIds(values: Array<{ id: string }>, code: string): void {
   if (new Set(values.map((value) => value.id)).size !== values.length) throw new Error(code)
-}
-
-async function rollbackAppliedConfiguration(
-  projectRoot: string,
-  targetKind: 'creator_role' | 'context_bundle',
-  before: { value: CreatorRoleV1 | ContextBundleV1 },
-  applied: CreatorRoleV1 | ContextBundleV1
-): Promise<void> {
-  if (targetKind === 'creator_role') {
-    const live = await loadCreatorRole(projectRoot, applied.id)
-    if (canonicalJson(live.value) !== canonicalJson(applied)) {
-      throw new StaleProjectWriteError(live.source_path)
-    }
-    await updateCreatorRole(projectRoot, creatorRoleV1Schema.parse(before.value), live.source_sha256)
-    return
-  }
-  const live = await loadContextBundle(projectRoot, applied.id)
-  if (canonicalJson(live.value) !== canonicalJson(applied)) {
-    throw new StaleProjectWriteError(live.source_path)
-  }
-  await updateContextBundle(projectRoot, contextBundleV1Schema.parse(before.value), live.source_sha256)
 }
 
 async function createExplorationDocument(projectRoot: string, session: AgentSessionV1): Promise<void> {

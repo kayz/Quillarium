@@ -1,7 +1,10 @@
 import { rm } from 'node:fs/promises'
+import { applyConfigurationChangePlan, restoreConfigurationChange } from './assistant-config-proposals.js'
 import { loadAgentSessionDetail, replaceAgentTurn, type AgentTurnV1 } from './assistant-sessions.js'
 import { UNCONFIRMED_EVAL } from './chapter-eval.js'
-import { createWorldEntry, listDocs } from './documents.js'
+import { loadContextBundle, type ContextBundleV1 } from './context-bundles.js'
+import { loadCreatorRole, type CreatorRoleV1 } from './creator-roles.js'
+import { createIssue, createWorldEntry, listDocs } from './documents.js'
 import { pathExists, readMarkdown, readText, writeMarkdown, writeText } from './fs.js'
 import { isSpecializationKind, specializePlanningCard } from './planning-specialize.js'
 import { withProjectWriteLock } from './project-write-lock.js'
@@ -48,14 +51,27 @@ export async function applyAssistantTurn(
     const pendingById = new Map(
       turn.proposals.filter((item) => item.status === 'pending').map((item) => [item.id, item])
     )
+    const pendingConfigs = new Map(
+      turn.configuration_proposals.filter((item) => item.status === 'pending').map((item) => [item.id, item])
+    )
     const createdPaths: string[] = []
     const restorations: Array<{ path: string; before: string }> = []
+    const configRestores: Array<{
+      targetKind: 'creator_role' | 'context_bundle'
+      before: { value: CreatorRoleV1 | ContextBundleV1 }
+      applied: CreatorRoleV1 | ContextBundleV1
+    }> = []
     const createdIds: string[] = []
     const updatedIds: string[] = []
+    const issueIds: string[] = []
+    const configIds: string[] = []
     const appliedByProposal = new Map<string, string>()
-    const keepPendingIds = new Set([...decisions.issues, ...decisions.configs])
+    const appliedConfigIds = new Set<string>()
 
     const rollback = async () => {
+      for (const item of [...configRestores].reverse()) {
+        await restoreConfigurationChange(projectRoot, item.targetKind, item.before, item.applied)
+      }
       for (const item of [...restorations].reverse()) {
         await writeText(item.path, item.before)
       }
@@ -120,9 +136,7 @@ export async function applyAssistantTurn(
         restorations.push({ path: card.path, before })
 
         const nextTitle =
-          typeof proposal.title === 'string' && proposal.title.trim()
-            ? proposal.title
-            : card.data.title
+          typeof proposal.title === 'string' && proposal.title.trim() ? proposal.title : card.data.title
         await writeMarkdown(
           card.path,
           { ...card.data, title: nextTitle } as Record<string, unknown>,
@@ -147,6 +161,48 @@ export async function applyAssistantTurn(
         appliedByProposal.set(decision.proposal_id, settingId)
       }
 
+      for (const proposalId of decisions.issues) {
+        const proposal = pendingById.get(proposalId)
+        if (!proposal || proposal.kind !== 'issue') {
+          throw new Error(MISSING_ASSISTANT_PROPOSAL(proposalId))
+        }
+        pendingById.delete(proposalId)
+
+        const target = detail.session.target
+        const relatedDocs = target.document_type === 'project' ? [] : [target.document_id]
+        const file = await createIssue(
+          projectRoot,
+          proposal.title,
+          { related_docs: relatedDocs },
+          proposal.content
+        )
+        createdPaths.push(file)
+        const written = await readMarkdown<{ id: string }>(file)
+        issueIds.push(written.data.id)
+        appliedByProposal.set(proposalId, written.data.id)
+      }
+
+      for (const proposalId of decisions.configs) {
+        const proposal = pendingConfigs.get(proposalId)
+        if (!proposal) {
+          throw new Error(MISSING_ASSISTANT_PROPOSAL(proposalId))
+        }
+        pendingConfigs.delete(proposalId)
+
+        const before =
+          proposal.plan.target_kind === 'creator_role'
+            ? await loadCreatorRole(projectRoot, proposal.plan.target_id)
+            : await loadContextBundle(projectRoot, proposal.plan.target_id)
+        const applied = await applyConfigurationChangePlan(projectRoot, proposal.plan, true)
+        configRestores.push({
+          targetKind: proposal.plan.target_kind,
+          before,
+          applied
+        })
+        configIds.push(proposal.id)
+        appliedConfigIds.add(proposal.id)
+      }
+
       const rejectedIds: string[] = []
       const nextTurn: AgentTurnV1 = {
         ...turn,
@@ -156,17 +212,20 @@ export async function applyAssistantTurn(
             return { ...item, status: 'applied' as const, applied_document_id: appliedId }
           }
           if (item.status === 'pending') {
-            if (keepPendingIds.has(item.id)) return item
             rejectedIds.push(item.id)
             return { ...item, status: 'rejected' as const }
           }
           return item
         }),
         configuration_proposals: turn.configuration_proposals.map((item) => {
-          if (item.status !== 'pending') return item
-          if (keepPendingIds.has(item.id)) return item
-          rejectedIds.push(item.id)
-          return { ...item, status: 'rejected' as const }
+          if (appliedConfigIds.has(item.id)) {
+            return { ...item, status: 'applied' as const, applied_at: new Date().toISOString() }
+          }
+          if (item.status === 'pending') {
+            rejectedIds.push(item.id)
+            return { ...item, status: 'rejected' as const }
+          }
+          return item
         })
       }
 
@@ -175,8 +234,8 @@ export async function applyAssistantTurn(
       return {
         created_ids: createdIds,
         updated_ids: updatedIds,
-        issue_ids: [],
-        config_ids: [],
+        issue_ids: issueIds,
+        config_ids: configIds,
         rejected_ids: rejectedIds
       }
     } catch (error) {

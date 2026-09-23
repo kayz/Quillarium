@@ -11,7 +11,7 @@ import {
   updateCreatorRole,
   type CreatorRoleV1
 } from './creator-roles.js'
-import { canonicalJson, sha256Text } from './versioned-yaml-store.js'
+import { canonicalJson, sha256Text, StaleProjectWriteError } from './versioned-yaml-store.js'
 
 export const configurationDiffEntryV1Schema = z
   .object({
@@ -78,6 +78,27 @@ export function assertConfigurationChangePlan(value: unknown): ConfigurationChan
     throw new Error('AGENT_CONFIGURATION_PLAN_HASH_MISMATCH')
   }
   return plan
+}
+
+export async function restoreConfigurationChange(
+  projectRoot: string,
+  targetKind: 'creator_role' | 'context_bundle',
+  before: { value: CreatorRoleV1 | ContextBundleV1 },
+  applied: CreatorRoleV1 | ContextBundleV1
+): Promise<void> {
+  if (targetKind === 'creator_role') {
+    const live = await loadCreatorRole(projectRoot, applied.id)
+    if (canonicalJson(live.value) !== canonicalJson(applied)) {
+      throw new StaleProjectWriteError(live.source_path)
+    }
+    await updateCreatorRole(projectRoot, creatorRoleV1Schema.parse(before.value), live.source_sha256)
+    return
+  }
+  const live = await loadContextBundle(projectRoot, applied.id)
+  if (canonicalJson(live.value) !== canonicalJson(applied)) {
+    throw new StaleProjectWriteError(live.source_path)
+  }
+  await updateContextBundle(projectRoot, contextBundleV1Schema.parse(before.value), live.source_sha256)
 }
 
 function buildPlan(
