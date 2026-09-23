@@ -11,10 +11,14 @@ import {
   recordAssistantTurn,
   startAgentSession
 } from './assistant-sessions.js'
-import { applyAssistantTurn } from './assistant-turn-apply.js'
+import {
+  applyAssistantTurn,
+  DISABLED_UPDATE_CARD,
+  MISSING_UPDATE_CARD
+} from './assistant-turn-apply.js'
 import { UNCONFIRMED_EVAL } from './chapter-eval.js'
 import { ensureBuiltinCreatorRoles } from './creator-roles.js'
-import { listDocs } from './documents.js'
+import { createCharacter, createWorldEntry, listDocs } from './documents.js'
 import { createProjectAt } from './project.js'
 import type { ContextTokenCounter } from './tokenization.js'
 import { createWritingPresetSnapshot, loadWritingPreset } from './writing-presets.js'
@@ -59,7 +63,8 @@ const counter: ContextTokenCounter = {
   }
 }
 
-async function plantSettingTurn(
+async function plantSettingTurnOn(
+  planted: { root: string },
   proposals: Array<Record<string, unknown>>,
   configurationProposals: Array<Record<string, unknown>> = []
 ): Promise<{
@@ -68,7 +73,7 @@ async function plantSettingTurn(
   turnId: string
   sha: string
 }> {
-  const root = await project()
+  const root = planted.root
   await ensureBuiltinCreatorRoles(root)
   const started = await startAgentSession(root, 'setting-organizer', {
     document_type: 'project',
@@ -120,6 +125,19 @@ async function plantSettingTurn(
     turnId,
     sha: recorded.turn_source_sha256[turnId]!
   }
+}
+
+async function plantSettingTurn(
+  proposals: Array<Record<string, unknown>>,
+  configurationProposals: Array<Record<string, unknown>> = []
+): Promise<{
+  root: string
+  sessionId: string
+  turnId: string
+  sha: string
+}> {
+  const root = await project()
+  return plantSettingTurnOn({ root }, proposals, configurationProposals)
 }
 
 describe('assistantProposalV1Schema', () => {
@@ -299,5 +317,106 @@ describe('applyAssistantTurn', () => {
     expect(await listDocs(planted.root, 'character_relation')).toEqual([])
     const detail = await loadAgentSessionDetail(planted.root, planted.sessionId)
     expect(detail.turns[0]?.proposals[0]?.status).toBe('pending')
+  })
+
+  it('replaces an enabled character body without changing type', async () => {
+    const planted = await plantSettingTurn([])
+    await createCharacter(planted.root, 'Lin', { id: 'char-lin' }, 'Old voice.')
+    const withUpdate = await plantSettingTurnOn(planted, [
+      {
+        id: 'proposal-lin',
+        kind: 'planning_record',
+        title: 'Lin',
+        document_type: 'character',
+        operation: 'update',
+        card_id: 'char-lin',
+        rationale: 'Rewrite voice.',
+        content: 'New voice.'
+      }
+    ])
+    await applyAssistantTurn(
+      withUpdate.root,
+      withUpdate.sessionId,
+      withUpdate.turnId,
+      {
+        confirmed: true,
+        creates: [],
+        updates: [{ proposal_id: 'proposal-lin' }],
+        issues: [],
+        configs: []
+      },
+      withUpdate.sha
+    )
+    const card = (await listDocs(withUpdate.root, 'character')).find((item) => item.data.id === 'char-lin')
+    expect(card?.content).toContain('New voice.')
+    expect(card?.content).not.toContain('Old voice.')
+    expect(card?.data.type).toBe('character')
+  })
+
+  it('refuses to update a disabled world entry', async () => {
+    const planted = await plantSettingTurn([])
+    await createWorldEntry(planted.root, 'Silent', { id: 'world-silent', enabled: false }, 'Old.')
+    const withUpdate = await plantSettingTurnOn(planted, [
+      {
+        id: 'proposal-silent',
+        kind: 'planning_record',
+        title: 'Silent',
+        document_type: 'world_entry',
+        operation: 'update',
+        card_id: 'world-silent',
+        rationale: 'Should fail.',
+        content: 'New.'
+      }
+    ])
+    await expect(
+      applyAssistantTurn(
+        withUpdate.root,
+        withUpdate.sessionId,
+        withUpdate.turnId,
+        {
+          confirmed: true,
+          creates: [],
+          updates: [{ proposal_id: 'proposal-silent' }],
+          issues: [],
+          configs: []
+        },
+        withUpdate.sha
+      )
+    ).rejects.toThrow(DISABLED_UPDATE_CARD)
+    const card = (await listDocs(withUpdate.root, 'world_entry')).find(
+      (item) => item.data.id === 'world-silent'
+    )
+    expect(card?.content).toContain('Old.')
+  })
+
+  it('refuses a missing update target', async () => {
+    const planted = await plantSettingTurn([])
+    const withUpdate = await plantSettingTurnOn(planted, [
+      {
+        id: 'proposal-missing',
+        kind: 'planning_record',
+        title: 'Ghost',
+        document_type: 'character',
+        operation: 'update',
+        card_id: 'char-does-not-exist',
+        rationale: 'Missing card.',
+        content: 'New.'
+      }
+    ])
+    await expect(
+      applyAssistantTurn(
+        withUpdate.root,
+        withUpdate.sessionId,
+        withUpdate.turnId,
+        {
+          confirmed: true,
+          creates: [],
+          updates: [{ proposal_id: 'proposal-missing' }],
+          issues: [],
+          configs: []
+        },
+        withUpdate.sha
+      )
+    ).rejects.toThrow(MISSING_UPDATE_CARD)
   })
 })
