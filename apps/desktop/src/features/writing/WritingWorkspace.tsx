@@ -124,7 +124,7 @@ export function WritingWorkspace({
       (item !== 'ai' || storyStructure.scene_enabled)
   )
   const selectedLevel = String(selectedOutline?.data.level ?? '')
-  const showOrganize = shouldShowOrganizeOutline(selectedOutline?.data.level)
+  const showOrganize = shouldShowOrganizeOutline(selectedLevel || undefined)
   const canDelete =
     selected?.data.type === 'scene' ||
     (selected?.data.type === 'outline' &&
