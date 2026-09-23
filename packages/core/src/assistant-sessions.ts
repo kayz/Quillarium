@@ -277,7 +277,7 @@ export const agentPromptEnvelopeV1Schema = z
 
 export type AgentPromptEnvelopeV1 = z.infer<typeof agentPromptEnvelopeV1Schema>
 
-export const assistantProposalV1Schema = z
+const assistantProposalV1ObjectSchema = z
   .object({
     id: projectIdSchema,
     kind: z.enum(['planning_record', 'issue']),
@@ -295,6 +295,8 @@ export const assistantProposalV1Schema = z
       'issue',
       'reference'
     ]),
+    operation: z.enum(['create', 'update']).default('create'),
+    card_id: z.string().min(1).optional(),
     fields: z.record(z.unknown()).default({}),
     content: z.string().default(''),
     rationale: z.string().min(1),
@@ -302,6 +304,22 @@ export const assistantProposalV1Schema = z
     applied_document_id: z.string().min(1).optional()
   })
   .strict()
+
+export const assistantProposalV1Schema = assistantProposalV1ObjectSchema.superRefine((value, context) => {
+  if (value.operation === 'update' && !value.card_id) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['card_id'],
+      message: '更新提案必须包含 card_id'
+    })
+  }
+  if (value.kind === 'issue' && value.operation === 'update') {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: '问题提案不能更新已有卡片。'
+    })
+  }
+})
 
 export const assistantTurnOutputV1Schema = z
   .object({
@@ -322,7 +340,7 @@ export const assistantTurnOutputV1Schema = z
       .strict(),
     proposals: z
       .array(
-        assistantProposalV1Schema
+        assistantProposalV1ObjectSchema
           .omit({ status: true, applied_document_id: true })
           .extend({ id: projectIdSchema.optional() })
       )
@@ -344,7 +362,7 @@ export const assistantTurnOutputV1Schema = z
   .strict()
 
 export type AssistantProposalV1 = z.infer<typeof assistantProposalV1Schema>
-export const assistantProposalDocumentTypes = assistantProposalV1Schema.shape.document_type.options
+export const assistantProposalDocumentTypes = assistantProposalV1ObjectSchema.shape.document_type.options
 export type AssistantTurnOutputV1 = z.infer<typeof assistantTurnOutputV1Schema>
 export type AssistantTurnOutputInputV1 = z.input<typeof assistantTurnOutputV1Schema>
 
