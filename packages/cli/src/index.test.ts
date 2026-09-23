@@ -11,23 +11,32 @@ vi.mock('@quillarium/core', async (importOriginal) => {
 })
 
 import {
+  createAgentExecutionSnapshot,
+  createAgentPromptEnvelope,
   createCanon,
   createChapterProse,
   createForeshadowing,
   createOutline,
   createScene,
   createWorldEntry,
+  createWritingPresetSnapshot,
+  ensureBuiltinCreatorRoles,
   listDocs,
   listRuns,
   loadProject,
+  loadWritingPreset,
   pathExists,
   readMarkdown,
   readRunFile,
+  recordAssistantTurn,
+  resolveContextBundleDefinition,
+  startAgentSession,
   updateProjectConfig,
   writeMarkdown,
   writeText,
   type CanonDoc,
   type CharacterDoc,
+  type ContextTokenCounter,
   type ForeshadowingDoc,
   type IssueDoc,
   type OutlineDoc,
@@ -94,6 +103,86 @@ async function initProject(): Promise<{ vault: string; root: string }> {
     'ink'
   )
   return { vault, root: path.join(vault, 'novels', title) }
+}
+
+const assistantPlantCounter: ContextTokenCounter = {
+  descriptor: {
+    id: 'cli-assistant-apply-test',
+    provider: 'test',
+    model: 'test',
+    exact: true,
+    source_revision: 'fixture',
+    source_sha256: 'fixture-source',
+    vocabulary_sha256: 'fixture-vocabulary'
+  },
+  count: (text) => [...text].length,
+  truncate: (text, maximum, strategy) => {
+    const characters = [...text]
+    const retained = strategy === 'tail' ? characters.slice(-maximum) : characters.slice(0, maximum)
+    return {
+      text: retained.join(''),
+      token_count: retained.length,
+      original_token_count: characters.length,
+      truncated: retained.length < characters.length
+    }
+  }
+}
+
+async function plantSettingOrganizerTurn(
+  root: string,
+  proposals: Array<Record<string, unknown>>
+): Promise<{ sessionId: string; turnId: string; proposalIds: string[] }> {
+  const project = await loadProject(root)
+  await ensureBuiltinCreatorRoles(root)
+  const started = await startAgentSession(root, 'setting-organizer', {
+    document_type: 'project',
+    document_id: project.id
+  })
+  const resolved = await resolveContextBundleDefinition(
+    root,
+    started.session.configuration.context_bundle,
+    started.session.configuration.context_bundle_sha256,
+    started.session.target,
+    started.session.configuration.writing_preset,
+    { token_counter: assistantPlantCounter }
+  )
+  const preset = createWritingPresetSnapshot(await loadWritingPreset(root, 'default'), {
+    profile: 'background',
+    provider: 'openai',
+    model: 'fixture-model',
+    temperature: 0,
+    max_output_tokens: 512,
+    tokenizer_id: 'o200k'
+  })
+  const envelope = createAgentPromptEnvelope({
+    systemMessage: 'Test boundary',
+    contextMarkdown: resolved.context.markdown,
+    conversation: [],
+    currentInput: 'Plant setting proposals for CLI apply tests.'
+  })
+  const snapshot = createAgentExecutionSnapshot({
+    session: started.session,
+    resolvedContext: resolved,
+    writingPreset: preset,
+    promptEnvelope: envelope
+  })
+  const recorded = await recordAssistantTurn(root, started.session.id, {
+    expected_session_sha256: started.source_sha256,
+    execution_snapshot: snapshot,
+    output: {
+      reply: 'Planted.',
+      exploration: { summary: 'Planted assistant turn.', open_questions: [] },
+      proposals,
+      configuration_proposals: []
+    },
+    raw_response: '{}'
+  })
+  const turn = recorded.turns[0]!
+  return {
+    sessionId: started.session.id,
+    turnId: turn.id,
+    proposalIds: turn.proposals.map((item) => item.id)
+  }
 }
 
 async function initWorkspaceProject(): Promise<{ workspace: string; root: string; id: string }> {
@@ -602,6 +691,84 @@ describe('CLI smoke flow', () => {
       task_id: 'organize-worldbook',
       input: {}
     })
+  })
+
+  it('exposes assistant apply-turn and refuses without a confirmed decisions file', async () => {
+    const assistant = buildProgram().commands.find((command) => command.name() === 'assistant')
+    expect(assistant?.commands.map((command) => command.name())).toEqual(['apply-turn'])
+    const help = assistant?.commands.find((command) => command.name() === 'apply-turn')?.helpInformation()
+    expect(help).toContain('--session')
+    expect(help).toContain('--turn')
+    expect(help).toContain('--decisions')
+  })
+
+  it('refuses assistant apply-turn when decisions are not confirmed', async () => {
+    const { root } = await initProject()
+    const decisions = path.join(root, 'decisions.json')
+    await writeFile(
+      decisions,
+      JSON.stringify({ confirmed: false, creates: [], updates: [], issues: [], configs: [] })
+    )
+    await expect(
+      run(
+        'assistant',
+        'apply-turn',
+        '--session',
+        'assistant-missing',
+        '--turn',
+        'turn-missing',
+        '--decisions',
+        decisions,
+        '--project',
+        root
+      )
+    ).rejects.toThrow('提案尚未确认，不能写入。')
+  })
+
+  it('applies a confirmed setting-organizer turn and writes the world entry', async () => {
+    const { root } = await initProject()
+    const planted = await plantSettingOrganizerTurn(root, [
+      {
+        id: 'proposal-harbor',
+        kind: 'planning_record',
+        title: 'Harbor Law',
+        document_type: 'world_entry',
+        rationale: 'Need a law card.',
+        content: 'Ships pay the harbor tax.'
+      }
+    ])
+    const decisions = path.join(root, 'decisions.json')
+    await writeFile(
+      decisions,
+      JSON.stringify({
+        confirmed: true,
+        creates: [{ proposal_id: planted.proposalIds[0] }],
+        updates: [],
+        issues: [],
+        configs: []
+      })
+    )
+
+    output = []
+    await run(
+      'assistant',
+      'apply-turn',
+      '--session',
+      planted.sessionId,
+      '--turn',
+      planted.turnId,
+      '--decisions',
+      decisions,
+      '--project',
+      root
+    )
+
+    expect(output.at(-1)).toBe(
+      'assistant-turn: creates=1 updates=0 issues=0 configs=0 rejected=0'
+    )
+    const worlds = await listDocs<WorldEntryDoc>(root, 'world_entry')
+    expect(worlds.map((item) => item.data.title)).toContain('Harbor Law')
+    expect(await pathExists(worlds.find((item) => item.data.title === 'Harbor Law')!.path)).toBe(true)
   })
 
   it('keeps explicit legacy-vault creation available without making it the default', async () => {

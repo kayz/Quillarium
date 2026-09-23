@@ -103,6 +103,7 @@ import {
   resolveGenerationPreset
 } from '@quillarium/ai'
 import { registerAgentCommands } from './agent.js'
+import { registerAssistantCommands } from './assistant.js'
 import { registerExpertCommands } from './expert.js'
 import { registerSillyTavernCommands } from './sillytavern.js'
 import { registerStrategyCommands } from './strategy.js'
@@ -220,6 +221,7 @@ export function buildProgram(): Command {
 
   registerAgentCommands(program, projectOption)
   registerExpertCommands(program, projectOption)
+  registerAssistantCommands(program, projectOption)
 
   const presetCmd = program.command('preset').description('Manage versioned project writing presets')
   projectOption(
