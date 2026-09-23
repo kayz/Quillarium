@@ -54,8 +54,12 @@ world-book surfaces: `organize-outline` and `organize-worldbook`. Outline organi
 create-only child nodes within the selected subtree—empty bodies, no synopses, scene files, reorders,
 or deletes—and stops at chapter; confirm applies through `applyOutlineOrganize`. World-book organize
 proposes new or full-body replacement `world_entry` cards that are enabled at apply time, including
-optional confirm-time specialize; confirm applies through `applyWorldOrganize`. The conversational
-setting organizer (`organize-setting`) is unchanged. CLI exposes `quill expert organize-outline` and
+optional confirm-time specialize; confirm applies through `applyWorldOrganize`. Creator-assistant
+turns still chat through existing sessions; pending planning, issue, and configuration proposals open
+one confirm overlay per turn; confirm runs `applyAssistantTurn` (world-entry creates, enabled-card
+body replace, optional specialize, issues, configs, unselected rejected); CLI
+`quill assistant apply-turn` applies a stored turn from a decisions file and never chats. CLI exposes
+`quill expert organize-outline` and
 `quill expert organize-worldbook` as evaluate-only one-liners that print proposal counts and never
 apply.
 

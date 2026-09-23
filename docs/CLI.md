@@ -296,6 +296,15 @@ pnpm cli expert organize-outline --outline-id <outline-id> --project "./writing-
 pnpm cli expert organize-worldbook --project "./writing-workspace/projects/my-novel"
 ```
 
+#### Assistant turn confirm apply
+
+Apply a stored creator-assistant turn from a decisions file. The decisions payload must set
+`confirmed` to true; otherwise the command throws `提案尚未确认，不能写入。` This path never chats:
+
+```bash
+pnpm cli assistant apply-turn --session <session-id> --turn <turn-id> --decisions ./decisions.json --project "./writing-workspace/projects/my-novel"
+```
+
 The CLI exposes the same finalization review and atomic continuity service as Desktop. First create
 and inspect a review, then confirm or reject each impact and resolve or defer every question:
 
@@ -482,6 +491,7 @@ and options.
 | `check`          | Scene/outline checks via `--type`; scenes allow `--semantic`; optional `--run`            |
 | `agent`          | Auditable `check-planning`, `decide-planning`, and `apply-planning` lifecycle             |
 | `expert`         | `evaluate-chapter`, `organize-outline`, `organize-worldbook`: eval counts only (no apply) |
+| `assistant`      | `apply-turn`: confirm a stored turn from a decisions file                                 |
 | `st`             | `import-card`, `export-card`, `export-lorebook`                                           |
 | `finalize`       | `review-plan`, `show`, `confirm`, `answer`, `apply`, `recover`                            |
 | `chapter-plan`   | Build ordered scene-writing prompts for a chapter                                         |
