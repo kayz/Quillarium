@@ -20,7 +20,14 @@ import {
 } from './assistant-turn-apply.js'
 import { UNCONFIRMED_EVAL } from './chapter-eval.js'
 import { ensureBuiltinCreatorRoles, listCreatorRoles } from './creator-roles.js'
-import { createCharacter, createOutline, createWorldEntry, listDocs } from './documents.js'
+import {
+  createCanon,
+  createCharacter,
+  createOutline,
+  createReference,
+  createWorldEntry,
+  listDocs
+} from './documents.js'
 import { createProjectAt } from './project.js'
 import type { ContextTokenCounter } from './tokenization.js'
 import { StaleProjectWriteError } from './versioned-yaml-store.js'
@@ -480,6 +487,76 @@ describe('applyAssistantTurn', () => {
         withUpdate.sha
       )
     ).rejects.toThrow(MISSING_UPDATE_CARD)
+  })
+
+  it('refuses updating a non-planning reference card', async () => {
+    const planted = await plantSettingTurn([])
+    await createReference(planted.root, 'Source Notes', { id: 'ref-notes' }, 'Old notes.')
+    const withUpdate = await plantSettingTurnOn(planted, [
+      {
+        id: 'proposal-ref',
+        kind: 'planning_record',
+        title: 'Source Notes',
+        document_type: 'reference',
+        operation: 'update',
+        card_id: 'ref-notes',
+        rationale: 'Should fail.',
+        content: 'New notes.'
+      }
+    ])
+    await expect(
+      applyAssistantTurn(
+        withUpdate.root,
+        withUpdate.sessionId,
+        withUpdate.turnId,
+        {
+          confirmed: true,
+          creates: [],
+          updates: [{ proposal_id: 'proposal-ref' }],
+          issues: [],
+          configs: []
+        },
+        withUpdate.sha
+      )
+    ).rejects.toThrow(MISSING_UPDATE_CARD)
+    const card = (await listDocs(withUpdate.root, 'reference')).find((item) => item.data.id === 'ref-notes')
+    expect(card?.content).toContain('Old notes.')
+    expect(card?.content).not.toContain('New notes.')
+  })
+
+  it('refuses updating a canon card', async () => {
+    const planted = await plantSettingTurn([])
+    await createCanon(planted.root, 'Harbor Law', 'Old canon.', { id: 'canon-harbor' })
+    const withUpdate = await plantSettingTurnOn(planted, [
+      {
+        id: 'proposal-canon',
+        kind: 'planning_record',
+        title: 'Harbor Law',
+        document_type: 'world_entry',
+        operation: 'update',
+        card_id: 'canon-harbor',
+        rationale: 'Should fail.',
+        content: 'New canon.'
+      }
+    ])
+    await expect(
+      applyAssistantTurn(
+        withUpdate.root,
+        withUpdate.sessionId,
+        withUpdate.turnId,
+        {
+          confirmed: true,
+          creates: [],
+          updates: [{ proposal_id: 'proposal-canon' }],
+          issues: [],
+          configs: []
+        },
+        withUpdate.sha
+      )
+    ).rejects.toThrow(MISSING_UPDATE_CARD)
+    const card = (await listDocs(withUpdate.root, 'canon')).find((item) => item.data.id === 'canon-harbor')
+    expect(card?.content).toContain('Old canon.')
+    expect(card?.content).not.toContain('New canon.')
   })
 
   it('rolls back the first create when a later specialize is missing fields', async () => {

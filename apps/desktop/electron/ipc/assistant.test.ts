@@ -201,4 +201,112 @@ describe('creator assistant IPC execution', () => {
       'still invalid'
     )
   })
+
+  it('records a planning update proposal from live structured output', async () => {
+    const { root, session } = await fixture()
+    const generate = vi.fn().mockResolvedValue({
+      value: {
+        reply: 'I would rewrite Character A.',
+        candidate: null,
+        exploration: {
+          summary: 'Update the character card body.',
+          open_questions: []
+        },
+        proposals: [
+          {
+            kind: 'planning_record',
+            title: 'Character A',
+            document_type: 'character',
+            operation: 'update',
+            card_id: 'character-a',
+            fields: [],
+            content: 'A quieter voice.',
+            rationale: 'Align with rehearsal.'
+          }
+        ],
+        configuration_proposals: []
+      },
+      raw_response: '{"reply":"I would rewrite Character A."}',
+      repaired: false,
+      response_format: 'json_schema'
+    })
+
+    const result = await sendAssistantTurn(
+      root,
+      session.session.id,
+      session.source_sha256,
+      'Update Character A.',
+      undefined,
+      dependencies(generate)
+    )
+
+    expect(result.turns[0]?.proposals).toEqual([
+      expect.objectContaining({
+        operation: 'update',
+        card_id: 'character-a',
+        status: 'pending'
+      })
+    ])
+    const call = generate.mock.calls[0]?.[0] as {
+      jsonSchema: {
+        properties: {
+          proposals: {
+            items: {
+              properties: Record<string, unknown>
+            }
+          }
+        }
+      }
+    }
+    expect(call.jsonSchema.properties.proposals.items.properties).toMatchObject({
+      operation: expect.anything(),
+      card_id: expect.anything()
+    })
+  })
+
+  it('does not record an update proposal that omits card_id', async () => {
+    const { root, session } = await fixture()
+    const generate = vi.fn().mockResolvedValue({
+      value: {
+        reply: 'Broken update.',
+        candidate: null,
+        exploration: {
+          summary: 'Missing card id.',
+          open_questions: []
+        },
+        proposals: [
+          {
+            kind: 'planning_record',
+            title: 'Character A',
+            document_type: 'character',
+            operation: 'update',
+            fields: [],
+            content: 'Should not land.',
+            rationale: 'Invalid update.'
+          }
+        ],
+        configuration_proposals: []
+      },
+      raw_response: '{"reply":"Broken update."}',
+      repaired: false,
+      response_format: 'json_schema'
+    })
+
+    await expect(
+      sendAssistantTurn(
+        root,
+        session.session.id,
+        session.source_sha256,
+        'Update without card id.',
+        undefined,
+        dependencies(generate)
+      )
+    ).rejects.toThrow(/card_id/u)
+
+    const detail = await loadAgentSessionDetail(root, session.session.id)
+    expect(detail.turns).toHaveLength(0)
+    expect(
+      detail.turns.flatMap((turn) => turn.proposals).filter((item) => item.operation === 'update')
+    ).toEqual([])
+  })
 })

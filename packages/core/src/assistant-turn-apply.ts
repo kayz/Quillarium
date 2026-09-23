@@ -15,8 +15,6 @@ export const MISSING_ASSISTANT_PROPOSAL = (id: string) => `找不到本轮提案
 export const MISSING_UPDATE_CARD = '找不到要更新的设定卡。'
 export const DISABLED_UPDATE_CARD = '不能更新已禁用的设定卡。'
 
-const NON_UPDATEABLE_TYPES = new Set(['outline', 'scene', 'chapter_prose', 'canon', 'issue'])
-
 export interface AssistantTurnDecisions {
   confirmed: boolean
   creates: Array<{ proposal_id: string; type?: string; fields?: Record<string, unknown> }>
@@ -125,7 +123,10 @@ export async function applyAssistantTurn(
 
         const documents = await listDocs<DocumentIdentity & { enabled?: boolean }>(projectRoot)
         const card = documents.find((item) => item.data.id === proposal.card_id)
-        if (!card || NON_UPDATEABLE_TYPES.has(card.data.type)) {
+        if (!card) {
+          throw new Error(MISSING_UPDATE_CARD)
+        }
+        if (!isSpecializationKind(card.data.type) || card.data.type === 'canon') {
           throw new Error(MISSING_UPDATE_CARD)
         }
         if (card.data.enabled === false) {

@@ -111,11 +111,28 @@ const assistantWireTurnOutputSchema = z
           kind: z.enum(['planning_record', 'issue']),
           title: z.string().min(1),
           document_type: z.enum(assistantProposalDocumentTypes),
+          operation: z.enum(['create', 'update']).default('create'),
+          card_id: z.string().min(1).optional(),
           fields: z.array(wireFieldSchema),
           content: z.string(),
           rationale: z.string().min(1)
         })
         .strict()
+        .superRefine((value, context) => {
+          if (value.operation === 'update' && !value.card_id) {
+            context.addIssue({
+              code: z.ZodIssueCode.custom,
+              path: ['card_id'],
+              message: '更新提案必须包含 card_id'
+            })
+          }
+          if (value.kind === 'issue' && value.operation === 'update') {
+            context.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: '问题提案不能更新已有卡片。'
+            })
+          }
+        })
     ),
     configuration_proposals: z.array(
       z
@@ -299,6 +316,8 @@ const ASSISTANT_OUTPUT_JSON_SCHEMA = {
           kind: { enum: ['planning_record', 'issue'] },
           title: { type: 'string', minLength: 1 },
           document_type: { enum: assistantProposalDocumentTypes },
+          operation: { enum: ['create', 'update'] },
+          card_id: { type: 'string', minLength: 1 },
           fields: {
             type: 'array',
             items: {
@@ -1072,6 +1091,7 @@ function assistantSystemMessage(session: AgentSessionV1): string {
     'Proposals require an author approval action.',
     'Set candidate to {title, content} only when the allowed result destination is candidate; otherwise set it to null.',
     'For each planning proposal field, use {key, value_json}; value_json must itself be valid JSON.',
+    'Omit operation or set create for new cards; set operation to update plus the existing enabled setting-card card_id to replace a body. Issue proposals cannot use update.',
     'Configuration suggestions must include the complete proposed CreatorRole or ContextBundle. They are converted into a highlighted diff and never applied automatically.'
   ].join('\n')
 }
