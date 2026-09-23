@@ -827,7 +827,7 @@ export async function sendAssistantTurn(
     promptEnvelope: preview.prompt_envelope
   })
   let result: {
-    value: z.infer<typeof assistantWireTurnOutputSchema>
+    value: z.input<typeof assistantWireTurnOutputSchema>
     raw_response: string
     repair_response?: string
     repaired: boolean
