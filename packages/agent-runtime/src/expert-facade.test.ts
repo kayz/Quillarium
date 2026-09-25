@@ -4,13 +4,18 @@ import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   createChapterProse,
+  createCharacter,
   createOutline,
   createProjectAt,
   listDocs,
+  MISSING_CHARACTER,
+  NO_CHARACTER_SELECTION,
   readMarkdown,
   writeMarkdown,
   type ChapterEvalProposalSet,
+  type ForeshadowManageProposalSet,
   type OutlineOrganizeProposalSet,
+  type RelationAnalyzeProposalSet,
   type WorldOrganizeProposalSet
 } from '@quillarium/core'
 import { EXPERT_LANE_ONLY, executeExpertTask } from './expert-facade.js'
@@ -198,5 +203,92 @@ describe('executeExpertTask organize handlers', () => {
     expect(result.outline_id).toBe('volume')
     expect(result.creates).toEqual([])
     expect(await listDocs(root, 'outline')).toHaveLength(before.length)
+  })
+})
+
+describe('executeExpertTask analyze-relations pre-gates', () => {
+  it('refuses analyze-relations without a selected character', async () => {
+    const root = await fixture()
+    const invokeProvider = vi.fn()
+    await expect(
+      executeExpertTask(
+        { projectRoot: root, task_id: 'analyze-relations', input: { character_id: '' } },
+        deps(invokeProvider)
+      )
+    ).rejects.toThrow(NO_CHARACTER_SELECTION)
+    expect(invokeProvider).toHaveBeenCalledTimes(0)
+  })
+
+  it('refuses analyze-relations when the character is missing', async () => {
+    const root = await fixture()
+    const invokeProvider = vi.fn()
+    await expect(
+      executeExpertTask(
+        { projectRoot: root, task_id: 'analyze-relations', input: { character_id: 'missing-char' } },
+        deps(invokeProvider)
+      )
+    ).rejects.toThrow(MISSING_CHARACTER)
+    expect(invokeProvider).toHaveBeenCalledTimes(0)
+  })
+})
+
+describe('executeExpertTask relation and foreshadowing handlers', () => {
+  it('returns relation proposals without writing relation files', async () => {
+    const root = await fixture()
+    await createCharacter(root, 'Lin', { id: 'char-lin' })
+    const beforeRelations = await listDocs(root, 'character_relation')
+    const beforeMemberships = await listDocs(root, 'faction_membership')
+    const beforeFactionRelations = await listDocs(root, 'faction_relation')
+    const invokeProvider = vi.fn(async () =>
+      JSON.stringify({
+        character_id: 'model-should-not-win',
+        creates: [],
+        updates: []
+      })
+    )
+
+    const outcome = await executeExpertTask(
+      { projectRoot: root, task_id: 'analyze-relations', input: { character_id: 'char-lin' } },
+      { ...deps(invokeProvider), executionId: () => 'relation-eval-1' }
+    )
+    if (outcome.status === 'failed') {
+      throw new Error(`${outcome.error.code}: ${outcome.error.technical_detail}`)
+    }
+
+    expect(outcome.status).toBe('completed')
+    expect(invokeProvider).toHaveBeenCalledTimes(1)
+    const result = outcome.result as RelationAnalyzeProposalSet
+    expect(result.eval_id).toBe('relation-eval-1')
+    expect(result.character_id).toBe('char-lin')
+    expect(result.creates).toEqual([])
+    expect(result.updates).toEqual([])
+    expect(await listDocs(root, 'character_relation')).toHaveLength(beforeRelations.length)
+    expect(await listDocs(root, 'faction_membership')).toHaveLength(beforeMemberships.length)
+    expect(await listDocs(root, 'faction_relation')).toHaveLength(beforeFactionRelations.length)
+  })
+
+  it('returns foreshadowing proposals without writing foreshadowing files', async () => {
+    const root = await fixture()
+    const before = await listDocs(root, 'foreshadowing')
+    const invokeProvider = vi.fn(async () =>
+      JSON.stringify({ creates: [], updates: [], bindings: [] })
+    )
+
+    const outcome = await executeExpertTask(
+      { projectRoot: root, task_id: 'manage-foreshadowing', input: {} },
+      { ...deps(invokeProvider), executionId: () => 'foreshadow-eval-1' }
+    )
+    if (outcome.status === 'failed') {
+      throw new Error(`${outcome.error.code}: ${outcome.error.technical_detail}`)
+    }
+
+    expect(outcome.status).toBe('completed')
+    expect(invokeProvider).toHaveBeenCalledTimes(1)
+    const result = outcome.result as ForeshadowManageProposalSet
+    expect(result.eval_id).toBe('foreshadow-eval-1')
+    expect(result.creates).toEqual([])
+    expect(result.updates).toEqual([])
+    expect(result.bindings).toEqual([])
+    expect(await listDocs(root, 'foreshadowing')).toHaveLength(before.length)
   })
 })

@@ -143,7 +143,7 @@ describe('applyForeshadowManage with binding rollback', () => {
     const root = await project()
     await createForeshadowing(root, 'Harbor chart', { id: 'fs-1', state: 'planned' }, 'Chart body.')
     const chapterPath = await chapterWithRelated(root, 'ch-1', ['fs-1'], '## Keep this body\n')
-    const before = await readMarkdown<OutlineDoc>(chapterPath)
+    const before = await readMarkdown<Record<string, unknown>>(chapterPath)
 
     const result = await applyForeshadowManage(
       root,
@@ -166,7 +166,7 @@ describe('applyForeshadowManage with binding rollback', () => {
     )
 
     expect(result.binding_document_ids).toEqual(['ch-1'])
-    const after = await readMarkdown<OutlineDoc>(chapterPath)
+    const after = await readMarkdown<Record<string, unknown>>(chapterPath)
     expect(after.data.foreshadowing_planted).toContain('fs-1')
     expect(after.data.related_foreshadowing).toEqual(['fs-1'])
     expect(after.content).toBe(before.content)
@@ -256,7 +256,7 @@ describe('applyForeshadowManage with binding rollback', () => {
       )
     ).rejects.toThrow(FORESHADOW_UNREFERENCED)
 
-    const chapter = await readMarkdown<OutlineDoc>(chapterPath)
+    const chapter = await readMarkdown<Record<string, unknown>>(chapterPath)
     expect(chapter.data.foreshadowing_planted).toEqual([])
   })
 
@@ -371,7 +371,7 @@ describe('applyForeshadowManage with binding rollback', () => {
     )
 
     expect(again.binding_document_ids).toEqual(['ch-1', 'ch-1'])
-    const chapter = await readMarkdown<OutlineDoc>(chapterPath)
+    const chapter = await readMarkdown<Record<string, unknown>>(chapterPath)
     expect(chapter.data.foreshadowing_planted).toEqual(['fs-1'])
     expect(chapter.data.foreshadowing_resolved).toEqual([])
   })

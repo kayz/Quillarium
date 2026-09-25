@@ -121,7 +121,7 @@ export async function applyForeshadowManage(
         }
 
         const fields = { ...proposal.fields, ...decision.fields }
-        const nextData: Record<string, unknown> = { ...(card.data as Record<string, unknown>) }
+        const nextData: Record<string, unknown> = { ...(card.data as unknown as Record<string, unknown>) }
         for (const [key, value] of Object.entries(fields)) {
           if (key === 'id' || key === 'type') continue
           nextData[key] = value
@@ -185,7 +185,7 @@ export async function applyForeshadowManage(
           throw new Error(FORESHADOW_UNREFERENCED)
         }
 
-        const nextData: Record<string, unknown> = { ...(target.data as Record<string, unknown>) }
+        const nextData: Record<string, unknown> = { ...(target.data as unknown as Record<string, unknown>) }
         if (proposal.plant !== undefined) {
           nextData.foreshadowing_planted = patchIdArray(
             target.data.foreshadowing_planted,

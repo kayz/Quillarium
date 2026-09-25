@@ -45,6 +45,11 @@ import {
 } from './errors.js'
 import { AgentTaskRegistry } from './registry.js'
 import { CONTINUITY_CHECK_DEFINITION, createContinuityCheckHandler } from './tasks/continuity-check.js'
+import { ANALYZE_RELATIONS_DEFINITION, createAnalyzeRelationsHandler } from './tasks/analyze-relations.js'
+import {
+  MANAGE_FORESHADOWING_DEFINITION,
+  createManageForeshadowingHandler
+} from './tasks/manage-foreshadowing.js'
 import { ORGANIZE_OUTLINE_DEFINITION, createOrganizeOutlineHandler } from './tasks/organize-outline.js'
 import { ORGANIZE_WORLDBOOK_DEFINITION, createOrganizeWorldbookHandler } from './tasks/organize-worldbook.js'
 import {
@@ -64,6 +69,8 @@ const runtimeRegistry = new AgentTaskRegistry(
     CONTINUITY_CHECK_DEFINITION,
     ORGANIZE_OUTLINE_DEFINITION,
     ORGANIZE_WORLDBOOK_DEFINITION,
+    ANALYZE_RELATIONS_DEFINITION,
+    MANAGE_FORESHADOWING_DEFINITION,
     SETTING_CARD_DESIGN_DEFINITION,
     DISPLAY_CARD_DESIGN_DEFINITION
   ],
@@ -72,6 +79,8 @@ const runtimeRegistry = new AgentTaskRegistry(
     createContinuityCheckHandler(),
     createOrganizeOutlineHandler(),
     createOrganizeWorldbookHandler(),
+    createAnalyzeRelationsHandler(),
+    createManageForeshadowingHandler(),
     settingCardDesignHandler,
     { ...settingCardDesignHandler, definition: DISPLAY_CARD_DESIGN_DEFINITION }
   ]

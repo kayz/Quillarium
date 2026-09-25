@@ -23,7 +23,7 @@ export async function loadCharacterForRelationAnalyze(
   characterId: string
 ): Promise<{ id: string; title: string } | null> {
   if (!characterId.trim()) return null
-  const characters = await listDocs<{ id: string; title: string }>(projectRoot, 'character')
+  const characters = await listDocs<DocumentIdentity>(projectRoot, 'character')
   const found = characters.find((item) => item.data.id === characterId)
   if (!found) return null
   return { id: found.data.id, title: found.data.title }
@@ -195,7 +195,7 @@ export async function applyRelationAnalyze(
         }
 
         const fields = { ...proposal.fields, ...decision.fields }
-        const nextData: Record<string, unknown> = { ...(card.data as Record<string, unknown>) }
+        const nextData: Record<string, unknown> = { ...(card.data as unknown as Record<string, unknown>) }
         for (const [key, value] of Object.entries(fields)) {
           if (key === 'id' || key === 'type') continue
           nextData[key] = value

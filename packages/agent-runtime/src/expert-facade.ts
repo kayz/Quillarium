@@ -2,7 +2,10 @@ import {
   CHAPTER_IS_LEAF,
   getAgentTaskDefinition,
   loadChapterProseForEval,
+  loadCharacterForRelationAnalyze,
   loadOutlineSubtreeForOrganize,
+  MISSING_CHARACTER,
+  NO_CHARACTER_SELECTION,
   NO_OUTLINE_SELECTION
 } from '@quillarium/core'
 import type {
@@ -60,6 +63,12 @@ export async function executeExpertTask(
     if (!subtree) throw new Error(NO_OUTLINE_SELECTION)
     if (subtree.root.level === 'chapter') throw new Error(CHAPTER_IS_LEAF)
   }
+  if (request.task_id === 'analyze-relations') {
+    const characterId = String(request.input.character_id ?? '')
+    if (!characterId.trim()) throw new Error(NO_CHARACTER_SELECTION)
+    const character = await loadCharacterForRelationAnalyze(request.projectRoot, characterId)
+    if (!character) throw new Error(MISSING_CHARACTER)
+  }
 
   const target =
     request.task_id === 'continuity-check'
@@ -68,7 +77,11 @@ export async function executeExpertTask(
         ? { type: 'outline', id: String(request.input.outline_id ?? '') }
         : request.task_id === 'organize-worldbook'
           ? { type: 'project', id: 'project' }
-          : null
+          : request.task_id === 'analyze-relations'
+            ? { type: 'character', id: String(request.input.character_id ?? '') }
+            : request.task_id === 'manage-foreshadowing'
+              ? { type: 'project', id: 'project' }
+              : null
 
   return executeAgentTask(
     {

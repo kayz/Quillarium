@@ -127,7 +127,9 @@ describe('applyRelationAnalyze with rollback', () => {
     )
     expect(result.created_ids).toHaveLength(1)
     expect(await listDocs(root, 'world_entry')).toHaveLength(0)
-    const rel = (await listDocs(root, 'character_relation')).find((item) => item.data.id === result.created_ids[0])
+    const rel = (await listDocs<CharacterRelationDoc>(root, 'character_relation')).find(
+      (item) => item.data.id === result.created_ids[0]
+    )
     expect(rel?.data.from_character).toBe('char-lin')
     expect(rel?.content).toContain('harbor oath')
   })
