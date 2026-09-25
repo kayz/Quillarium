@@ -309,6 +309,17 @@ pnpm cli expert analyze-relations --character-id <character-id> --project "./wri
 pnpm cli expert manage-foreshadowing --project "./writing-workspace/projects/my-novel"
 ```
 
+#### Expert timeline manage
+
+Propose timeline event creates/updates, point placements on existing nodes, and same-node display
+order through the expert facade. A missing track refuses with
+`找不到时间轨道，不能整理时间线。` Empty selection is a desktop-only message. Successful runs print
+proposal counts only; they do not write timeline files and have no apply flag in this slice:
+
+```bash
+pnpm cli expert manage-timeline --track-id <track-id> --project "./writing-workspace/projects/my-novel"
+```
+
 #### Assistant turn confirm apply
 
 Apply a stored creator-assistant turn from a decisions file. The decisions payload must set
@@ -474,42 +485,42 @@ interchange does not support CHARX, CCv3 export, or materializing embedded CCv3 
 This map mirrors the current Commander tree. Use `--help` on any group or leaf command for arguments
 and options.
 
-| Command          | Subcommands or purpose                                                                                                                 |
-| ---------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
-| `workspace`      | `list`, `create-project`                                                                                                               |
-| `config`         | Workspace configuration plus explicit legacy-vault compatibility                                                                       |
-| `init`           | Create/register `projects/<id>`; `--vault` is legacy-only                                                                              |
-| `project`        | `set-structure`: scene module on/off; `reset-display --confirm`: wipe setting images                                                   |
-| `display`        | `add-image`: upload png/jpeg/webp into `assets/display/<card-id>/` (no generate)                                                       |
-| `preset`         | `init`, `list`, `show`, `select`, `create`, `migrate`                                                                                  |
-| `canon`          | `add`, `import`, `list`, `search`                                                                                                      |
-| `character`      | `add`, `list`                                                                                                                          |
-| `foreshadowing`  | `add`, `list`                                                                                                                          |
-| `world`          | `add`, `list`                                                                                                                          |
-| `reference`      | `add`, `list`                                                                                                                          |
-| `issue`          | `add`, `list`                                                                                                                          |
-| `strategy`       | `add`, `list`                                                                                                                          |
-| `pattern`        | `add`, `list`                                                                                                                          |
-| `timeline`       | `append`, `list`, `check`                                                                                                              |
-| `location`       | `add`, `list`                                                                                                                          |
-| `route`          | `add`                                                                                                                                  |
-| `outline`        | `add`, `list`; new levels are `overview`, `book`, `volume`, `part`, `act`, `chapter`                                                   |
-| `scene`          | `create`, `list`; `--section` is the compatibility spelling for owning chapter ID                                                      |
-| `index`          | Rebuild the project index                                                                                                              |
-| `export`         | Export accepted manuscript prose; format `md` or `txt`, optional `--volume`                                                            |
-| `prompt`         | `init`, `show`                                                                                                                         |
-| `import`         | `markdown`, `ai-plan`, `answer`, `land`, `show`                                                                                        |
-| `context`        | Assemble scene context; optional `--run`                                                                                               |
-| `generate`       | Generate a scene; optional `--dry-run`                                                                                                 |
-| `check`          | Scene/outline checks via `--type`; scenes allow `--semantic`; optional `--run`                                                         |
-| `agent`          | Auditable `check-planning`, `decide-planning`, and `apply-planning` lifecycle                                                          |
-| `expert`         | `evaluate-chapter`, `organize-outline`, `organize-worldbook`, `analyze-relations`, `manage-foreshadowing`: eval counts only (no apply) |
-| `assistant`      | `apply-turn`: confirm a stored turn from a decisions file                                                                              |
-| `st`             | `import-card`, `export-card`, `export-lorebook`                                                                                        |
-| `finalize`       | `review-plan`, `show`, `confirm`, `answer`, `apply`, `recover`                                                                         |
-| `chapter-plan`   | Build ordered scene-writing prompts for a chapter                                                                                      |
-| `run`            | `list`, `show`, `set-output`, `accept`                                                                                                 |
-| `help [command]` | Display help for a command                                                                                                             |
+| Command          | Subcommands or purpose                                                                                                                                    |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `workspace`      | `list`, `create-project`                                                                                                                                  |
+| `config`         | Workspace configuration plus explicit legacy-vault compatibility                                                                                          |
+| `init`           | Create/register `projects/<id>`; `--vault` is legacy-only                                                                                                 |
+| `project`        | `set-structure`: scene module on/off; `reset-display --confirm`: wipe setting images                                                                      |
+| `display`        | `add-image`: upload png/jpeg/webp into `assets/display/<card-id>/` (no generate)                                                                          |
+| `preset`         | `init`, `list`, `show`, `select`, `create`, `migrate`                                                                                                     |
+| `canon`          | `add`, `import`, `list`, `search`                                                                                                                         |
+| `character`      | `add`, `list`                                                                                                                                             |
+| `foreshadowing`  | `add`, `list`                                                                                                                                             |
+| `world`          | `add`, `list`                                                                                                                                             |
+| `reference`      | `add`, `list`                                                                                                                                             |
+| `issue`          | `add`, `list`                                                                                                                                             |
+| `strategy`       | `add`, `list`                                                                                                                                             |
+| `pattern`        | `add`, `list`                                                                                                                                             |
+| `timeline`       | `append`, `list`, `check`                                                                                                                                 |
+| `location`       | `add`, `list`                                                                                                                                             |
+| `route`          | `add`                                                                                                                                                     |
+| `outline`        | `add`, `list`; new levels are `overview`, `book`, `volume`, `part`, `act`, `chapter`                                                                      |
+| `scene`          | `create`, `list`; `--section` is the compatibility spelling for owning chapter ID                                                                         |
+| `index`          | Rebuild the project index                                                                                                                                 |
+| `export`         | Export accepted manuscript prose; format `md` or `txt`, optional `--volume`                                                                               |
+| `prompt`         | `init`, `show`                                                                                                                                            |
+| `import`         | `markdown`, `ai-plan`, `answer`, `land`, `show`                                                                                                           |
+| `context`        | Assemble scene context; optional `--run`                                                                                                                  |
+| `generate`       | Generate a scene; optional `--dry-run`                                                                                                                    |
+| `check`          | Scene/outline checks via `--type`; scenes allow `--semantic`; optional `--run`                                                                            |
+| `agent`          | Auditable `check-planning`, `decide-planning`, and `apply-planning` lifecycle                                                                             |
+| `expert`         | `evaluate-chapter`, `organize-outline`, `organize-worldbook`, `analyze-relations`, `manage-foreshadowing`, `manage-timeline`: eval counts only (no apply) |
+| `assistant`      | `apply-turn`: confirm a stored turn from a decisions file                                                                                                 |
+| `st`             | `import-card`, `export-card`, `export-lorebook`                                                                                                           |
+| `finalize`       | `review-plan`, `show`, `confirm`, `answer`, `apply`, `recover`                                                                                            |
+| `chapter-plan`   | Build ordered scene-writing prompts for a chapter                                                                                                         |
+| `run`            | `list`, `show`, `set-output`, `accept`                                                                                                                    |
+| `help [command]` | Display help for a command                                                                                                                                |
 
 For example:
 

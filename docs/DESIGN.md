@@ -59,15 +59,18 @@ optional confirm-time specialize; confirm applies through `applyWorldOrganize`.
 (creates/updates of the three relation types, confirm `applyRelationAnalyze`) and
 `manage-foreshadowing` is author-click from the foreshadowing ledger (card creates/updates plus
 plant/resolve bindings on already-linked outline/scene docs, confirm `applyForeshadowManage`).
-Creator-assistant
+`manage-timeline` is author-click from the timeline chain for the current track (event
+creates/updates, point placements on existing nodes, same-node display order, confirm
+`applyTimelineManage`). CLI `quill expert manage-timeline` is evaluate-only. Creator-assistant
 turns still chat through existing sessions; pending planning, issue, and configuration proposals open
 one confirm overlay per turn; confirm runs `applyAssistantTurn` (world-entry creates, enabled-card
 body replace, optional specialize, issues, configs, unselected rejected); CLI
 `quill assistant apply-turn` applies a stored turn from a decisions file and never chats. CLI exposes
 `quill expert organize-outline`,
 `quill expert organize-worldbook`,
-`quill expert analyze-relations`, and
-`quill expert manage-foreshadowing` as evaluate-only one-liners that print proposal counts and never
+`quill expert analyze-relations`,
+`quill expert manage-foreshadowing`, and
+`quill expert manage-timeline` as evaluate-only one-liners that print proposal counts and never
 apply.
 
 The implemented context layer returns one deterministic `ContextPacket` with selected documents,
