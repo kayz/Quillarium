@@ -9,13 +9,16 @@ import {
   createProjectAt,
   listDocs,
   MISSING_CHARACTER,
+  MISSING_TRACK,
   NO_CHARACTER_SELECTION,
+  NO_TRACK_SELECTION,
   readMarkdown,
   writeMarkdown,
   type ChapterEvalProposalSet,
   type ForeshadowManageProposalSet,
   type OutlineOrganizeProposalSet,
   type RelationAnalyzeProposalSet,
+  type TimelineManageProposalSet,
   type WorldOrganizeProposalSet
 } from '@quillarium/core'
 import { EXPERT_LANE_ONLY, executeExpertTask } from './expert-facade.js'
@@ -288,5 +291,54 @@ describe('executeExpertTask relation and foreshadowing handlers', () => {
     expect(result.updates).toEqual([])
     expect(result.bindings).toEqual([])
     expect(await listDocs(root, 'foreshadowing')).toHaveLength(before.length)
+  })
+})
+
+describe('executeExpertTask manage-timeline', () => {
+  it('refuses manage-timeline without a track id', async () => {
+    const root = await fixture()
+    const invokeProvider = vi.fn()
+    await expect(
+      executeExpertTask(
+        { projectRoot: root, task_id: 'manage-timeline', input: { track_id: '   ' } },
+        deps(invokeProvider)
+      )
+    ).rejects.toThrow(NO_TRACK_SELECTION)
+    expect(invokeProvider).toHaveBeenCalledTimes(0)
+  })
+
+  it('refuses manage-timeline when the track is missing', async () => {
+    const root = await fixture()
+    const invokeProvider = vi.fn()
+    await expect(
+      executeExpertTask(
+        { projectRoot: root, task_id: 'manage-timeline', input: { track_id: 'missing-track' } },
+        deps(invokeProvider)
+      )
+    ).rejects.toThrow(MISSING_TRACK)
+    expect(invokeProvider).toHaveBeenCalledTimes(0)
+  })
+
+  it('returns timeline proposals without writing event files and stamps track_id', async () => {
+    const root = await fixture()
+    const before = await listDocs(root, 'timeline_event')
+    const invokeProvider = vi.fn(async () =>
+      JSON.stringify({
+        track_id: 'forged',
+        creates: [],
+        updates: [],
+        placements: [],
+        orders: []
+      })
+    )
+    const outcome = await executeExpertTask(
+      { projectRoot: root, task_id: 'manage-timeline', input: { track_id: 'main' } },
+      { ...deps(invokeProvider), executionId: () => 'timeline-eval-1' }
+    )
+    if (outcome.status === 'failed') throw new Error(outcome.error.technical_detail)
+    const result = outcome.result as TimelineManageProposalSet
+    expect(result.eval_id).toBe('timeline-eval-1')
+    expect(result.track_id).toBe('main')
+    expect(await listDocs(root, 'timeline_event')).toHaveLength(before.length)
   })
 })

@@ -4,9 +4,12 @@ import {
   loadChapterProseForEval,
   loadCharacterForRelationAnalyze,
   loadOutlineSubtreeForOrganize,
+  loadTrackForTimelineManage,
   MISSING_CHARACTER,
+  MISSING_TRACK,
   NO_CHARACTER_SELECTION,
-  NO_OUTLINE_SELECTION
+  NO_OUTLINE_SELECTION,
+  NO_TRACK_SELECTION
 } from '@quillarium/core'
 import type {
   AgentExecutionOutcome,
@@ -69,6 +72,12 @@ export async function executeExpertTask(
     const character = await loadCharacterForRelationAnalyze(request.projectRoot, characterId)
     if (!character) throw new Error(MISSING_CHARACTER)
   }
+  if (request.task_id === 'manage-timeline') {
+    const trackId = String(request.input.track_id ?? '')
+    if (!trackId.trim()) throw new Error(NO_TRACK_SELECTION)
+    const track = await loadTrackForTimelineManage(request.projectRoot, trackId)
+    if (!track) throw new Error(MISSING_TRACK)
+  }
 
   const target =
     request.task_id === 'continuity-check'
@@ -81,7 +90,9 @@ export async function executeExpertTask(
             ? { type: 'character', id: String(request.input.character_id ?? '') }
             : request.task_id === 'manage-foreshadowing'
               ? { type: 'project', id: 'project' }
-              : null
+              : request.task_id === 'manage-timeline'
+                ? { type: 'project', id: String(request.input.track_id ?? '') }
+                : null
 
   return executeAgentTask(
     {

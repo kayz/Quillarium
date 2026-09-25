@@ -50,6 +50,10 @@ import {
   MANAGE_FORESHADOWING_DEFINITION,
   createManageForeshadowingHandler
 } from './tasks/manage-foreshadowing.js'
+import {
+  MANAGE_TIMELINE_DEFINITION,
+  createManageTimelineHandler
+} from './tasks/manage-timeline.js'
 import { ORGANIZE_OUTLINE_DEFINITION, createOrganizeOutlineHandler } from './tasks/organize-outline.js'
 import { ORGANIZE_WORLDBOOK_DEFINITION, createOrganizeWorldbookHandler } from './tasks/organize-worldbook.js'
 import {
@@ -71,6 +75,7 @@ const runtimeRegistry = new AgentTaskRegistry(
     ORGANIZE_WORLDBOOK_DEFINITION,
     ANALYZE_RELATIONS_DEFINITION,
     MANAGE_FORESHADOWING_DEFINITION,
+    MANAGE_TIMELINE_DEFINITION,
     SETTING_CARD_DESIGN_DEFINITION,
     DISPLAY_CARD_DESIGN_DEFINITION
   ],
@@ -81,6 +86,7 @@ const runtimeRegistry = new AgentTaskRegistry(
     createOrganizeWorldbookHandler(),
     createAnalyzeRelationsHandler(),
     createManageForeshadowingHandler(),
+    createManageTimelineHandler(),
     settingCardDesignHandler,
     { ...settingCardDesignHandler, definition: DISPLAY_CARD_DESIGN_DEFINITION }
   ]
