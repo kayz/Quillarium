@@ -486,4 +486,46 @@ describe('planning visual workbenches', () => {
     expect(html).toContain('时态人物关系')
     expect(html).not.toContain('分析关系')
   })
+
+  it('disables analyze relations while card save is busy', () => {
+    const start = doc('timeline_node', 'time-1', '元年一月', { year: 1, month: 1 })
+    const middle = doc('timeline_node', 'time-2', '元年二月', { year: 1, month: 2 })
+    const a = doc('character', 'a', '甲', { introduced_at: 'time-1' })
+    const b = doc('character', 'b', '乙', { introduced_at: 'time-2' })
+    const formed = doc('character_relation', 'relation-now', '同盟', {
+      from_character: 'a',
+      to_character: 'b',
+      relation_type: '同盟',
+      starts_at: 'time-2',
+      ends_at: null
+    })
+
+    const idle = renderToStaticMarkup(
+      <CharacterRelationView
+        items={[a, b, formed]}
+        timelineNodes={[start, middle]}
+        selectedTarget={null}
+        onSelect={() => undefined}
+        language="zh"
+        projectRoot="C:/tmp/project"
+        busy={false}
+      />
+    )
+    expect(idle).toContain('分析关系')
+    expect(idle).not.toMatch(/disabled="" title="分析关系"/)
+
+    const busyHtml = renderToStaticMarkup(
+      <CharacterRelationView
+        items={[a, b, formed]}
+        timelineNodes={[start, middle]}
+        selectedTarget={null}
+        onSelect={() => undefined}
+        language="zh"
+        projectRoot="C:/tmp/project"
+        busy={true}
+      />
+    )
+    expect(busyHtml).toContain('分析关系')
+    expect(busyHtml).toMatch(/disabled="" title="分析关系"/)
+  })
 })

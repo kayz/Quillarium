@@ -5,6 +5,7 @@ import { createWorldEntry, listDocs } from './documents.js'
 import { pathExists, readMarkdown, readText, writeMarkdown, writeText } from './fs.js'
 import { specializePlanningCard } from './planning-specialize.js'
 import { withProjectWriteLock } from './project-write-lock.js'
+import { foreshadowingSchema } from './schema.js'
 import type { DocumentIdentity } from './types.js'
 
 export const MISSING_FORESHADOW_CARD = '找不到要更新的伏笔卡。'
@@ -134,8 +135,10 @@ export async function applyForeshadowManage(
           nextData.title = proposalTitle.trim()
         }
 
+        const parsed = foreshadowingSchema.parse(nextData)
+
         const originalRaw = await readText(card.path)
-        await writeMarkdown(card.path, nextData, proposal.content)
+        await writeMarkdown(card.path, parsed, proposal.content)
         restorations.push({ path: card.path, before: originalRaw })
         updatedIds.push(proposal.card_id)
       }

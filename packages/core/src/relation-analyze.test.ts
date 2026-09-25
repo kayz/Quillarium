@@ -254,6 +254,86 @@ describe('applyRelationAnalyze with rollback', () => {
     expect(rel.content).toBe('Disabled body.\n')
   })
 
+  it('rejects updates that make from_character equal to_character and leaves the body unchanged', async () => {
+    const root = await project()
+    await createCharacter(root, 'Lin', { id: 'char-lin' })
+    await createCharacter(root, 'Mei', { id: 'char-mei' })
+    await createCharacterRelation(
+      root,
+      'Lin and Mei',
+      {
+        id: 'rel-1',
+        from_character: 'char-lin',
+        to_character: 'char-mei',
+        relation_type: 'ally'
+      },
+      'Original body.'
+    )
+
+    await expect(
+      applyRelationAnalyze(
+        root,
+        baseProposals({
+          updates: [
+            {
+              proposal_id: 'u-rel',
+              card_id: 'rel-1',
+              content: 'Should not write.',
+              fields: { to_character: 'char-lin' }
+            }
+          ]
+        }),
+        { confirmed: true, creates: [], updates: [{ proposal_id: 'u-rel' }] }
+      )
+    ).rejects.toThrow('人物关系必须连接两个不同的人物。')
+
+    const rel = (await listDocs<CharacterRelationDoc>(root, 'character_relation'))[0]!
+    expect(rel.content).toContain('Original body')
+    expect(rel.data.from_character).toBe('char-lin')
+    expect(rel.data.to_character).toBe('char-mei')
+  })
+
+  it('ignores enabled:false in update fields and keeps the card enabled', async () => {
+    const root = await project()
+    await createCharacter(root, 'Lin', { id: 'char-lin' })
+    await createCharacter(root, 'Mei', { id: 'char-mei' })
+    await createCharacterRelation(
+      root,
+      'Lin and Mei',
+      {
+        id: 'rel-1',
+        from_character: 'char-lin',
+        to_character: 'char-mei',
+        relation_type: 'ally'
+      },
+      'Keep enabled.'
+    )
+
+    const result = await applyRelationAnalyze(
+      root,
+      baseProposals({
+        updates: [
+          {
+            proposal_id: 'u-rel',
+            card_id: 'rel-1',
+            content: 'Keep enabled.',
+            fields: { enabled: false, relation_type: 'rival' }
+          }
+        ]
+      }),
+      {
+        confirmed: true,
+        creates: [],
+        updates: [{ proposal_id: 'u-rel', fields: { enabled: false, relation_type: 'rival' } }]
+      }
+    )
+
+    expect(result.updated_ids).toEqual(['rel-1'])
+    const rel = (await listDocs<CharacterRelationDoc>(root, 'character_relation'))[0]!
+    expect(rel.data.relation_type).toBe('rival')
+    expect(rel.data.enabled).not.toBe(false)
+  })
+
   it('rejects faction_relation when character has no membership in either faction', async () => {
     const root = await project()
     await createCharacter(root, 'Lin', { id: 'char-lin' })

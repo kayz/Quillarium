@@ -3,10 +3,38 @@ import { DISABLED_UPDATE_CARD } from './assistant-turn-apply.js'
 import { UNCONFIRMED_EVAL } from './chapter-eval.js'
 import { createWorldEntry, listDocs } from './documents.js'
 import { pathExists, readMarkdown, readText, writeMarkdown, writeText } from './fs.js'
-import { isEnabledPlanningCard } from './planning-cards.js'
+import { assertCardReferencesExist, isEnabledPlanningCard } from './planning-cards.js'
 import { specializePlanningCard } from './planning-specialize.js'
 import { withProjectWriteLock } from './project-write-lock.js'
+import {
+  characterRelationSchema,
+  factionMembershipSchema,
+  factionRelationSchema
+} from './schema.js'
 import type { DocumentIdentity } from './types.js'
+
+const RELATION_UPDATE_FIELD_KEYS = [
+  'relation_type',
+  'direction',
+  'starts_at',
+  'ends_at',
+  'visibility',
+  'role',
+  'rank',
+  'primary',
+  'from_character',
+  'to_character',
+  'from_faction',
+  'to_faction',
+  'character_id',
+  'faction_id'
+] as const
+
+const RELATION_UPDATE_SCHEMAS = {
+  character_relation: characterRelationSchema,
+  faction_relation: factionRelationSchema,
+  faction_membership: factionMembershipSchema
+} as const
 
 export const NO_CHARACTER_SELECTION = '没有选中人物，不能分析关系。'
 export const MISSING_CHARACTER = '找不到人物，不能分析关系。'
@@ -190,9 +218,10 @@ export async function applyRelationAnalyze(
 
         const fields = { ...proposal.fields, ...decision.fields }
         const nextData: Record<string, unknown> = { ...(card.data as unknown as Record<string, unknown>) }
-        for (const [key, value] of Object.entries(fields)) {
-          if (key === 'id' || key === 'type') continue
-          nextData[key] = value
+        for (const key of RELATION_UPDATE_FIELD_KEYS) {
+          if (key in fields) {
+            nextData[key] = fields[key]
+          }
         }
         nextData.id = card.data.id
         nextData.type = card.data.type
@@ -210,8 +239,18 @@ export async function applyRelationAnalyze(
           extraMemberships
         )
 
+        const parsed = RELATION_UPDATE_SCHEMAS[card.data.type].parse(nextData) as DocumentIdentity &
+          Record<string, unknown>
+        if (card.data.type === 'character_relation' && parsed['from_character'] === parsed['to_character']) {
+          throw new Error('人物关系必须连接两个不同的人物。')
+        }
+        if (card.data.type === 'faction_relation' && parsed['from_faction'] === parsed['to_faction']) {
+          throw new Error('势力关系必须连接两个不同的势力。')
+        }
+        assertCardReferencesExist(parsed, documents)
+
         const originalRaw = await readText(card.path)
-        await writeMarkdown(card.path, nextData, proposal.content)
+        await writeMarkdown(card.path, parsed, proposal.content)
         restorations.push({ path: card.path, before: originalRaw })
         updatedIds.push(proposal.card_id)
       }

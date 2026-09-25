@@ -260,6 +260,34 @@ describe('applyForeshadowManage with binding rollback', () => {
     expect(chapter.data.foreshadowing_planted).toEqual([])
   })
 
+  it('rejects updates with invalid state and leaves the body unchanged', async () => {
+    const root = await project()
+    await createForeshadowing(root, 'Harbor chart', { id: 'fs-1', state: 'planned' }, 'Old body.')
+
+    await expect(
+      applyForeshadowManage(
+        root,
+        baseProposals({
+          updates: [
+            {
+              proposal_id: 'u-fs',
+              card_id: 'fs-1',
+              content: 'Should not write.',
+              fields: { state: 'nope' }
+            }
+          ]
+        }),
+        { confirmed: true, creates: [], updates: [{ proposal_id: 'u-fs' }], bindings: [] }
+      )
+    ).rejects.toThrow()
+
+    const card = (await listDocs<ForeshadowingDoc>(root, 'foreshadowing')).find(
+      (item) => item.data.id === 'fs-1'
+    )
+    expect(card?.content).toContain('Old body')
+    expect(card?.data.state).toBe('planned')
+  })
+
   it('rejects updates to disabled foreshadowing cards', async () => {
     const root = await project()
     await createForeshadowing(

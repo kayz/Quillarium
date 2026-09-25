@@ -873,6 +873,7 @@ export function OutlineHome({
               onReloadProject={onReloadProject}
               language={language}
               displayLayer={displayLayer}
+              busy={busy}
             />
           ) : activeSection === 'locations' ? (
             <LocationExplorerView

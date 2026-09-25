@@ -1005,7 +1005,8 @@ export function CharacterRelationView({
   onCreateTimelineNode,
   onReloadProject,
   language,
-  displayLayer = { enabled: false, migrated: true }
+  displayLayer = { enabled: false, migrated: true },
+  busy = false
 }: {
   items: DocEntry[]
   allDocs?: DocEntry[]
@@ -1018,6 +1019,7 @@ export function CharacterRelationView({
   onReloadProject?: () => Promise<void>
   language: LanguageName
   displayLayer?: DisplayLayerChrome
+  busy?: boolean
 }) {
   const zh = language === 'zh'
   const [analyzeProposals, setAnalyzeProposals] = useState<RelationAnalyzeProposalSet | null>(null)
@@ -1377,7 +1379,7 @@ export function CharacterRelationView({
             className="relationship-create-button"
             type="button"
             onClick={() => void analyzeRelations()}
-            disabled={!projectRoot || analyzeBusy}
+            disabled={busy || !projectRoot || analyzeBusy}
             title={zh ? '分析关系' : 'Analyze relations'}
           >
             <Sparkles size={15} /> {zh ? '分析关系' : 'Analyze relations'}
@@ -1709,7 +1711,7 @@ export function CharacterRelationView({
               <button
                 className="primary"
                 onClick={() => void applyAnalyze()}
-                disabled={analyzeBusy || !analyzeConfirmReady}
+                disabled={busy || analyzeBusy || !analyzeConfirmReady}
               >
                 {zh ? '确认写入' : 'Confirm write'}
               </button>

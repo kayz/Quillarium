@@ -448,6 +448,7 @@ export function VolumeHome({
               onSelect={onSelect}
               language={language}
               displayLayer={displayLayer}
+              busy={busy}
             />
           ) : activeSection === 'locations' ? (
             <LocationExplorerView
