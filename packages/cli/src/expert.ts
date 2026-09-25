@@ -5,6 +5,7 @@ import type {
   ForeshadowManageProposalSet,
   OutlineOrganizeProposalSet,
   RelationAnalyzeProposalSet,
+  TimelineManageProposalSet,
   WorldOrganizeProposalSet
 } from '@quillarium/core'
 import * as agentRuntime from '@quillarium/agent-runtime'
@@ -119,6 +120,28 @@ export function registerExpertCommands(program: Command, projectOption: (command
     const result = outcome.result as ForeshadowManageProposalSet
     console.log(
       `foreshadow-manage: creates=${result.creates.length} updates=${result.updates.length} bindings=${result.bindings.length}`
+    )
+  })
+
+  projectOption(
+    expert
+      .command('manage-timeline')
+      .requiredOption('--track-id <id>', 'Timeline track id to organize')
+      .description('Propose timeline event creates, updates, placements, and order without writing')
+  ).action(async (options) => {
+    const outcome = await agentRuntime.executeExpertTask({
+      projectRoot: path.resolve(options.project),
+      task_id: 'manage-timeline',
+      input: { track_id: options.trackId }
+    })
+
+    if (outcome.status !== 'completed') {
+      throwFailedExpert(outcome, '整理时间线失败：')
+    }
+
+    const result = outcome.result as TimelineManageProposalSet
+    console.log(
+      `timeline-manage: creates=${result.creates.length} updates=${result.updates.length} placements=${result.placements.length} orders=${result.orders.length}`
     )
   })
 }

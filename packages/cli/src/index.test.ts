@@ -543,7 +543,8 @@ describe('CLI smoke flow', () => {
       'organize-outline',
       'organize-worldbook',
       'analyze-relations',
-      'manage-foreshadowing'
+      'manage-foreshadowing',
+      'manage-timeline'
     ])
     expect(
       expert?.commands.find((command) => command.name() === 'evaluate-chapter')?.helpInformation()
@@ -559,6 +560,12 @@ describe('CLI smoke flow', () => {
     ).toContain('--character-id')
     expect(
       expert?.commands.find((command) => command.name() === 'manage-foreshadowing')?.helpInformation()
+    ).not.toContain('--apply')
+    expect(
+      expert?.commands.find((command) => command.name() === 'manage-timeline')?.helpInformation()
+    ).toContain('--track-id')
+    expect(
+      expert?.commands.find((command) => command.name() === 'manage-timeline')?.helpInformation()
     ).not.toContain('--apply')
   })
 
@@ -786,6 +793,42 @@ describe('CLI smoke flow', () => {
       projectRoot: expect.any(String),
       task_id: 'manage-foreshadowing',
       input: {}
+    })
+  })
+
+  it('refuses expert manage-timeline when the track is missing', async () => {
+    const { root } = await initProject()
+
+    await expect(
+      run('expert', 'manage-timeline', '--track-id', 'missing-track', '--project', root)
+    ).rejects.toThrow('找不到时间轨道，不能整理时间线。')
+  })
+
+  it('prints timeline-manage counts without writing event files', async () => {
+    const { root } = await initProject()
+    const before = await listDocs(root, 'timeline_event')
+    const spy = vi.spyOn(agentRuntime, 'executeExpertTask').mockResolvedValue({
+      status: 'completed',
+      execution_id: 'timeline-manage-cli-1',
+      task_id: 'manage-timeline',
+      result: {
+        eval_id: 'timeline-manage-cli-1',
+        track_id: 'main',
+        creates: [{ proposal_id: 'c1', title: '到港', content: '船靠岸。', fields: {} }],
+        updates: [{ proposal_id: 'u1', card_id: 'ev-1', content: '更新', fields: {} }],
+        placements: [{ proposal_id: 'p1', node_id: 'node-1', event_id: 'ev-1' }],
+        orders: [{ proposal_id: 'o1', node_id: 'node-1', event_ids: ['ev-1'] }]
+      },
+      run_path: 'runs/timeline-manage-cli-1'
+    })
+    output = []
+    await run('expert', 'manage-timeline', '--track-id', 'main', '--project', root)
+
+    expect(output.at(-1)).toBe('timeline-manage: creates=1 updates=1 placements=1 orders=1')
+    expect(await listDocs(root, 'timeline_event')).toHaveLength(before.length)
+    expect(spy.mock.calls.at(-1)?.[0]).toMatchObject({
+      task_id: 'manage-timeline',
+      input: { track_id: 'main' }
     })
   })
 
