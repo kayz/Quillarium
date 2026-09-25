@@ -13,6 +13,7 @@ import {
   EVENT_OUT_OF_SCOPE,
   eventStartNode,
   listDocs,
+  MISSING_TIMELINE_PROPOSAL,
   MISSING_TRACK,
   NODE_NOT_ON_TRACK,
   NO_TRACK_SELECTION,
@@ -268,6 +269,108 @@ describe('applyTimelineManage with rollback', () => {
     const card = await readMarkdown<TimelineEventDoc>(eventPath)
     expect(card.content).toContain('Disabled body.')
     expect(card.data.date).not.toBe('Year 9')
+  })
+
+  it('rejects placement with both event_id and create_proposal_id and writes nothing', async () => {
+    const root = await project()
+    await withDawnNode(root)
+    const eventPath = await createTimelineEventAtNode(
+      root,
+      'node-dawn',
+      'Harbor arrival',
+      { id: 'evt-harbor' },
+      'Body.'
+    )
+    const beforeRaw = await readText(eventPath)
+    const beforeEvents = await listDocs(root, 'timeline_event')
+    const beforeWorld = await listDocs(root, 'world_entry')
+
+    await expect(
+      applyTimelineManage(
+        root,
+        baseProposals({
+          placements: [
+            {
+              proposal_id: 'p-place',
+              node_id: 'node-dawn',
+              event_id: 'evt-harbor',
+              create_proposal_id: 'p-create'
+            }
+          ]
+        }),
+        emptyDecisions({ placements: ['p-place'] })
+      )
+    ).rejects.toThrow(MISSING_TIMELINE_PROPOSAL('p-place'))
+
+    expect(await readText(eventPath)).toBe(beforeRaw)
+    expect(await listDocs(root, 'timeline_event')).toHaveLength(beforeEvents.length)
+    expect(await listDocs(root, 'world_entry')).toHaveLength(beforeWorld.length)
+  })
+
+  it('rehangs on main with add without wiping a side-track placement', async () => {
+    const root = await project()
+    await withDawnNode(root)
+    await createTimelineNode(root, 'Noon', { id: 'node-noon', year: 1, month: 1, day: 2 })
+    const eventPath = await createTimelineEventAtNode(
+      root,
+      'node-dawn',
+      'Harbor arrival',
+      { id: 'evt-harbor' },
+      'Body.'
+    )
+    const before = await readMarkdown<TimelineEventDoc>(eventPath)
+    await writeMarkdown(
+      eventPath,
+      {
+        ...before.data,
+        timeline_node: 'node-dawn',
+        placements: [
+          {
+            timeline_id: DEFAULT_TIMELINE_TRACK_ID,
+            start_node_id: 'node-dawn',
+            end_node_id: null,
+            order: 0,
+            narrative_order: 0,
+            occurrence: 1
+          },
+          {
+            timeline_id: 'side',
+            start_node_id: 'node-dawn',
+            end_node_id: null,
+            order: 0,
+            narrative_order: 0,
+            occurrence: 1
+          }
+        ]
+      } as unknown as Record<string, unknown>,
+      before.content
+    )
+
+    await applyTimelineManage(
+      root,
+      baseProposals({
+        placements: [
+          {
+            proposal_id: 'p-place',
+            node_id: 'node-noon',
+            event_id: 'evt-harbor'
+          }
+        ]
+      }),
+      emptyDecisions({ placements: ['p-place'] })
+    )
+
+    const after = await readMarkdown<TimelineEventDoc>(eventPath)
+    expect(eventStartNode(after.data, DEFAULT_TIMELINE_TRACK_ID)).toBe('node-noon')
+    const side = (after.data.placements ?? []).find((item) => item.timeline_id === 'side')
+    expect(side).toMatchObject({
+      timeline_id: 'side',
+      start_node_id: 'node-dawn',
+      end_node_id: null
+    })
+    expect((after.data.placements ?? []).some((item) => item.timeline_id === DEFAULT_TIMELINE_TRACK_ID)).toBe(
+      true
+    )
   })
 
   it('rejects placement of an event outside the track pool', async () => {

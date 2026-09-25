@@ -171,6 +171,12 @@ export async function applyTimelineManage(
         const proposal = proposals.placements.find((item) => item.proposal_id === proposalId)
         if (!proposal) throw new Error(MISSING_TIMELINE_PROPOSAL(proposalId))
 
+        const hasEventId = Boolean(proposal.event_id)
+        const hasCreateProposalId = Boolean(proposal.create_proposal_id)
+        if (hasEventId === hasCreateProposalId) {
+          throw new Error(MISSING_TIMELINE_PROPOSAL(proposalId))
+        }
+
         let eventId: string
         let fromCreate = false
         if (proposal.create_proposal_id) {
@@ -178,10 +184,8 @@ export async function applyTimelineManage(
           if (!mapped) throw new Error(MISSING_TIMELINE_PROPOSAL(proposal.create_proposal_id))
           eventId = mapped
           fromCreate = true
-        } else if (proposal.event_id) {
-          eventId = proposal.event_id
         } else {
-          throw new Error(MISSING_TIMELINE_PROPOSAL(proposalId))
+          eventId = proposal.event_id!
         }
 
         const nodes = await listDocs<TimelineNodeDoc>(projectRoot, 'timeline_node')
@@ -202,12 +206,11 @@ export async function applyTimelineManage(
 
         const originalRaw = await readText(event.path)
         const expectedHash = sha256Text(originalRaw)
-        const mode = fromCreate || unattached ? 'add' : 'move'
         await placeTimelineEvent(projectRoot, {
           event_id: eventId,
           timeline_id: track.id,
           start_node_id: proposal.node_id,
-          mode,
+          mode: 'add',
           expected_hash: expectedHash
         })
         restorations.push({ path: event.path, before: originalRaw })
