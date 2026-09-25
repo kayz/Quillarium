@@ -859,6 +859,7 @@ export function OutlineHome({
               onReloadProject={onReloadProject}
               onPlanningCheck={() => onPlanningCheck('timeline')}
               language={language}
+              saveBusy={busy}
             />
           ) : activeSection === 'characters' ? (
             <CharacterRelationView

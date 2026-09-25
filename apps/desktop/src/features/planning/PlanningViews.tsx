@@ -17,12 +17,14 @@ import {
 import {
   CHARACTER_MISMATCH,
   RELATION_TYPES,
+  TRACK_MISMATCH,
   requiredSpecializationFields,
   type RelationAnalyzeProposalSet,
   type RelationExpertType,
   type StoryTimeImportPlanV1,
   type TimelineCatalogV1,
-  type TimelineDeterministicIssueV1
+  type TimelineDeterministicIssueV1,
+  type TimelineManageProposalSet
 } from '@quillarium/core'
 import type { DocEntry, LanguageName, TargetSelection } from '../../app/types.js'
 import { formatDesktopError } from '../../shared/errors.js'
@@ -382,7 +384,8 @@ export function TimelineChainView({
   projectRoot,
   onReloadProject,
   onPlanningCheck,
-  language
+  language,
+  saveBusy = false
 }: {
   items: DocEntry[]
   selectedTarget: TargetSelection | null
@@ -393,6 +396,7 @@ export function TimelineChainView({
   onReloadProject?: () => Promise<void>
   onPlanningCheck?: () => Promise<void>
   language: LanguageName
+  saveBusy?: boolean
 }) {
   const zh = language === 'zh'
   const [catalog, setCatalog] = useState<TimelineCatalogV1>()
@@ -404,6 +408,14 @@ export function TimelineChainView({
   const [approvedStorySuggestions, setApprovedStorySuggestions] = useState<Set<string>>(new Set())
   const [ambiguityAnswers, setAmbiguityAnswers] = useState<Record<string, string>>({})
   const [checkIssues, setCheckIssues] = useState<TimelineDeterministicIssueV1[]>()
+  const [organizeProposals, setOrganizeProposals] = useState<TimelineManageProposalSet | null>(null)
+  const [organizeBusy, setOrganizeBusy] = useState(false)
+  const [organizeError, setOrganizeError] = useState('')
+  const [organizeNotice, setOrganizeNotice] = useState('')
+  const [selectedCreates, setSelectedCreates] = useState<Record<string, boolean>>({})
+  const [selectedUpdates, setSelectedUpdates] = useState<Record<string, boolean>>({})
+  const [selectedPlacements, setSelectedPlacements] = useState<Record<string, boolean>>({})
+  const [selectedOrders, setSelectedOrders] = useState<Record<string, boolean>>({})
   const tracks = catalog?.tracks ?? []
   const selectedTrack = tracks.find((track) => track.value.id === selectedTrackId) ?? tracks[0]
   const effectiveTrackId = selectedTrack?.value.id ?? selectedTrackId
@@ -467,6 +479,190 @@ export function TimelineChainView({
     }
   }
 
+  const closeOrganizePanel = () => {
+    setOrganizeProposals(null)
+    setOrganizeError('')
+    setOrganizeNotice('')
+    setSelectedCreates({})
+    setSelectedUpdates({})
+    setSelectedPlacements({})
+    setSelectedOrders({})
+  }
+
+  const runOrganizeAction = async (action: () => Promise<void>) => {
+    setOrganizeBusy(true)
+    setOrganizeError('')
+    setOrganizeNotice('')
+    try {
+      await action()
+    } catch (cause) {
+      setOrganizeError(formatDesktopError(cause, language))
+    } finally {
+      setOrganizeBusy(false)
+    }
+  }
+
+  const manageTimeline = async () => {
+    if (!projectRoot) return
+    await runOrganizeAction(async () => {
+      const proposals = await window.quillarium.manageTimeline(projectRoot, effectiveTrackId)
+      setOrganizeProposals(proposals)
+      setSelectedCreates(Object.fromEntries(proposals.creates.map((item) => [item.proposal_id, true])))
+      setSelectedUpdates(Object.fromEntries(proposals.updates.map((item) => [item.proposal_id, true])))
+      setSelectedPlacements(
+        Object.fromEntries(proposals.placements.map((item) => [item.proposal_id, true]))
+      )
+      setSelectedOrders(Object.fromEntries(proposals.orders.map((item) => [item.proposal_id, true])))
+    })
+  }
+
+  const applyOrganize = async () => {
+    if (!projectRoot || !organizeProposals) return
+    if (effectiveTrackId !== organizeProposals.track_id) {
+      setOrganizeError(TRACK_MISMATCH)
+      return
+    }
+    await runOrganizeAction(async () => {
+      const result = await window.quillarium.applyTimelineManage(projectRoot, organizeProposals, {
+        confirmed: true,
+        creates: organizeProposals.creates
+          .filter((item) => selectedCreates[item.proposal_id])
+          .map((item) => ({ proposal_id: item.proposal_id })),
+        updates: organizeProposals.updates
+          .filter((item) => selectedUpdates[item.proposal_id])
+          .map((item) => ({ proposal_id: item.proposal_id })),
+        placements: organizeProposals.placements
+          .filter((item) => selectedPlacements[item.proposal_id])
+          .map((item) => item.proposal_id),
+        orders: organizeProposals.orders
+          .filter((item) => selectedOrders[item.proposal_id])
+          .map((item) => item.proposal_id)
+      })
+      setOrganizeNotice(
+        zh
+          ? `已新建 ${result.created_ids.length} 条、更新 ${result.updated_ids.length} 条、挂载 ${result.placed_event_ids.length} 处、重排 ${result.ordered_node_ids.length} 个节点。`
+          : `Created ${result.created_ids.length}, updated ${result.updated_ids.length}, placed ${result.placed_event_ids.length}, reordered ${result.ordered_node_ids.length}.`
+      )
+      setOrganizeProposals(null)
+      setSelectedCreates({})
+      setSelectedUpdates({})
+      setSelectedPlacements({})
+      setSelectedOrders({})
+      await afterMutation()
+    })
+  }
+
+  const renderCreateRow = (item: TimelineManageProposalSet['creates'][number]) => (
+    <div className="chapter-eval-setting" key={item.proposal_id}>
+      <label>
+        <input
+          type="checkbox"
+          checked={Boolean(selectedCreates[item.proposal_id])}
+          onChange={(event) =>
+            setSelectedCreates({
+              ...selectedCreates,
+              [item.proposal_id]: event.target.checked
+            })
+          }
+        />
+        <span>
+          <strong>
+            {zh ? '新建' : 'Create'}: {item.title}
+          </strong>
+          <small>{item.content}</small>
+        </span>
+      </label>
+    </div>
+  )
+
+  const renderUpdateRow = (item: TimelineManageProposalSet['updates'][number]) => {
+    const heading =
+      items.find((doc) => doc.data.id === item.card_id)?.data.title ?? item.title ?? item.card_id
+    return (
+      <div className="chapter-eval-setting" key={item.proposal_id}>
+        <label>
+          <input
+            type="checkbox"
+            checked={Boolean(selectedUpdates[item.proposal_id])}
+            onChange={(event) =>
+              setSelectedUpdates({
+                ...selectedUpdates,
+                [item.proposal_id]: event.target.checked
+              })
+            }
+          />
+          <span>
+            <strong>
+              {zh ? '更新' : 'Update'}: {heading}
+            </strong>
+            <small>{item.content}</small>
+          </span>
+        </label>
+      </div>
+    )
+  }
+
+  const renderPlacementRow = (item: TimelineManageProposalSet['placements'][number]) => {
+    const eventLabel = item.event_id
+      ? (items.find((doc) => doc.data.id === item.event_id)?.data.title ?? item.event_id)
+      : item.create_proposal_id
+        ? `${zh ? '新建提案' : 'Create'} ${item.create_proposal_id}`
+        : item.proposal_id
+    const nodeLabel =
+      items.find((doc) => doc.data.id === item.node_id)?.data.title ?? item.node_id
+    return (
+      <div className="chapter-eval-setting" key={item.proposal_id}>
+        <label>
+          <input
+            type="checkbox"
+            checked={Boolean(selectedPlacements[item.proposal_id])}
+            onChange={(event) =>
+              setSelectedPlacements({
+                ...selectedPlacements,
+                [item.proposal_id]: event.target.checked
+              })
+            }
+          />
+          <span>
+            <strong>
+              {zh ? '挂载' : 'Place'}: {eventLabel}
+            </strong>
+            <small>
+              {zh ? '节点' : 'Node'}: {nodeLabel}
+            </small>
+          </span>
+        </label>
+      </div>
+    )
+  }
+
+  const renderOrderRow = (item: TimelineManageProposalSet['orders'][number]) => {
+    const nodeLabel =
+      items.find((doc) => doc.data.id === item.node_id)?.data.title ?? item.node_id
+    return (
+      <div className="chapter-eval-setting" key={item.proposal_id}>
+        <label>
+          <input
+            type="checkbox"
+            checked={Boolean(selectedOrders[item.proposal_id])}
+            onChange={(event) =>
+              setSelectedOrders({
+                ...selectedOrders,
+                [item.proposal_id]: event.target.checked
+              })
+            }
+          />
+          <span>
+            <strong>
+              {zh ? '重排' : 'Reorder'}: {nodeLabel}
+            </strong>
+            <small>{item.event_ids.join(' → ')}</small>
+          </span>
+        </label>
+      </div>
+    )
+  }
+
   return (
     <section className="timeline-chain-workbench">
       <header className="planning-view-intro">
@@ -481,20 +677,30 @@ export function TimelineChainView({
         </div>
         <div className="timeline-toolbar">
           {projectRoot && (
-            <button
-              type="button"
-              onClick={() => {
-                setBusy(true)
-                setError('')
-                void window.quillarium
-                  .checkTimelineDeterministically(projectRoot)
-                  .then(setCheckIssues)
-                  .catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)))
-                  .finally(() => setBusy(false))
-              }}
-            >
-              <CheckCircle2 size={14} /> {zh ? '规则检查' : 'Rule check'}
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  setBusy(true)
+                  setError('')
+                  void window.quillarium
+                    .checkTimelineDeterministically(projectRoot)
+                    .then(setCheckIssues)
+                    .catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)))
+                    .finally(() => setBusy(false))
+                }}
+              >
+                <CheckCircle2 size={14} /> {zh ? '规则检查' : 'Rule check'}
+              </button>
+              <button
+                type="button"
+                onClick={() => void manageTimeline()}
+                disabled={!projectRoot || busy || saveBusy || organizeBusy}
+                title={zh ? '整理时间线' : 'Organize timeline'}
+              >
+                <Sparkles size={14} /> {zh ? '整理时间线' : 'Organize timeline'}
+              </button>
+            </>
           )}
           {onPlanningCheck && (
             <button type="button" onClick={() => void onPlanningCheck()}>
@@ -690,6 +896,43 @@ export function TimelineChainView({
         </p>
       )}
       {busy && <p className="timeline-busy">{zh ? '正在处理并验证…' : 'Working and verifying…'}</p>}
+      {(organizeProposals || organizeBusy || organizeError || organizeNotice) && (
+        <section
+          className="chapter-eval-panel"
+          aria-label={zh ? '时间线整理提案' : 'Timeline organize proposals'}
+        >
+          <header>
+            <strong>{zh ? '时间线整理提案' : 'Timeline organize proposals'}</strong>
+            <button
+              onClick={closeOrganizePanel}
+              disabled={organizeBusy}
+              aria-label={zh ? '关闭整理提案' : 'Close organize'}
+            >
+              <XCircle size={15} />
+            </button>
+          </header>
+          <div className="chapter-eval-body">
+            {organizeBusy && <p className="finalization-message">{zh ? '正在整理…' : 'Organizing…'}</p>}
+            {organizeError && <p className="finalization-message error">{organizeError}</p>}
+            {organizeNotice && <p className="finalization-message ok">{organizeNotice}</p>}
+            {organizeProposals?.creates.map((item) => renderCreateRow(item))}
+            {organizeProposals?.updates.map((item) => renderUpdateRow(item))}
+            {organizeProposals?.placements.map((item) => renderPlacementRow(item))}
+            {organizeProposals?.orders.map((item) => renderOrderRow(item))}
+          </div>
+          {organizeProposals && (
+            <div className="chapter-eval-footer">
+              <button
+                className="primary"
+                onClick={() => void applyOrganize()}
+                disabled={busy || saveBusy || organizeBusy}
+              >
+                {zh ? '确认写入' : 'Confirm write'}
+              </button>
+            </div>
+          )}
+        </section>
+      )}
     </section>
   )
 }

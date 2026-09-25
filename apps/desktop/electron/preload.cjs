@@ -276,7 +276,10 @@ const api = {
     ipcRenderer.invoke('expert:applyRelationAnalyze', root, proposals, decisions),
   manageForeshadowing: (root) => ipcRenderer.invoke('expert:manageForeshadowing', root),
   applyForeshadowManage: (root, proposals, decisions) =>
-    ipcRenderer.invoke('expert:applyForeshadowManage', root, proposals, decisions)
+    ipcRenderer.invoke('expert:applyForeshadowManage', root, proposals, decisions),
+  manageTimeline: (root, trackId) => ipcRenderer.invoke('expert:manageTimeline', root, trackId),
+  applyTimelineManage: (root, proposals, decisions) =>
+    ipcRenderer.invoke('expert:applyTimelineManage', root, proposals, decisions)
 }
 
 contextBridge.exposeInMainWorld('quillarium', api)

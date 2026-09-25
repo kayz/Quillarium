@@ -236,7 +236,10 @@ const api: QuillariumAPI = {
     invoke('expert:applyRelationAnalyze', root, proposals, decisions),
   manageForeshadowing: (root) => invoke('expert:manageForeshadowing', root),
   applyForeshadowManage: (root, proposals, decisions) =>
-    invoke('expert:applyForeshadowManage', root, proposals, decisions)
+    invoke('expert:applyForeshadowManage', root, proposals, decisions),
+  manageTimeline: (root, trackId) => invoke('expert:manageTimeline', root, trackId),
+  applyTimelineManage: (root, proposals, decisions) =>
+    invoke('expert:applyTimelineManage', root, proposals, decisions)
 }
 
 contextBridge.exposeInMainWorld('quillarium', api)

@@ -91,6 +91,7 @@ import type {
   OutlineOrganizeProposalSet,
   RelationAnalyzeProposalSet,
   RelationExpertType,
+  TimelineManageProposalSet,
   WorldOrganizeProposalSet
 } from '@quillarium/core'
 import { recordIpcFailure } from '../logging.js'
@@ -1249,6 +1250,29 @@ export interface IpcContract {
     ]
     response: { created_ids: string[]; updated_ids: string[]; binding_document_ids: string[] }
   }
+  'expert:manageTimeline': {
+    request: [root: string, trackId: string]
+    response: TimelineManageProposalSet
+  }
+  'expert:applyTimelineManage': {
+    request: [
+      root: string,
+      proposals: TimelineManageProposalSet,
+      decisions: {
+        confirmed: boolean
+        creates: Array<{ proposal_id: string; fields?: Record<string, unknown> }>
+        updates: Array<{ proposal_id: string; fields?: Record<string, unknown> }>
+        placements: string[]
+        orders: string[]
+      }
+    ]
+    response: {
+      created_ids: string[]
+      updated_ids: string[]
+      placed_event_ids: string[]
+      ordered_node_ids: string[]
+    }
+  }
 }
 
 export type IpcChannel = keyof IpcContract
@@ -1438,7 +1462,9 @@ export const QUILLARIUM_API_CHANNELS = {
   analyzeRelations: 'expert:analyzeRelations',
   applyRelationAnalyze: 'expert:applyRelationAnalyze',
   manageForeshadowing: 'expert:manageForeshadowing',
-  applyForeshadowManage: 'expert:applyForeshadowManage'
+  applyForeshadowManage: 'expert:applyForeshadowManage',
+  manageTimeline: 'expert:manageTimeline',
+  applyTimelineManage: 'expert:applyTimelineManage'
 } as const satisfies Record<string, IpcChannel>
 
 type AssertNever<Value extends never> = Value

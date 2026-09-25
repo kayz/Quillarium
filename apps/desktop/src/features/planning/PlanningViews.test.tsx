@@ -131,6 +131,33 @@ describe('planning visual workbenches', () => {
     expect(html).not.toContain('timeline-placement-panel')
   })
 
+  it('shows organize timeline on the chain workbench', () => {
+    const html = renderToStaticMarkup(
+      <TimelineChainView
+        items={[]}
+        selectedTarget={null}
+        onSelect={() => undefined}
+        language="zh"
+        projectRoot="C:/tmp/project"
+      />
+    )
+    expect(html).toContain('整理时间线')
+  })
+
+  it('disables organize timeline while a card save is in flight', () => {
+    const html = renderToStaticMarkup(
+      <TimelineChainView
+        items={[]}
+        selectedTarget={null}
+        onSelect={() => undefined}
+        language="zh"
+        projectRoot="C:/tmp/project"
+        saveBusy
+      />
+    )
+    expect(html).toMatch(/disabled[^>]*>[\s\S]*整理时间线|整理时间线[\s\S]*disabled/)
+  })
+
   it('renders junctions and span overlays on the rail board without the event chain', () => {
     const tracks = ['lin', 'shen', 'north']
     const nodeOn = (id: string, title: string, order: number) =>

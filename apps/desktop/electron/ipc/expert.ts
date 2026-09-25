@@ -3,11 +3,13 @@ import {
   applyForeshadowManage,
   applyOutlineOrganize,
   applyRelationAnalyze,
+  applyTimelineManage,
   applyWorldOrganize,
   type ChapterEvalProposalSet,
   type ForeshadowManageProposalSet,
   type OutlineOrganizeProposalSet,
   type RelationAnalyzeProposalSet,
+  type TimelineManageProposalSet,
   type WorldOrganizeProposalSet
 } from '@quillarium/core'
 import { executeExpertTask } from '@quillarium/agent-runtime'
@@ -40,6 +42,12 @@ export function registerExpertHandlers(): void {
   typedHandle('expert:manageForeshadowing', async (_event, root) => evaluateForeshadowManage(root))
   typedHandle('expert:applyForeshadowManage', async (_event, root, proposals, decisions) =>
     applyForeshadowManage(root, proposals, decisions)
+  )
+  typedHandle('expert:manageTimeline', async (_event, root, trackId) =>
+    evaluateTimelineManage(root, trackId)
+  )
+  typedHandle('expert:applyTimelineManage', async (_event, root, proposals, decisions) =>
+    applyTimelineManage(root, proposals, decisions)
   )
 }
 
@@ -155,4 +163,29 @@ export async function evaluateForeshadowManage(root: string): Promise<Foreshadow
   }
 
   return outcome.result as ForeshadowManageProposalSet
+}
+
+export async function evaluateTimelineManage(
+  root: string,
+  trackId: string
+): Promise<TimelineManageProposalSet> {
+  const outcome = await executeExpertTask(
+    {
+      projectRoot: root,
+      task_id: 'manage-timeline',
+      input: { track_id: trackId }
+    },
+    {
+      loadAIProfile: (profile) => loadDesktopAIProfile(profile)
+    }
+  )
+
+  if (outcome.status !== 'completed') {
+    const detail = outcome.error.technical_detail?.trim()
+    throw new Error(
+      detail && /[\u4e00-\u9fff]/u.test(detail) ? detail : `整理时间线失败：${outcome.error.code}`
+    )
+  }
+
+  return outcome.result as TimelineManageProposalSet
 }
