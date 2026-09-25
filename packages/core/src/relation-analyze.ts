@@ -6,11 +6,7 @@ import { pathExists, readMarkdown, readText, writeMarkdown, writeText } from './
 import { assertCardReferencesExist, isEnabledPlanningCard } from './planning-cards.js'
 import { specializePlanningCard } from './planning-specialize.js'
 import { withProjectWriteLock } from './project-write-lock.js'
-import {
-  characterRelationSchema,
-  factionMembershipSchema,
-  factionRelationSchema
-} from './schema.js'
+import { characterRelationSchema, factionMembershipSchema, factionRelationSchema } from './schema.js'
 import type { DocumentIdentity } from './types.js'
 
 const RELATION_UPDATE_FIELD_KEYS = [
