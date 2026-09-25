@@ -341,4 +341,39 @@ describe('executeExpertTask manage-timeline', () => {
     expect(result.track_id).toBe('main')
     expect(await listDocs(root, 'timeline_event')).toHaveLength(before.length)
   })
+
+  it('omits placements that set both event_id and create_proposal_id', async () => {
+    const root = await fixture()
+    const invokeProvider = vi.fn(async () =>
+      JSON.stringify({
+        creates: [],
+        updates: [],
+        placements: [
+          {
+            node_id: 'node-both',
+            event_id: 'evt-existing',
+            create_proposal_id: 'tl-create-0'
+          },
+          {
+            node_id: 'node-ok',
+            event_id: 'evt-ok'
+          }
+        ],
+        orders: []
+      })
+    )
+    const outcome = await executeExpertTask(
+      { projectRoot: root, task_id: 'manage-timeline', input: { track_id: 'main' } },
+      { ...deps(invokeProvider), executionId: () => 'timeline-eval-xor' }
+    )
+    if (outcome.status === 'failed') throw new Error(outcome.error.technical_detail)
+    const result = outcome.result as TimelineManageProposalSet
+    expect(result.placements).toEqual([
+      {
+        proposal_id: 'tl-place-0',
+        node_id: 'node-ok',
+        event_id: 'evt-ok'
+      }
+    ])
+  })
 })

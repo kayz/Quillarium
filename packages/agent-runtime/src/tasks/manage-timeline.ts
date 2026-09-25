@@ -30,6 +30,21 @@ export const manageTimelineInputSchema = z
 
 export type ManageTimelineInput = z.infer<typeof manageTimelineInputSchema>
 
+export const manageTimelinePlacementSchema = z.union([
+  z
+    .object({
+      node_id: z.string().min(1),
+      event_id: z.string().min(1)
+    })
+    .strict(),
+  z
+    .object({
+      node_id: z.string().min(1),
+      create_proposal_id: z.string().min(1)
+    })
+    .strict()
+])
+
 export const manageTimelineModelOutputSchema = z
   .object({
     creates: z
@@ -58,17 +73,15 @@ export const manageTimelineModelOutputSchema = z
       .max(64)
       .default([]),
     placements: z
-      .array(
-        z
-          .object({
-            node_id: z.string().min(1),
-            event_id: z.string().min(1).optional(),
-            create_proposal_id: z.string().min(1).optional()
-          })
-          .strict()
-      )
+      .array(z.unknown())
       .max(64)
-      .default([]),
+      .default([])
+      .transform((items) =>
+        items.flatMap((item) => {
+          const parsed = manageTimelinePlacementSchema.safeParse(item)
+          return parsed.success ? [parsed.data] : []
+        })
+      ),
     orders: z
       .array(
         z
@@ -120,6 +133,11 @@ function nodeOrderOnTrack(node: TimelineNodeDoc, trackId: string): number {
   return placement?.order ?? 0
 }
 
+function eventOrderOnTrack(event: TimelineEventDoc, trackId: string): number {
+  const placement = (event.placements ?? []).find((item) => item.timeline_id === trackId)
+  return placement?.order ?? 0
+}
+
 export function createManageTimelineHandler(): AgentTaskHandler<
   ManageTimelineInput,
   ManageTimelineModelOutput,
@@ -165,7 +183,8 @@ async function prepareManageTimeline(
       id: item.data.id,
       title: item.data.title,
       content: item.content,
-      start_node: eventStartNode(item.data, track.id)
+      start_node: eventStartNode(item.data, track.id),
+      order: eventOrderOnTrack(item.data, track.id)
     }))
   const unattachedEvents = allEvents
     .filter((item) => isFullyUnattached(item.data))
@@ -312,12 +331,14 @@ function aggregateManageTimeline(context: AgentAggregateContext): TimelineManage
       fields: item.fields ?? {},
       ...(item.title !== undefined ? { title: item.title } : {})
     })),
-    placements: (output.placements ?? []).map((item, index) => ({
-      proposal_id: `tl-place-${index}`,
-      node_id: item.node_id,
-      ...(item.event_id !== undefined ? { event_id: item.event_id } : {}),
-      ...(item.create_proposal_id !== undefined ? { create_proposal_id: item.create_proposal_id } : {})
-    })),
+    placements: (output.placements ?? [])
+      .filter((item) => ('event_id' in item) !== ('create_proposal_id' in item))
+      .map((item, index) => ({
+        proposal_id: `tl-place-${index}`,
+        node_id: item.node_id,
+        ...('event_id' in item ? { event_id: item.event_id } : {}),
+        ...('create_proposal_id' in item ? { create_proposal_id: item.create_proposal_id } : {})
+      })),
     orders: (output.orders ?? []).map((item, index) => ({
       proposal_id: `tl-order-${index}`,
       node_id: item.node_id,
@@ -375,14 +396,26 @@ function manageTimelineJsonSchema(): Record<string, unknown> {
         type: 'array',
         maxItems: 64,
         items: {
-          type: 'object',
-          additionalProperties: false,
-          required: ['node_id'],
-          properties: {
-            node_id: { type: 'string', minLength: 1 },
-            event_id: { type: 'string', minLength: 1 },
-            create_proposal_id: { type: 'string', minLength: 1 }
-          }
+          oneOf: [
+            {
+              type: 'object',
+              additionalProperties: false,
+              required: ['node_id', 'event_id'],
+              properties: {
+                node_id: { type: 'string', minLength: 1 },
+                event_id: { type: 'string', minLength: 1 }
+              }
+            },
+            {
+              type: 'object',
+              additionalProperties: false,
+              required: ['node_id', 'create_proposal_id'],
+              properties: {
+                node_id: { type: 'string', minLength: 1 },
+                create_proposal_id: { type: 'string', minLength: 1 }
+              }
+            }
+          ]
         }
       },
       orders: {
