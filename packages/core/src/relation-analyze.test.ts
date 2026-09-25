@@ -66,11 +66,11 @@ describe('applyRelationAnalyze with rollback', () => {
     await createCharacter(root, 'Lin', { id: 'char-lin' })
 
     await expect(
-      applyRelationAnalyze(
-        root,
-        baseProposals({ character_id: '   ' }),
-        { confirmed: true, creates: [], updates: [] }
-      )
+      applyRelationAnalyze(root, baseProposals({ character_id: '   ' }), {
+        confirmed: true,
+        creates: [],
+        updates: []
+      })
     ).rejects.toThrow(NO_CHARACTER_SELECTION)
   })
 

@@ -270,9 +270,7 @@ describe('executeExpertTask relation and foreshadowing handlers', () => {
   it('returns foreshadowing proposals without writing foreshadowing files', async () => {
     const root = await fixture()
     const before = await listDocs(root, 'foreshadowing')
-    const invokeProvider = vi.fn(async () =>
-      JSON.stringify({ creates: [], updates: [], bindings: [] })
-    )
+    const invokeProvider = vi.fn(async () => JSON.stringify({ creates: [], updates: [], bindings: [] }))
 
     const outcome = await executeExpertTask(
       { projectRoot: root, task_id: 'manage-foreshadowing', input: {} },

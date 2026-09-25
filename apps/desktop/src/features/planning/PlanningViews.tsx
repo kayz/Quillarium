@@ -1326,8 +1326,7 @@ export function CharacterRelationView({
   }
 
   const renderAnalyzeUpdateRow = (item: RelationAnalyzeProposalSet['updates'][number]) => {
-    const heading =
-      items.find((doc) => doc.data.id === item.card_id)?.data.title ?? item.card_id
+    const heading = items.find((doc) => doc.data.id === item.card_id)?.data.title ?? item.card_id
     return (
       <div className="chapter-eval-setting" key={item.proposal_id}>
         <label>

@@ -131,9 +131,9 @@ async function prepareManageForeshadowing(
   _input: ManageForeshadowingInput,
   context: AgentPrepareContext
 ): Promise<PreparedAgentTask> {
-  const foreshadowingCards = (
-    await listDocs<ForeshadowingDoc>(context.projectRoot, 'foreshadowing')
-  ).filter((item) => isEnabledPlanningCard(item.data))
+  const foreshadowingCards = (await listDocs<ForeshadowingDoc>(context.projectRoot, 'foreshadowing')).filter(
+    (item) => isEnabledPlanningCard(item.data)
+  )
   const foreshadowingIds = new Set(foreshadowingCards.map((item) => item.data.id))
 
   const outlines = await listDocs<OutlineDoc>(context.projectRoot, 'outline')
@@ -216,10 +216,7 @@ async function prepareManageForeshadowing(
   return {
     planData: {
       ...preparation,
-      valid_document_ids: [
-        ...preparation.enabled_card_ids,
-        ...referencingDocs.map((item) => item.id)
-      ]
+      valid_document_ids: [...preparation.enabled_card_ids, ...referencingDocs.map((item) => item.id)]
     },
     deterministicResult: preparation,
     warnings: [],
@@ -262,9 +259,7 @@ function aggregateManageForeshadowing(context: AgentAggregateContext): Foreshado
     throw new Error('AGENT_BATCH_PARTIAL_FAILURE: manage-foreshadowing model call failed')
   }
   if (context.successful.length !== 1) {
-    throw new Error(
-      'AGENT_AI_NOT_CONFIGURED: manage-foreshadowing requires an available check AI profile'
-    )
+    throw new Error('AGENT_AI_NOT_CONFIGURED: manage-foreshadowing requires an available check AI profile')
   }
   const output = context.successful[0]!.output as ManageForeshadowingModelOutput
   return {

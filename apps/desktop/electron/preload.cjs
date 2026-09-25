@@ -271,8 +271,7 @@ const api = {
   organizeWorldbook: (root) => ipcRenderer.invoke('expert:organizeWorldbook', root),
   applyWorldOrganize: (root, proposals, decisions) =>
     ipcRenderer.invoke('expert:applyWorldOrganize', root, proposals, decisions),
-  analyzeRelations: (root, characterId) =>
-    ipcRenderer.invoke('expert:analyzeRelations', root, characterId),
+  analyzeRelations: (root, characterId) => ipcRenderer.invoke('expert:analyzeRelations', root, characterId),
   applyRelationAnalyze: (root, proposals, decisions) =>
     ipcRenderer.invoke('expert:applyRelationAnalyze', root, proposals, decisions),
   manageForeshadowing: (root) => ipcRenderer.invoke('expert:manageForeshadowing', root),

@@ -154,13 +154,7 @@ export async function applyRelationAnalyze(
         }
 
         const fields = { ...proposal.fields, ...decision.fields }
-        await assertRelationInvolvesCharacter(
-          projectRoot,
-          character.id,
-          targetType,
-          fields,
-          extraMemberships
-        )
+        await assertRelationInvolvesCharacter(projectRoot, character.id, targetType, fields, extraMemberships)
 
         const file = await createWorldEntry(projectRoot, proposal.title, {}, proposal.content)
         createdPaths.push(file)

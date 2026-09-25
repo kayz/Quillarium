@@ -191,17 +191,16 @@ export function OutlineHome({
   const [selectedUpdates, setSelectedUpdates] = React.useState<Record<string, boolean>>({})
   const [settingTypes, setSettingTypes] = React.useState<Record<string, string>>({})
   const [settingFields, setSettingFields] = React.useState<Record<string, Record<string, string>>>({})
-  const [foreshadowProposals, setForeshadowProposals] =
-    React.useState<ForeshadowManageProposalSet | null>(null)
+  const [foreshadowProposals, setForeshadowProposals] = React.useState<ForeshadowManageProposalSet | null>(
+    null
+  )
   const [foreshadowBusy, setForeshadowBusy] = React.useState(false)
   const [foreshadowError, setForeshadowError] = React.useState('')
   const [foreshadowNotice, setForeshadowNotice] = React.useState('')
   const [foreshadowCreates, setForeshadowCreates] = React.useState<Record<string, boolean>>({})
   const [foreshadowUpdates, setForeshadowUpdates] = React.useState<Record<string, boolean>>({})
   const [foreshadowBindings, setForeshadowBindings] = React.useState<Record<string, boolean>>({})
-  const [foreshadowFields, setForeshadowFields] = React.useState<
-    Record<string, Record<string, string>>
-  >({})
+  const [foreshadowFields, setForeshadowFields] = React.useState<Record<string, Record<string, string>>>({})
   const zh = language === 'zh'
   const section = OUTLINE_HOME_SECTIONS.find((item) => item.id === activeSection) ?? OUTLINE_HOME_SECTIONS[0]
   const sectionTitle = zh ? section.title : section.enTitle
@@ -568,13 +567,10 @@ export function OutlineHome({
     )
   }
 
-  const renderForeshadowBindingRow = (
-    item: ForeshadowManageProposalSet['bindings'][number]
-  ) => {
+  const renderForeshadowBindingRow = (item: ForeshadowManageProposalSet['bindings'][number]) => {
     const foreshadowTitle =
       docs.find((doc) => doc.data.id === item.foreshadowing_id)?.data.title ?? item.foreshadowing_id
-    const documentTitle =
-      docs.find((doc) => doc.data.id === item.document_id)?.data.title ?? item.document_id
+    const documentTitle = docs.find((doc) => doc.data.id === item.document_id)?.data.title ?? item.document_id
     const actions = [
       item.plant ? `${zh ? '埋设' : 'plant'}:${item.plant}` : null,
       item.resolve ? `${zh ? '回收' : 'resolve'}:${item.resolve}` : null

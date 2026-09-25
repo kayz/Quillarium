@@ -153,11 +153,7 @@ export async function applyForeshadowManage(
         if (proposal.plant !== undefined && proposal.plant !== 'add' && proposal.plant !== 'remove') {
           throw new Error(MISSING_FORESHADOW_PROPOSAL(proposalId))
         }
-        if (
-          proposal.resolve !== undefined &&
-          proposal.resolve !== 'add' &&
-          proposal.resolve !== 'remove'
-        ) {
+        if (proposal.resolve !== undefined && proposal.resolve !== 'add' && proposal.resolve !== 'remove') {
           throw new Error(MISSING_FORESHADOW_PROPOSAL(proposalId))
         }
 
