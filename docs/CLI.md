@@ -296,6 +296,19 @@ pnpm cli expert organize-outline --outline-id <outline-id> --project "./writing-
 pnpm cli expert organize-worldbook --project "./writing-workspace/projects/my-novel"
 ```
 
+#### Expert relation analyze and foreshadowing manage
+
+Propose character/faction relation creates/updates or foreshadowing card creates/updates plus
+plant/resolve bindings through the expert facade. A missing character refuses with
+`找不到人物，不能分析关系。` Empty selection is a desktop-only message. Successful runs print
+proposal counts only; they do not write world or outline/scene files and have no apply flag in this
+slice:
+
+```bash
+pnpm cli expert analyze-relations --character-id <character-id> --project "./writing-workspace/projects/my-novel"
+pnpm cli expert manage-foreshadowing --project "./writing-workspace/projects/my-novel"
+```
+
 #### Assistant turn confirm apply
 
 Apply a stored creator-assistant turn from a decisions file. The decisions payload must set
@@ -490,7 +503,7 @@ and options.
 | `generate`       | Generate a scene; optional `--dry-run`                                                    |
 | `check`          | Scene/outline checks via `--type`; scenes allow `--semantic`; optional `--run`            |
 | `agent`          | Auditable `check-planning`, `decide-planning`, and `apply-planning` lifecycle             |
-| `expert`         | `evaluate-chapter`, `organize-outline`, `organize-worldbook`: eval counts only (no apply) |
+| `expert`         | `evaluate-chapter`, `organize-outline`, `organize-worldbook`, `analyze-relations`, `manage-foreshadowing`: eval counts only (no apply) |
 | `assistant`      | `apply-turn`: confirm a stored turn from a decisions file                                 |
 | `st`             | `import-card`, `export-card`, `export-lorebook`                                           |
 | `finalize`       | `review-plan`, `show`, `confirm`, `answer`, `apply`, `recover`                            |
