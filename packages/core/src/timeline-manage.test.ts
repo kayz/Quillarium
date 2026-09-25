@@ -213,8 +213,8 @@ describe('applyTimelineManage with rollback', () => {
       mode: 'move',
       expected_hash: beforeHash
     })
-    const before = await readMarkdown<TimelineEventDoc>(eventPath)
-    const placementsBefore = before.data.placements
+    const before = await readMarkdown<Record<string, unknown>>(eventPath)
+    const placementsBefore = (before.data as unknown as TimelineEventDoc).placements
 
     await applyTimelineManage(
       root,
@@ -231,11 +231,11 @@ describe('applyTimelineManage with rollback', () => {
       emptyDecisions({ updates: [{ proposal_id: 'p-update' }] })
     )
 
-    const after = await readMarkdown<TimelineEventDoc>(eventPath)
+    const after = await readMarkdown<Record<string, unknown>>(eventPath)
     expect(after.content).toContain('Ships dock at dawn.')
     expect(after.data.date).toBe('Year 2')
     expect(after.data.type).toBe('timeline_event')
-    expect(after.data.placements).toEqual(placementsBefore)
+    expect((after.data as unknown as TimelineEventDoc).placements).toEqual(placementsBefore)
   })
 
   it('rejects updates to disabled timeline events', async () => {
@@ -266,7 +266,7 @@ describe('applyTimelineManage with rollback', () => {
       )
     ).rejects.toThrow(DISABLED_UPDATE_CARD)
 
-    const card = await readMarkdown<TimelineEventDoc>(eventPath)
+    const card = await readMarkdown<Record<string, unknown>>(eventPath)
     expect(card.content).toContain('Disabled body.')
     expect(card.data.date).not.toBe('Year 9')
   })
@@ -318,7 +318,7 @@ describe('applyTimelineManage with rollback', () => {
       { id: 'evt-harbor' },
       'Body.'
     )
-    const before = await readMarkdown<TimelineEventDoc>(eventPath)
+    const before = await readMarkdown<Record<string, unknown>>(eventPath)
     await writeMarkdown(
       eventPath,
       {
@@ -360,15 +360,16 @@ describe('applyTimelineManage with rollback', () => {
       emptyDecisions({ placements: ['p-place'] })
     )
 
-    const after = await readMarkdown<TimelineEventDoc>(eventPath)
-    expect(eventStartNode(after.data, DEFAULT_TIMELINE_TRACK_ID)).toBe('node-noon')
-    const side = (after.data.placements ?? []).find((item) => item.timeline_id === 'side')
+    const after = await readMarkdown<Record<string, unknown>>(eventPath)
+    const afterEvent = after.data as unknown as TimelineEventDoc
+    expect(eventStartNode(afterEvent, DEFAULT_TIMELINE_TRACK_ID)).toBe('node-noon')
+    const side = (afterEvent.placements ?? []).find((item) => item.timeline_id === 'side')
     expect(side).toMatchObject({
       timeline_id: 'side',
       start_node_id: 'node-dawn',
       end_node_id: null
     })
-    expect((after.data.placements ?? []).some((item) => item.timeline_id === DEFAULT_TIMELINE_TRACK_ID)).toBe(
+    expect((afterEvent.placements ?? []).some((item) => item.timeline_id === DEFAULT_TIMELINE_TRACK_ID)).toBe(
       true
     )
   })
