@@ -7,6 +7,7 @@ import {
   createCharacter,
   createOutline,
   createProjectAt,
+  createTimelineNode,
   listDocs,
   MISSING_CHARACTER,
   MISSING_TRACK,
@@ -375,5 +376,44 @@ describe('executeExpertTask manage-timeline', () => {
         event_id: 'evt-ok'
       }
     ])
+  })
+
+  it('remaps numeric create_proposal_id and order ids to tl-create-N', async () => {
+    const root = await fixture()
+    await createTimelineNode(root, 'Dawn', { id: 'node-dawn', year: 1, month: 1 })
+    const invokeProvider = vi.fn(async () =>
+      JSON.stringify({
+        creates: [{ title: 'Harbor', content: 'Ships dock.', fields: {} }],
+        updates: [],
+        placements: [{ node_id: 'node-dawn', create_proposal_id: '0' }],
+        orders: [{ node_id: 'node-dawn', event_ids: ['0', 'evt-existing'] }]
+      })
+    )
+    const outcome = await executeExpertTask(
+      { projectRoot: root, task_id: 'manage-timeline', input: { track_id: 'main' } },
+      { ...deps(invokeProvider), executionId: () => 'timeline-eval-remap' }
+    )
+    if (outcome.status === 'failed') throw new Error(outcome.error.technical_detail)
+    const result = outcome.result as TimelineManageProposalSet
+    expect(result.creates[0]?.proposal_id).toBe('tl-create-0')
+    expect(result.placements).toEqual([
+      {
+        proposal_id: 'tl-place-0',
+        node_id: 'node-dawn',
+        create_proposal_id: 'tl-create-0'
+      }
+    ])
+    expect(result.orders).toEqual([
+      {
+        proposal_id: 'tl-order-0',
+        node_id: 'node-dawn',
+        event_ids: ['tl-create-0', 'evt-existing']
+      }
+    ])
+    expect(invokeProvider).toHaveBeenCalled()
+    const firstCall = invokeProvider.mock.calls.at(0)
+    const request = firstCall ? (firstCall as unknown as [ { messages?: Array<{ role: string; content: string }> } ])[0] : undefined
+    const promptText = (request?.messages ?? []).map((item) => item.content).join('\n')
+    expect(promptText).toMatch(/tl-create-i|tl-create-N|creates\[i\]/i)
   })
 })

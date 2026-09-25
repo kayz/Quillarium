@@ -26,6 +26,34 @@ export const MISSING_TIMELINE_PROPOSAL = (id: string) => `找不到时间线提�
 
 const UPDATE_FIELD_KEYS = ['date', 'duration', 'location', 'characters', 'flashback_reference'] as const
 
+function pickTimelineManageFields(fields: Record<string, unknown>): Record<string, unknown> {
+  const next: Record<string, unknown> = {}
+  for (const key of UPDATE_FIELD_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(fields, key)) {
+      next[key] = fields[key]
+    }
+  }
+  return next
+}
+
+function hasIntervalPlacement(event: TimelineEventDoc): boolean {
+  return (event.placements ?? []).some(
+    (item) => typeof item.end_node_id === 'string' && item.end_node_id.trim().length > 0
+  )
+}
+
+function remapOrderEventId(
+  eventId: string,
+  createIdByProposal: Map<string, string>,
+  createProposalIds: Set<string>
+): string {
+  if (createIdByProposal.has(eventId)) return createIdByProposal.get(eventId)!
+  if (createProposalIds.has(eventId) || /^tl-create-\d+$/.test(eventId)) {
+    throw new Error(MISSING_TIMELINE_PROPOSAL(eventId))
+  }
+  return eventId
+}
+
 export interface TimelineManageProposalSet {
   eval_id: string
   track_id: string
@@ -111,11 +139,13 @@ export async function applyTimelineManage(
       const track = await loadTrackForTimelineManage(projectRoot, proposals.track_id)
       if (!track) throw new Error(MISSING_TRACK)
 
+      const createProposalIds = new Set(proposals.creates.map((item) => item.proposal_id))
+
       for (const decision of decisions.creates) {
         const proposal = proposals.creates.find((item) => item.proposal_id === decision.proposal_id)
         if (!proposal) throw new Error(MISSING_TIMELINE_PROPOSAL(decision.proposal_id))
 
-        const fields = { ...proposal.fields, ...decision.fields }
+        const fields = pickTimelineManageFields({ ...proposal.fields, ...decision.fields })
         const file = await createWorldEntry(projectRoot, proposal.title, {}, proposal.content)
         createdPaths.push(file)
         const created = await readMarkdown<{ id: string }>(file)
@@ -145,7 +175,7 @@ export async function applyTimelineManage(
           throw new Error(DISABLED_UPDATE_CARD)
         }
 
-        const fields = { ...proposal.fields, ...decision.fields }
+        const fields = pickTimelineManageFields({ ...proposal.fields, ...decision.fields })
         const nextData: Record<string, unknown> = { ...(card.data as unknown as Record<string, unknown>) }
         for (const key of UPDATE_FIELD_KEYS) {
           if (Object.prototype.hasOwnProperty.call(fields, key)) {
@@ -198,6 +228,10 @@ export async function applyTimelineManage(
         const event = events.find((item) => item.data.id === eventId)
         if (!event) throw new Error(EVENT_OUT_OF_SCOPE)
 
+        if (!fromCreate && hasIntervalPlacement(event.data)) {
+          throw new Error(EVENT_OUT_OF_SCOPE)
+        }
+
         const onTrack = eventStartNode(event.data, track.id) !== null
         const unattached = isFullyUnattached(event.data)
         if (!fromCreate && !onTrack && !unattached) {
@@ -229,6 +263,19 @@ export async function applyTimelineManage(
 
         const events = await listDocs<TimelineEventDoc>(projectRoot, 'timeline_event')
         const eligible = events.filter((item) => eventStartNode(item.data, track.id) === proposal.node_id)
+        const remappedEventIds = proposal.event_ids.map((eventId) =>
+          remapOrderEventId(eventId, createIdByProposal, createProposalIds)
+        )
+        const eligibleIds = new Set(eligible.map((item) => item.data.id))
+        const remappedSet = new Set(remappedEventIds)
+        if (
+          remappedEventIds.length !== eligibleIds.size ||
+          remappedSet.size !== remappedEventIds.length ||
+          [...eligibleIds].some((id) => !remappedSet.has(id))
+        ) {
+          throw new Error(EVENT_OUT_OF_SCOPE)
+        }
+
         const expectedHashes: Record<string, string> = {}
         for (const item of eligible) {
           const raw = await readText(item.path)
@@ -239,7 +286,7 @@ export async function applyTimelineManage(
         await reorderTimelineEvents(projectRoot, {
           track_id: track.id,
           node_id: proposal.node_id,
-          ordered_event_ids: proposal.event_ids,
+          ordered_event_ids: remappedEventIds,
           expected_hashes: expectedHashes,
           order_kind: 'display'
         })

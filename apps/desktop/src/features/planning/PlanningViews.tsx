@@ -91,6 +91,41 @@ export interface LocationExplorerModel {
 
 const LOCATION_SCALE_ORDER = ['global', 'region', 'city', 'district', 'estate', 'interior'] as const
 
+export function buildTimelineManageApplyDecisions(
+  proposals: TimelineManageProposalSet,
+  selected: {
+    creates: Record<string, boolean>
+    updates: Record<string, boolean>
+    placements: Record<string, boolean>
+    orders: Record<string, boolean>
+  }
+) {
+  const allCreateIds = new Set(proposals.creates.map((item) => item.proposal_id))
+  const selectedCreateIds = new Set(
+    proposals.creates.filter((item) => selected.creates[item.proposal_id]).map((item) => item.proposal_id)
+  )
+  return {
+    confirmed: true as const,
+    creates: proposals.creates
+      .filter((item) => selected.creates[item.proposal_id])
+      .map((item) => ({ proposal_id: item.proposal_id })),
+    updates: proposals.updates
+      .filter((item) => selected.updates[item.proposal_id])
+      .map((item) => ({ proposal_id: item.proposal_id })),
+    placements: proposals.placements
+      .filter((item) => selected.placements[item.proposal_id])
+      .filter((item) => !item.create_proposal_id || selectedCreateIds.has(item.create_proposal_id))
+      .map((item) => item.proposal_id),
+    orders: proposals.orders
+      .filter((item) => selected.orders[item.proposal_id])
+      .filter(
+        (item) =>
+          !item.event_ids.some((eventId) => allCreateIds.has(eventId) && !selectedCreateIds.has(eventId))
+      )
+      .map((item) => item.proposal_id)
+  }
+}
+
 export function buildTimelineLanes(
   items: DocEntry[],
   trackId = 'main'
@@ -521,21 +556,16 @@ export function TimelineChainView({
       return
     }
     await runOrganizeAction(async () => {
-      const result = await window.quillarium.applyTimelineManage(projectRoot, organizeProposals, {
-        confirmed: true,
-        creates: organizeProposals.creates
-          .filter((item) => selectedCreates[item.proposal_id])
-          .map((item) => ({ proposal_id: item.proposal_id })),
-        updates: organizeProposals.updates
-          .filter((item) => selectedUpdates[item.proposal_id])
-          .map((item) => ({ proposal_id: item.proposal_id })),
-        placements: organizeProposals.placements
-          .filter((item) => selectedPlacements[item.proposal_id])
-          .map((item) => item.proposal_id),
-        orders: organizeProposals.orders
-          .filter((item) => selectedOrders[item.proposal_id])
-          .map((item) => item.proposal_id)
-      })
+      const result = await window.quillarium.applyTimelineManage(
+        projectRoot,
+        organizeProposals,
+        buildTimelineManageApplyDecisions(organizeProposals, {
+          creates: selectedCreates,
+          updates: selectedUpdates,
+          placements: selectedPlacements,
+          orders: selectedOrders
+        })
+      )
       setOrganizeNotice(
         zh
           ? `已新建 ${result.created_ids.length} 条、更新 ${result.updated_ids.length} 条、挂载 ${result.placed_event_ids.length} 处、重排 ${result.ordered_node_ids.length} 个节点。`
@@ -601,6 +631,8 @@ export function TimelineChainView({
   }
 
   const renderPlacementRow = (item: TimelineManageProposalSet['placements'][number]) => {
+    const createSelected =
+      !item.create_proposal_id || Boolean(selectedCreates[item.create_proposal_id])
     const eventLabel = item.event_id
       ? (items.find((doc) => doc.data.id === item.event_id)?.data.title ?? item.event_id)
       : item.create_proposal_id
@@ -612,7 +644,8 @@ export function TimelineChainView({
         <label>
           <input
             type="checkbox"
-            checked={Boolean(selectedPlacements[item.proposal_id])}
+            checked={Boolean(selectedPlacements[item.proposal_id]) && createSelected}
+            disabled={!createSelected}
             onChange={(event) =>
               setSelectedPlacements({
                 ...selectedPlacements,
@@ -634,13 +667,18 @@ export function TimelineChainView({
   }
 
   const renderOrderRow = (item: TimelineManageProposalSet['orders'][number]) => {
+    const createIds = new Set(organizeProposals?.creates.map((create) => create.proposal_id) ?? [])
+    const orderCreateOk = !item.event_ids.some(
+      (eventId) => createIds.has(eventId) && !selectedCreates[eventId]
+    )
     const nodeLabel = items.find((doc) => doc.data.id === item.node_id)?.data.title ?? item.node_id
     return (
       <div className="chapter-eval-setting" key={item.proposal_id}>
         <label>
           <input
             type="checkbox"
-            checked={Boolean(selectedOrders[item.proposal_id])}
+            checked={Boolean(selectedOrders[item.proposal_id]) && orderCreateOk}
+            disabled={!orderCreateOk}
             onChange={(event) =>
               setSelectedOrders({
                 ...selectedOrders,

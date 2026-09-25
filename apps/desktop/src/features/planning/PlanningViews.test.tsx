@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { DocEntry } from '../../app/types.js'
 import {
   buildTimelineLanes,
+  buildTimelineManageApplyDecisions,
   CharacterRelationshipPanel,
   characterRelationSnapshot,
   CharacterRelationView,
@@ -142,6 +143,57 @@ describe('planning visual workbenches', () => {
       />
     )
     expect(html).toContain('整理时间线')
+  })
+
+  it('skips placements and orders that reference an unselected create', () => {
+    const decisions = buildTimelineManageApplyDecisions(
+      {
+        eval_id: 'eval-1',
+        track_id: 'main',
+        creates: [
+          {
+            proposal_id: 'tl-create-0',
+            title: 'Harbor',
+            content: 'Ships.',
+            fields: {}
+          }
+        ],
+        updates: [],
+        placements: [
+          {
+            proposal_id: 'tl-place-0',
+            node_id: 'node-dawn',
+            create_proposal_id: 'tl-create-0'
+          },
+          {
+            proposal_id: 'tl-place-1',
+            node_id: 'node-dawn',
+            event_id: 'evt-existing'
+          }
+        ],
+        orders: [
+          {
+            proposal_id: 'tl-order-0',
+            node_id: 'node-dawn',
+            event_ids: ['tl-create-0', 'evt-existing']
+          },
+          {
+            proposal_id: 'tl-order-1',
+            node_id: 'node-dawn',
+            event_ids: ['evt-existing']
+          }
+        ]
+      },
+      {
+        creates: { 'tl-create-0': false },
+        updates: {},
+        placements: { 'tl-place-0': true, 'tl-place-1': true },
+        orders: { 'tl-order-0': true, 'tl-order-1': true }
+      }
+    )
+    expect(decisions.creates).toEqual([])
+    expect(decisions.placements).toEqual(['tl-place-1'])
+    expect(decisions.orders).toEqual(['tl-order-1'])
   })
 
   it('disables organize timeline while a card save is in flight', () => {

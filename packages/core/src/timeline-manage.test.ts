@@ -557,4 +557,227 @@ describe('applyTimelineManage with rollback', () => {
     expect(await listDocs(root, 'timeline_event')).toEqual([])
     expect(await listDocs(root, 'world_entry')).toEqual([])
   })
+
+  it('places a same-round create referenced as tl-create-0', async () => {
+    const root = await project()
+    await withDawnNode(root)
+
+    const result = await applyTimelineManage(
+      root,
+      baseProposals({
+        creates: [
+          {
+            proposal_id: 'tl-create-0',
+            title: 'Harbor arrival',
+            content: 'Ships dock.',
+            fields: {}
+          }
+        ],
+        placements: [
+          {
+            proposal_id: 'tl-place-0',
+            node_id: 'node-dawn',
+            create_proposal_id: 'tl-create-0'
+          }
+        ]
+      }),
+      emptyDecisions({
+        creates: [{ proposal_id: 'tl-create-0' }],
+        placements: ['tl-place-0']
+      })
+    )
+
+    const eventId = result.created_ids[0]!
+    expect(result.placed_event_ids).toEqual([eventId])
+    const card = (await listDocs<TimelineEventDoc>(root, 'timeline_event')).find(
+      (item) => item.data.id === eventId
+    )
+    expect(eventStartNode(card!.data, DEFAULT_TIMELINE_TRACK_ID)).toBe('node-dawn')
+  })
+
+  it('applies create+place+order when order lists tl-create-0', async () => {
+    const root = await project()
+    await withDawnNode(root)
+    await createTimelineEventAtNode(root, 'node-dawn', 'Existing', { id: 'evt-existing' }, 'Body.')
+
+    const result = await applyTimelineManage(
+      root,
+      baseProposals({
+        creates: [
+          {
+            proposal_id: 'tl-create-0',
+            title: 'Harbor arrival',
+            content: 'Ships dock.',
+            fields: {}
+          }
+        ],
+        placements: [
+          {
+            proposal_id: 'tl-place-0',
+            node_id: 'node-dawn',
+            create_proposal_id: 'tl-create-0'
+          }
+        ],
+        orders: [
+          {
+            proposal_id: 'tl-order-0',
+            node_id: 'node-dawn',
+            event_ids: ['tl-create-0', 'evt-existing']
+          }
+        ]
+      }),
+      emptyDecisions({
+        creates: [{ proposal_id: 'tl-create-0' }],
+        placements: ['tl-place-0'],
+        orders: ['tl-order-0']
+      })
+    )
+
+    const createdId = result.created_ids[0]!
+    expect(result.ordered_node_ids).toEqual(['node-dawn'])
+    const events = await listDocs<TimelineEventDoc>(root, 'timeline_event')
+    const created = events.find((item) => item.data.id === createdId)!
+    const existing = events.find((item) => item.data.id === 'evt-existing')!
+    const createdOrder = (created.data.placements ?? []).find(
+      (item) => item.timeline_id === DEFAULT_TIMELINE_TRACK_ID
+    )?.order
+    const existingOrder = (existing.data.placements ?? []).find(
+      (item) => item.timeline_id === DEFAULT_TIMELINE_TRACK_ID
+    )?.order
+    expect(createdOrder).toBe(0)
+    expect(existingOrder).toBe(1)
+  })
+
+  it('drops smuggled placement fields from create before specialize', async () => {
+    const root = await project()
+    await withDawnNode(root)
+
+    const result = await applyTimelineManage(
+      root,
+      baseProposals({
+        creates: [
+          {
+            proposal_id: 'tl-create-0',
+            title: 'Harbor arrival',
+            content: 'Ships dock.',
+            fields: {
+              date: 'Year 1',
+              placements: [],
+              timeline_node: 'node-dawn',
+              previous: 'x',
+              next: 'y'
+            }
+          }
+        ]
+      }),
+      emptyDecisions({ creates: [{ proposal_id: 'tl-create-0' }] })
+    )
+
+    const card = (await listDocs<TimelineEventDoc>(root, 'timeline_event')).find(
+      (item) => item.data.id === result.created_ids[0]
+    )
+    expect(card?.data.date).toBe('Year 1')
+    expect(card?.data.placements ?? []).toEqual([])
+    expect(card?.data.timeline_node).toBeFalsy()
+    const rawCard = card?.data as unknown as Record<string, unknown>
+    expect(rawCard.previous).not.toBe('x')
+    expect(rawCard.next).not.toBe('y')
+  })
+
+  it('rejects placing an interval event and preserves end_node_id', async () => {
+    const root = await project()
+    await withDawnNode(root)
+    await createTimelineNode(root, 'Noon', { id: 'node-noon', year: 1, month: 1, day: 2 })
+    const eventPath = await createTimelineEventAtNode(
+      root,
+      'node-dawn',
+      'Siege',
+      { id: 'evt-siege' },
+      'Body.'
+    )
+    const before = await readMarkdown<Record<string, unknown>>(eventPath)
+    await writeMarkdown(
+      eventPath,
+      {
+        ...before.data,
+        timeline_node: 'node-dawn',
+        placements: [
+          {
+            timeline_id: DEFAULT_TIMELINE_TRACK_ID,
+            start_node_id: 'node-dawn',
+            end_node_id: 'node-noon',
+            order: 0,
+            narrative_order: 0,
+            occurrence: 1
+          }
+        ]
+      } as unknown as Record<string, unknown>,
+      before.content
+    )
+    const beforeRaw = await readText(eventPath)
+
+    await expect(
+      applyTimelineManage(
+        root,
+        baseProposals({
+          placements: [
+            {
+              proposal_id: 'tl-place-0',
+              node_id: 'node-noon',
+              event_id: 'evt-siege'
+            }
+          ]
+        }),
+        emptyDecisions({ placements: ['tl-place-0'] })
+      )
+    ).rejects.toThrow(EVENT_OUT_OF_SCOPE)
+
+    expect(await readText(eventPath)).toBe(beforeRaw)
+    const after = await readMarkdown<Record<string, unknown>>(eventPath)
+    const placements = after.data.placements as Array<{ end_node_id?: string | null }> | undefined
+    expect(placements?.[0]?.end_node_id).toBe('node-noon')
+  })
+
+  it('throws Chinese scope error when remapped order is not a permutation', async () => {
+    const root = await project()
+    await withDawnNode(root)
+    await createTimelineEventAtNode(root, 'node-dawn', 'Existing', { id: 'evt-existing' }, 'Body.')
+
+    await expect(
+      applyTimelineManage(
+        root,
+        baseProposals({
+          creates: [
+            {
+              proposal_id: 'tl-create-0',
+              title: 'Harbor arrival',
+              content: 'Ships dock.',
+              fields: {}
+            }
+          ],
+          placements: [
+            {
+              proposal_id: 'tl-place-0',
+              node_id: 'node-dawn',
+              create_proposal_id: 'tl-create-0'
+            }
+          ],
+          orders: [
+            {
+              proposal_id: 'tl-order-0',
+              node_id: 'node-dawn',
+              event_ids: ['tl-create-0']
+            }
+          ]
+        }),
+        emptyDecisions({
+          creates: [{ proposal_id: 'tl-create-0' }],
+          placements: ['tl-place-0'],
+          orders: ['tl-order-0']
+        })
+      )
+    ).rejects.toThrow(EVENT_OUT_OF_SCOPE)
+
+    expect(await listDocs(root, 'timeline_event')).toHaveLength(1)
+  })
 })
