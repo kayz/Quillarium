@@ -472,4 +472,18 @@ describe('planning visual workbenches', () => {
     expect(html).toContain('调整归属')
     expect(html).toContain('调整关联')
   })
+
+  it('hides analyze relations when no ego character is available', () => {
+    const html = renderToStaticMarkup(
+      <CharacterRelationView
+        items={[]}
+        timelineNodes={[]}
+        selectedTarget={null}
+        onSelect={() => undefined}
+        language="zh"
+      />
+    )
+    expect(html).toContain('时态人物关系')
+    expect(html).not.toContain('分析关系')
+  })
 })

@@ -20,7 +20,7 @@ const project: ProjectListItem = {
 
 function renderOutlineHome(
   docs: DocEntry[],
-  activeSection: 'issues' | 'world' | 'factions' | 'references',
+  activeSection: 'issues' | 'world' | 'factions' | 'references' | 'foreshadowing',
   search = ''
 ): string {
   return renderToStaticMarkup(
@@ -201,5 +201,13 @@ describe('OutlineHome issue workflow', () => {
     expect(renderOutlineHome([], 'issues')).not.toContain('整理世界书')
     expect(renderOutlineHome([], 'factions')).not.toContain('整理世界书')
     expect(renderOutlineHome([], 'references')).not.toContain('整理世界书')
+  })
+
+  it('shows manage foreshadowing only in the foreshadowing section', () => {
+    expect(renderOutlineHome([], 'foreshadowing')).toContain('管理伏笔')
+    expect(renderOutlineHome([], 'world')).not.toContain('管理伏笔')
+    expect(renderOutlineHome([], 'issues')).not.toContain('管理伏笔')
+    expect(renderOutlineHome([], 'factions')).not.toContain('管理伏笔')
+    expect(renderOutlineHome([], 'references')).not.toContain('管理伏笔')
   })
 })

@@ -230,7 +230,13 @@ const api: QuillariumAPI = {
     invoke('expert:applyOutlineOrganize', root, proposals, decisions),
   organizeWorldbook: (root) => invoke('expert:organizeWorldbook', root),
   applyWorldOrganize: (root, proposals, decisions) =>
-    invoke('expert:applyWorldOrganize', root, proposals, decisions)
+    invoke('expert:applyWorldOrganize', root, proposals, decisions),
+  analyzeRelations: (root, characterId) => invoke('expert:analyzeRelations', root, characterId),
+  applyRelationAnalyze: (root, proposals, decisions) =>
+    invoke('expert:applyRelationAnalyze', root, proposals, decisions),
+  manageForeshadowing: (root) => invoke('expert:manageForeshadowing', root),
+  applyForeshadowManage: (root, proposals, decisions) =>
+    invoke('expert:applyForeshadowManage', root, proposals, decisions)
 }
 
 contextBridge.exposeInMainWorld('quillarium', api)

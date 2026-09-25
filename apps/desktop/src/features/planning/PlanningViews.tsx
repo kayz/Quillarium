@@ -10,11 +10,24 @@ import {
   Link2,
   Map as MapIcon,
   Plus,
-  Users
+  Sparkles,
+  Users,
+  XCircle
 } from 'lucide-react'
-import type { StoryTimeImportPlanV1, TimelineCatalogV1, TimelineDeterministicIssueV1 } from '@quillarium/core'
+import {
+  CHARACTER_MISMATCH,
+  RELATION_TYPES,
+  requiredSpecializationFields,
+  type RelationAnalyzeProposalSet,
+  type RelationExpertType,
+  type StoryTimeImportPlanV1,
+  type TimelineCatalogV1,
+  type TimelineDeterministicIssueV1
+} from '@quillarium/core'
 import type { DocEntry, LanguageName, TargetSelection } from '../../app/types.js'
-import { documentTypeLabel, enumChoiceLabel } from '../metadata/field-presentation.js'
+import { formatDesktopError } from '../../shared/errors.js'
+import { documentTypeLabel, enumChoiceLabel, fieldLabel } from '../metadata/field-presentation.js'
+import { PLANNING_KIND_LABELS } from './planning-model.js'
 import { TimelineRailBoard } from './TimelineRailBoard.js'
 import { buildTimelineBoard, inferTimelineTracks } from './timeline-board-model.js'
 import {
@@ -990,6 +1003,7 @@ export function CharacterRelationView({
   onSelect,
   onCreateRelation,
   onCreateTimelineNode,
+  onReloadProject,
   language,
   displayLayer = { enabled: false, migrated: true }
 }: {
@@ -1001,10 +1015,19 @@ export function CharacterRelationView({
   onSelect: (target: TargetSelection) => void
   onCreateRelation?: (initial: CharacterRelationCreateRequest) => void
   onCreateTimelineNode?: () => void
+  onReloadProject?: () => Promise<void>
   language: LanguageName
   displayLayer?: DisplayLayerChrome
 }) {
   const zh = language === 'zh'
+  const [analyzeProposals, setAnalyzeProposals] = useState<RelationAnalyzeProposalSet | null>(null)
+  const [analyzeBusy, setAnalyzeBusy] = useState(false)
+  const [analyzeError, setAnalyzeError] = useState('')
+  const [analyzeNotice, setAnalyzeNotice] = useState('')
+  const [selectedCreates, setSelectedCreates] = useState<Record<string, boolean>>({})
+  const [selectedUpdates, setSelectedUpdates] = useState<Record<string, boolean>>({})
+  const [settingTypes, setSettingTypes] = useState<Record<string, RelationExpertType>>({})
+  const [settingFields, setSettingFields] = useState<Record<string, Record<string, string>>>({})
   const nodes = useMemo(
     () =>
       timelineNodes
@@ -1135,6 +1158,200 @@ export function CharacterRelationView({
     paneRef.current?.focus()
   }
 
+  const closeAnalyzePanel = () => {
+    setAnalyzeProposals(null)
+    setAnalyzeError('')
+    setAnalyzeNotice('')
+    setSelectedCreates({})
+    setSelectedUpdates({})
+    setSettingTypes({})
+    setSettingFields({})
+  }
+
+  const analyzeConfirmReady =
+    !analyzeProposals ||
+    analyzeProposals.creates.every((item) => {
+      if (!selectedCreates[item.proposal_id]) return true
+      const type = settingTypes[item.proposal_id] ?? item.type
+      const fields = settingFields[item.proposal_id] ?? {}
+      return requiredSpecializationFields(type).every((key) => Boolean(fields[key]?.trim()))
+    })
+
+  const runAnalyzeAction = async (action: () => Promise<void>) => {
+    setAnalyzeBusy(true)
+    setAnalyzeError('')
+    setAnalyzeNotice('')
+    try {
+      await action()
+    } catch (error) {
+      setAnalyzeError(formatDesktopError(error, language))
+    } finally {
+      setAnalyzeBusy(false)
+    }
+  }
+
+  const analyzeRelations = async () => {
+    if (!projectRoot || !egoId) return
+    await runAnalyzeAction(async () => {
+      const proposals = await window.quillarium.analyzeRelations(projectRoot, egoId)
+      setAnalyzeProposals(proposals)
+      setSelectedCreates(Object.fromEntries(proposals.creates.map((item) => [item.proposal_id, true])))
+      setSelectedUpdates(Object.fromEntries(proposals.updates.map((item) => [item.proposal_id, true])))
+      setSettingTypes(
+        Object.fromEntries(proposals.creates.map((item) => [item.proposal_id, item.type] as const))
+      )
+      setSettingFields(
+        Object.fromEntries(
+          proposals.creates.map((item) => {
+            const seeded: Record<string, string> = {}
+            for (const key of requiredSpecializationFields(item.type)) {
+              const value = item.fields[key]
+              seeded[key] = typeof value === 'string' ? value : ''
+            }
+            return [item.proposal_id, seeded] as const
+          })
+        )
+      )
+    })
+  }
+
+  const applyAnalyze = async () => {
+    if (!projectRoot || !analyzeProposals || !analyzeConfirmReady) return
+    if (egoId !== analyzeProposals.character_id) {
+      setAnalyzeError(CHARACTER_MISMATCH)
+      return
+    }
+    await runAnalyzeAction(async () => {
+      const toCreateDecision = (proposalId: string) => {
+        const proposal = analyzeProposals.creates.find((item) => item.proposal_id === proposalId)!
+        const type = settingTypes[proposalId] ?? proposal.type
+        const fields = settingFields[proposalId] ?? {}
+        const payload: Record<string, unknown> = {}
+        for (const key of requiredSpecializationFields(type)) {
+          payload[key] = fields[key]?.trim() ?? ''
+        }
+        return { proposal_id: proposalId, type, fields: payload }
+      }
+      const result = await window.quillarium.applyRelationAnalyze(projectRoot, analyzeProposals, {
+        confirmed: true,
+        creates: analyzeProposals.creates
+          .filter((item) => selectedCreates[item.proposal_id])
+          .map((item) => toCreateDecision(item.proposal_id)),
+        updates: analyzeProposals.updates
+          .filter((item) => selectedUpdates[item.proposal_id])
+          .map((item) => ({ proposal_id: item.proposal_id }))
+      })
+      setAnalyzeNotice(
+        zh
+          ? `已新建 ${result.created_ids.length} 条、更新 ${result.updated_ids.length} 条。`
+          : `Created ${result.created_ids.length} and updated ${result.updated_ids.length}.`
+      )
+      setAnalyzeProposals(null)
+      setSelectedCreates({})
+      setSelectedUpdates({})
+      setSettingTypes({})
+      setSettingFields({})
+      await onReloadProject?.()
+    })
+  }
+
+  const renderAnalyzeCreateRow = (item: RelationAnalyzeProposalSet['creates'][number]) => {
+    const type = settingTypes[item.proposal_id] ?? item.type
+    const fields = settingFields[item.proposal_id] ?? {}
+    const required = requiredSpecializationFields(type)
+    return (
+      <div className="chapter-eval-setting" key={item.proposal_id}>
+        <label>
+          <input
+            type="checkbox"
+            checked={Boolean(selectedCreates[item.proposal_id])}
+            onChange={(event) =>
+              setSelectedCreates({
+                ...selectedCreates,
+                [item.proposal_id]: event.target.checked
+              })
+            }
+          />
+          <span>
+            <strong>
+              {zh ? '新建' : 'Create'}: {item.title}
+            </strong>
+            <small>{item.content}</small>
+          </span>
+        </label>
+        <label>
+          {zh ? '类型' : 'Type'}
+          <select
+            value={type}
+            aria-label={zh ? `${item.title} 类型` : `${item.title} type`}
+            onChange={(event) => {
+              const nextType = event.target.value as RelationExpertType
+              setSettingTypes({
+                ...settingTypes,
+                [item.proposal_id]: nextType
+              })
+              setSettingFields({
+                ...settingFields,
+                [item.proposal_id]: {}
+              })
+            }}
+          >
+            {RELATION_TYPES.map((kindOption) => (
+              <option key={kindOption} value={kindOption}>
+                {PLANNING_KIND_LABELS[kindOption]?.[language] ?? kindOption}
+              </option>
+            ))}
+          </select>
+        </label>
+        {required.map((key) => (
+          <label key={key}>
+            {fieldLabel(key, language)}
+            <input
+              value={fields[key] ?? ''}
+              aria-label={fieldLabel(key, language)}
+              onChange={(event) =>
+                setSettingFields({
+                  ...settingFields,
+                  [item.proposal_id]: {
+                    ...fields,
+                    [key]: event.target.value
+                  }
+                })
+              }
+            />
+          </label>
+        ))}
+      </div>
+    )
+  }
+
+  const renderAnalyzeUpdateRow = (item: RelationAnalyzeProposalSet['updates'][number]) => {
+    const heading =
+      items.find((doc) => doc.data.id === item.card_id)?.data.title ?? item.card_id
+    return (
+      <div className="chapter-eval-setting" key={item.proposal_id}>
+        <label>
+          <input
+            type="checkbox"
+            checked={Boolean(selectedUpdates[item.proposal_id])}
+            onChange={(event) =>
+              setSelectedUpdates({
+                ...selectedUpdates,
+                [item.proposal_id]: event.target.checked
+              })
+            }
+          />
+          <span>
+            <strong>
+              {zh ? '更新' : 'Update'}: {heading}
+            </strong>
+            <small>{item.content}</small>
+          </span>
+        </label>
+      </div>
+    )
+  }
+
   return (
     <section className="character-relation-workbench">
       <header className="planning-view-intro">
@@ -1154,6 +1371,17 @@ export function CharacterRelationView({
             onClick={() => onCreateRelation({ startsAt: nodeId ?? undefined })}
           >
             <Plus size={15} /> {zh ? '新增关系' : 'New relationship'}
+          </button>
+        )}
+        {egoId && (
+          <button
+            className="relationship-create-button"
+            type="button"
+            onClick={() => void analyzeRelations()}
+            disabled={!projectRoot || analyzeBusy}
+            title={zh ? '分析关系' : 'Analyze relations'}
+          >
+            <Sparkles size={15} /> {zh ? '分析关系' : 'Analyze relations'}
           </button>
         )}
       </header>
@@ -1453,6 +1681,41 @@ export function CharacterRelationView({
               </section>
             )}
           </div>
+        </section>
+      )}
+      {(analyzeProposals || analyzeBusy || analyzeError || analyzeNotice) && (
+        <section
+          className="chapter-eval-panel"
+          aria-label={zh ? '关系分析提案' : 'Relation analyze proposals'}
+        >
+          <header>
+            <strong>{zh ? '关系分析提案' : 'Relation analyze proposals'}</strong>
+            <button
+              onClick={closeAnalyzePanel}
+              disabled={analyzeBusy}
+              aria-label={zh ? '关闭关系分析提案' : 'Close relation analyze'}
+            >
+              <XCircle size={15} />
+            </button>
+          </header>
+          <div className="chapter-eval-body">
+            {analyzeBusy && <p className="finalization-message">{zh ? '正在分析…' : 'Analyzing…'}</p>}
+            {analyzeError && <p className="finalization-message error">{analyzeError}</p>}
+            {analyzeNotice && <p className="finalization-message ok">{analyzeNotice}</p>}
+            {analyzeProposals?.creates.map((item) => renderAnalyzeCreateRow(item))}
+            {analyzeProposals?.updates.map((item) => renderAnalyzeUpdateRow(item))}
+          </div>
+          {analyzeProposals && (
+            <div className="chapter-eval-footer">
+              <button
+                className="primary"
+                onClick={() => void applyAnalyze()}
+                disabled={analyzeBusy || !analyzeConfirmReady}
+              >
+                {zh ? '确认写入' : 'Confirm write'}
+              </button>
+            </div>
+          )}
         </section>
       )}
     </section>

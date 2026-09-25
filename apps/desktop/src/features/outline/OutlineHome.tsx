@@ -21,6 +21,7 @@ import {
 import {
   requiredSpecializationFields,
   specializationTargets,
+  type ForeshadowManageProposalSet,
   type WorldOrganizeProposalSet
 } from '@quillarium/core'
 import type {
@@ -190,6 +191,17 @@ export function OutlineHome({
   const [selectedUpdates, setSelectedUpdates] = React.useState<Record<string, boolean>>({})
   const [settingTypes, setSettingTypes] = React.useState<Record<string, string>>({})
   const [settingFields, setSettingFields] = React.useState<Record<string, Record<string, string>>>({})
+  const [foreshadowProposals, setForeshadowProposals] =
+    React.useState<ForeshadowManageProposalSet | null>(null)
+  const [foreshadowBusy, setForeshadowBusy] = React.useState(false)
+  const [foreshadowError, setForeshadowError] = React.useState('')
+  const [foreshadowNotice, setForeshadowNotice] = React.useState('')
+  const [foreshadowCreates, setForeshadowCreates] = React.useState<Record<string, boolean>>({})
+  const [foreshadowUpdates, setForeshadowUpdates] = React.useState<Record<string, boolean>>({})
+  const [foreshadowBindings, setForeshadowBindings] = React.useState<Record<string, boolean>>({})
+  const [foreshadowFields, setForeshadowFields] = React.useState<
+    Record<string, Record<string, string>>
+  >({})
   const zh = language === 'zh'
   const section = OUTLINE_HOME_SECTIONS.find((item) => item.id === activeSection) ?? OUTLINE_HOME_SECTIONS[0]
   const sectionTitle = zh ? section.title : section.enTitle
@@ -261,6 +273,16 @@ export function OutlineHome({
     setSettingFields({})
   }
 
+  const closeForeshadowPanel = () => {
+    setForeshadowProposals(null)
+    setForeshadowError('')
+    setForeshadowNotice('')
+    setForeshadowCreates({})
+    setForeshadowUpdates({})
+    setForeshadowBindings({})
+    setForeshadowFields({})
+  }
+
   const organizeConfirmReady =
     !organizeProposals ||
     [...organizeProposals.creates, ...organizeProposals.updates].every((item) => {
@@ -270,6 +292,16 @@ export function OutlineHome({
       const type = settingTypes[item.proposal_id] ?? 'world_entry'
       const fields = settingFields[item.proposal_id] ?? {}
       return requiredSpecializationFields(type).every((key) => Boolean(fields[key]?.trim()))
+    })
+
+  const foreshadowConfirmReady =
+    !foreshadowProposals ||
+    [...foreshadowProposals.creates, ...foreshadowProposals.updates].every((item) => {
+      const selected =
+        'card_id' in item ? foreshadowUpdates[item.proposal_id] : foreshadowCreates[item.proposal_id]
+      if (!selected) return true
+      const fields = foreshadowFields[item.proposal_id] ?? {}
+      return requiredSpecializationFields('foreshadowing').every((key) => Boolean(fields[key]?.trim()))
     })
 
   const runOrganizeAction = async (action: () => Promise<void>) => {
@@ -285,6 +317,19 @@ export function OutlineHome({
     }
   }
 
+  const runForeshadowAction = async (action: () => Promise<void>) => {
+    setForeshadowBusy(true)
+    setForeshadowError('')
+    setForeshadowNotice('')
+    try {
+      await action()
+    } catch (error) {
+      setForeshadowError(formatDesktopError(error, language))
+    } finally {
+      setForeshadowBusy(false)
+    }
+  }
+
   const organizeWorldbook = async () => {
     await runOrganizeAction(async () => {
       const proposals = await window.quillarium.organizeWorldbook(project.root)
@@ -294,6 +339,28 @@ export function OutlineHome({
       const typed = [...proposals.creates, ...proposals.updates]
       setSettingTypes(Object.fromEntries(typed.map((item) => [item.proposal_id, 'world_entry'])))
       setSettingFields(Object.fromEntries(typed.map((item) => [item.proposal_id, {}])))
+    })
+  }
+
+  const manageForeshadowing = async () => {
+    await runForeshadowAction(async () => {
+      const proposals = await window.quillarium.manageForeshadowing(project.root)
+      setForeshadowProposals(proposals)
+      setForeshadowCreates(Object.fromEntries(proposals.creates.map((item) => [item.proposal_id, true])))
+      setForeshadowUpdates(Object.fromEntries(proposals.updates.map((item) => [item.proposal_id, true])))
+      setForeshadowBindings(Object.fromEntries(proposals.bindings.map((item) => [item.proposal_id, true])))
+      setForeshadowFields(
+        Object.fromEntries(
+          [...proposals.creates, ...proposals.updates].map((item) => {
+            const seeded: Record<string, string> = {}
+            for (const key of requiredSpecializationFields('foreshadowing')) {
+              const value = item.fields[key]
+              seeded[key] = typeof value === 'string' ? value : ''
+            }
+            return [item.proposal_id, seeded] as const
+          })
+        )
+      )
     })
   }
 
@@ -328,6 +395,43 @@ export function OutlineHome({
       setSelectedUpdates({})
       setSettingTypes({})
       setSettingFields({})
+      await onReloadProject()
+    })
+  }
+
+  const applyForeshadow = async () => {
+    if (!foreshadowProposals || !foreshadowConfirmReady) return
+    await runForeshadowAction(async () => {
+      const toDecision = (proposalId: string) => {
+        const fields = foreshadowFields[proposalId] ?? {}
+        const payload: Record<string, unknown> = {}
+        for (const key of requiredSpecializationFields('foreshadowing')) {
+          payload[key] = fields[key]?.trim() ?? ''
+        }
+        return { proposal_id: proposalId, fields: payload }
+      }
+      const result = await window.quillarium.applyForeshadowManage(project.root, foreshadowProposals, {
+        confirmed: true,
+        creates: foreshadowProposals.creates
+          .filter((item) => foreshadowCreates[item.proposal_id])
+          .map((item) => toDecision(item.proposal_id)),
+        updates: foreshadowProposals.updates
+          .filter((item) => foreshadowUpdates[item.proposal_id])
+          .map((item) => toDecision(item.proposal_id)),
+        bindings: foreshadowProposals.bindings
+          .filter((item) => foreshadowBindings[item.proposal_id])
+          .map((item) => item.proposal_id)
+      })
+      setForeshadowNotice(
+        zh
+          ? `已新建 ${result.created_ids.length} 条、更新 ${result.updated_ids.length} 条、绑定 ${result.binding_document_ids.length} 处。`
+          : `Created ${result.created_ids.length}, updated ${result.updated_ids.length}, bound ${result.binding_document_ids.length}.`
+      )
+      setForeshadowProposals(null)
+      setForeshadowCreates({})
+      setForeshadowUpdates({})
+      setForeshadowBindings({})
+      setForeshadowFields({})
       await onReloadProject()
     })
   }
@@ -406,6 +510,100 @@ export function OutlineHome({
             />
           </label>
         ))}
+      </div>
+    )
+  }
+
+  const renderForeshadowCardRow = (
+    item: { proposal_id: string; title?: string; content: string; card_id?: string },
+    kind: 'create' | 'update'
+  ) => {
+    const selected = kind === 'create' ? foreshadowCreates : foreshadowUpdates
+    const setSelected = kind === 'create' ? setForeshadowCreates : setForeshadowUpdates
+    const fields = foreshadowFields[item.proposal_id] ?? {}
+    const required = requiredSpecializationFields('foreshadowing')
+    const heading =
+      kind === 'create'
+        ? (item.title ?? '')
+        : (docs.find((doc) => doc.data.id === item.card_id)?.data.title ?? item.card_id ?? '')
+    return (
+      <div className="chapter-eval-setting" key={item.proposal_id}>
+        <label>
+          <input
+            type="checkbox"
+            checked={Boolean(selected[item.proposal_id])}
+            onChange={(event) =>
+              setSelected({
+                ...selected,
+                [item.proposal_id]: event.target.checked
+              })
+            }
+          />
+          <span>
+            <strong>
+              {kind === 'create' ? (zh ? '新建' : 'Create') : zh ? '更新' : 'Update'}: {heading}
+            </strong>
+            <small>{item.content}</small>
+          </span>
+        </label>
+        {required.map((key) => (
+          <label key={key}>
+            {fieldLabel(key, language)}
+            <input
+              value={fields[key] ?? ''}
+              aria-label={fieldLabel(key, language)}
+              onChange={(event) =>
+                setForeshadowFields({
+                  ...foreshadowFields,
+                  [item.proposal_id]: {
+                    ...fields,
+                    [key]: event.target.value
+                  }
+                })
+              }
+            />
+          </label>
+        ))}
+      </div>
+    )
+  }
+
+  const renderForeshadowBindingRow = (
+    item: ForeshadowManageProposalSet['bindings'][number]
+  ) => {
+    const foreshadowTitle =
+      docs.find((doc) => doc.data.id === item.foreshadowing_id)?.data.title ?? item.foreshadowing_id
+    const documentTitle =
+      docs.find((doc) => doc.data.id === item.document_id)?.data.title ?? item.document_id
+    const actions = [
+      item.plant ? `${zh ? '埋设' : 'plant'}:${item.plant}` : null,
+      item.resolve ? `${zh ? '回收' : 'resolve'}:${item.resolve}` : null
+    ]
+      .filter(Boolean)
+      .join(' · ')
+    return (
+      <div className="chapter-eval-setting" key={item.proposal_id}>
+        <label>
+          <input
+            type="checkbox"
+            checked={Boolean(foreshadowBindings[item.proposal_id])}
+            onChange={(event) =>
+              setForeshadowBindings({
+                ...foreshadowBindings,
+                [item.proposal_id]: event.target.checked
+              })
+            }
+          />
+          <span>
+            <strong>
+              {zh ? '绑定' : 'Binding'}: {foreshadowTitle}
+            </strong>
+            <small>
+              {zh ? '文档' : 'Document'}: {documentTitle}
+              {actions ? ` · ${actions}` : ''}
+            </small>
+          </span>
+        </label>
       </div>
     )
   }
@@ -596,6 +794,15 @@ export function OutlineHome({
                       <Sparkles size={15} /> {zh ? '整理世界书' : 'Organize world book'}
                     </button>
                   )}
+                  {activeSection === 'foreshadowing' && (
+                    <button
+                      onClick={() => void manageForeshadowing()}
+                      disabled={busy || foreshadowBusy}
+                      title={zh ? '管理伏笔' : 'Manage foreshadowing'}
+                    >
+                      <Sparkles size={15} /> {zh ? '管理伏笔' : 'Manage foreshadowing'}
+                    </button>
+                  )}
                 </>
               )}
               {activeSection !== 'issues' && (
@@ -667,6 +874,7 @@ export function OutlineHome({
               onSelect={onSelect}
               onCreateRelation={setRelationCreate}
               onCreateTimelineNode={() => setTimelineCoordinate({})}
+              onReloadProject={onReloadProject}
               language={language}
               displayLayer={displayLayer}
             />
@@ -1049,6 +1257,42 @@ export function OutlineHome({
                 className="primary"
                 onClick={() => void applyOrganize()}
                 disabled={organizeBusy || !organizeConfirmReady}
+              >
+                {zh ? '确认写入' : 'Confirm write'}
+              </button>
+            </div>
+          )}
+        </section>
+      )}
+      {(foreshadowProposals || foreshadowBusy || foreshadowError || foreshadowNotice) && (
+        <section
+          className="chapter-eval-panel"
+          aria-label={zh ? '伏笔管理提案' : 'Foreshadow manage proposals'}
+        >
+          <header>
+            <strong>{zh ? '伏笔管理提案' : 'Foreshadow manage proposals'}</strong>
+            <button
+              onClick={closeForeshadowPanel}
+              disabled={foreshadowBusy}
+              aria-label={zh ? '关闭伏笔提案' : 'Close foreshadow manage'}
+            >
+              <XCircle size={15} />
+            </button>
+          </header>
+          <div className="chapter-eval-body">
+            {foreshadowBusy && <p className="finalization-message">{zh ? '正在管理…' : 'Managing…'}</p>}
+            {foreshadowError && <p className="finalization-message error">{foreshadowError}</p>}
+            {foreshadowNotice && <p className="finalization-message ok">{foreshadowNotice}</p>}
+            {foreshadowProposals?.creates.map((item) => renderForeshadowCardRow(item, 'create'))}
+            {foreshadowProposals?.updates.map((item) => renderForeshadowCardRow(item, 'update'))}
+            {foreshadowProposals?.bindings.map((item) => renderForeshadowBindingRow(item))}
+          </div>
+          {foreshadowProposals && (
+            <div className="chapter-eval-footer">
+              <button
+                className="primary"
+                onClick={() => void applyForeshadow()}
+                disabled={foreshadowBusy || !foreshadowConfirmReady}
               >
                 {zh ? '确认写入' : 'Confirm write'}
               </button>

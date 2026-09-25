@@ -1,9 +1,13 @@
 import {
   applyChapterEval,
+  applyForeshadowManage,
   applyOutlineOrganize,
+  applyRelationAnalyze,
   applyWorldOrganize,
   type ChapterEvalProposalSet,
+  type ForeshadowManageProposalSet,
   type OutlineOrganizeProposalSet,
+  type RelationAnalyzeProposalSet,
   type WorldOrganizeProposalSet
 } from '@quillarium/core'
 import { executeExpertTask } from '@quillarium/agent-runtime'
@@ -26,6 +30,16 @@ export function registerExpertHandlers(): void {
   typedHandle('expert:organizeWorldbook', async (_event, root) => evaluateWorldOrganize(root))
   typedHandle('expert:applyWorldOrganize', async (_event, root, proposals, decisions) =>
     applyWorldOrganize(root, proposals, decisions)
+  )
+  typedHandle('expert:analyzeRelations', async (_event, root, characterId) =>
+    evaluateRelationAnalyze(root, characterId)
+  )
+  typedHandle('expert:applyRelationAnalyze', async (_event, root, proposals, decisions) =>
+    applyRelationAnalyze(root, proposals, decisions)
+  )
+  typedHandle('expert:manageForeshadowing', async (_event, root) => evaluateForeshadowManage(root))
+  typedHandle('expert:applyForeshadowManage', async (_event, root, proposals, decisions) =>
+    applyForeshadowManage(root, proposals, decisions)
   )
 }
 
@@ -94,4 +108,51 @@ export async function evaluateWorldOrganize(root: string): Promise<WorldOrganize
   }
 
   return outcome.result as WorldOrganizeProposalSet
+}
+
+export async function evaluateRelationAnalyze(
+  root: string,
+  characterId: string
+): Promise<RelationAnalyzeProposalSet> {
+  const outcome = await executeExpertTask(
+    {
+      projectRoot: root,
+      task_id: 'analyze-relations',
+      input: { character_id: characterId }
+    },
+    {
+      loadAIProfile: (profile) => loadDesktopAIProfile(profile)
+    }
+  )
+
+  if (outcome.status !== 'completed') {
+    const detail = outcome.error.technical_detail?.trim()
+    throw new Error(
+      detail && /[\u4e00-\u9fff]/u.test(detail) ? detail : `分析关系失败：${outcome.error.code}`
+    )
+  }
+
+  return outcome.result as RelationAnalyzeProposalSet
+}
+
+export async function evaluateForeshadowManage(root: string): Promise<ForeshadowManageProposalSet> {
+  const outcome = await executeExpertTask(
+    {
+      projectRoot: root,
+      task_id: 'manage-foreshadowing',
+      input: {}
+    },
+    {
+      loadAIProfile: (profile) => loadDesktopAIProfile(profile)
+    }
+  )
+
+  if (outcome.status !== 'completed') {
+    const detail = outcome.error.technical_detail?.trim()
+    throw new Error(
+      detail && /[\u4e00-\u9fff]/u.test(detail) ? detail : `管理伏笔失败：${outcome.error.code}`
+    )
+  }
+
+  return outcome.result as ForeshadowManageProposalSet
 }

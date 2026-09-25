@@ -87,7 +87,10 @@ import type {
   DisplayImageManifest,
   DisplayImageProvider,
   ChapterEvalProposalSet,
+  ForeshadowManageProposalSet,
   OutlineOrganizeProposalSet,
+  RelationAnalyzeProposalSet,
+  RelationExpertType,
   WorldOrganizeProposalSet
 } from '@quillarium/core'
 import { recordIpcFailure } from '../logging.js'
@@ -1209,6 +1212,43 @@ export interface IpcContract {
     ]
     response: { created_ids: string[]; updated_ids: string[] }
   }
+  'expert:analyzeRelations': {
+    request: [root: string, characterId: string]
+    response: RelationAnalyzeProposalSet
+  }
+  'expert:applyRelationAnalyze': {
+    request: [
+      root: string,
+      proposals: RelationAnalyzeProposalSet,
+      decisions: {
+        confirmed: boolean
+        creates: Array<{
+          proposal_id: string
+          type?: RelationExpertType
+          fields?: Record<string, unknown>
+        }>
+        updates: Array<{ proposal_id: string; fields?: Record<string, unknown> }>
+      }
+    ]
+    response: { created_ids: string[]; updated_ids: string[] }
+  }
+  'expert:manageForeshadowing': {
+    request: [root: string]
+    response: ForeshadowManageProposalSet
+  }
+  'expert:applyForeshadowManage': {
+    request: [
+      root: string,
+      proposals: ForeshadowManageProposalSet,
+      decisions: {
+        confirmed: boolean
+        creates: Array<{ proposal_id: string; fields?: Record<string, unknown> }>
+        updates: Array<{ proposal_id: string; fields?: Record<string, unknown> }>
+        bindings: string[]
+      }
+    ]
+    response: { created_ids: string[]; updated_ids: string[]; binding_document_ids: string[] }
+  }
 }
 
 export type IpcChannel = keyof IpcContract
@@ -1394,7 +1434,11 @@ export const QUILLARIUM_API_CHANNELS = {
   organizeOutline: 'expert:organizeOutline',
   applyOutlineOrganize: 'expert:applyOutlineOrganize',
   organizeWorldbook: 'expert:organizeWorldbook',
-  applyWorldOrganize: 'expert:applyWorldOrganize'
+  applyWorldOrganize: 'expert:applyWorldOrganize',
+  analyzeRelations: 'expert:analyzeRelations',
+  applyRelationAnalyze: 'expert:applyRelationAnalyze',
+  manageForeshadowing: 'expert:manageForeshadowing',
+  applyForeshadowManage: 'expert:applyForeshadowManage'
 } as const satisfies Record<string, IpcChannel>
 
 type AssertNever<Value extends never> = Value
