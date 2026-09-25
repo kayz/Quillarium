@@ -29,6 +29,7 @@ export const agentTaskIdSchema = z.enum([
   'organize-worldbook',
   'analyze-relations',
   'manage-foreshadowing',
+  'manage-timeline',
   'character-rehearsal',
   'continuity-review',
   'setting-card-design',
@@ -189,6 +190,19 @@ const definitions = [
     input_schema_id: 'quillarium.agent.manage-foreshadowing-input.v1',
     output_schema_id: 'quillarium.agent.manage-foreshadowing-proposal.v1',
     context_scopes: ['project'],
+    capability_ceiling: ['propose_planning_record'],
+    allowed_result_types: ['planning_proposal'],
+    lane: 'expert'
+  },
+  {
+    schema_version: 1,
+    id: 'manage-timeline',
+    version: '1.0.0',
+    title: '整理时间线',
+    description: '针对当前选中轨道提案新建或整段替换时间事件，并挂到本轨已有节点、调整同节点顺序，确认后才写入。',
+    input_schema_id: 'quillarium.agent.manage-timeline-input.v1',
+    output_schema_id: 'quillarium.agent.manage-timeline-proposal.v1',
+    context_scopes: ['current-target', 'timeline'],
     capability_ceiling: ['propose_planning_record'],
     allowed_result_types: ['planning_proposal'],
     lane: 'expert'

@@ -14,6 +14,7 @@ describe('agent task lanes', () => {
       'organize-worldbook': 'expert',
       'analyze-relations': 'expert',
       'manage-foreshadowing': 'expert',
+      'manage-timeline': 'expert',
       'continuity-review': 'expert',
       'continuity-check': 'expert',
       'finalization-review': 'expert',
@@ -49,6 +50,12 @@ describe('agent task lanes', () => {
     expect(getAgentTaskDefinition('manage-foreshadowing')).toMatchObject({
       lane: 'expert',
       title: '管理伏笔',
+      capability_ceiling: expect.not.arrayContaining(['generate_candidate']),
+      allowed_result_types: expect.arrayContaining(['planning_proposal'])
+    })
+    expect(getAgentTaskDefinition('manage-timeline')).toMatchObject({
+      lane: 'expert',
+      title: '整理时间线',
       capability_ceiling: expect.not.arrayContaining(['generate_candidate']),
       allowed_result_types: expect.arrayContaining(['planning_proposal'])
     })
