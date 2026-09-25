@@ -412,7 +412,9 @@ describe('executeExpertTask manage-timeline', () => {
     ])
     expect(invokeProvider).toHaveBeenCalled()
     const firstCall = invokeProvider.mock.calls.at(0)
-    const request = firstCall ? (firstCall as unknown as [ { messages?: Array<{ role: string; content: string }> } ])[0] : undefined
+    const request = firstCall
+      ? (firstCall as unknown as [{ messages?: Array<{ role: string; content: string }> }])[0]
+      : undefined
     const promptText = (request?.messages ?? []).map((item) => item.content).join('\n')
     expect(promptText).toMatch(/tl-create-i|tl-create-N|creates\[i\]/i)
   })

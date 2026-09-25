@@ -631,8 +631,7 @@ export function TimelineChainView({
   }
 
   const renderPlacementRow = (item: TimelineManageProposalSet['placements'][number]) => {
-    const createSelected =
-      !item.create_proposal_id || Boolean(selectedCreates[item.create_proposal_id])
+    const createSelected = !item.create_proposal_id || Boolean(selectedCreates[item.create_proposal_id])
     const eventLabel = item.event_id
       ? (items.find((doc) => doc.data.id === item.event_id)?.data.title ?? item.event_id)
       : item.create_proposal_id
