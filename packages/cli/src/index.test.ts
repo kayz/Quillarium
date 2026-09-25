@@ -541,7 +541,9 @@ describe('CLI smoke flow', () => {
     expect(expert?.commands.map((command) => command.name())).toEqual([
       'evaluate-chapter',
       'organize-outline',
-      'organize-worldbook'
+      'organize-worldbook',
+      'analyze-relations',
+      'manage-foreshadowing'
     ])
     expect(
       expert?.commands.find((command) => command.name() === 'evaluate-chapter')?.helpInformation()
@@ -551,6 +553,12 @@ describe('CLI smoke flow', () => {
     ).toContain('--outline-id')
     expect(
       expert?.commands.find((command) => command.name() === 'organize-worldbook')?.helpInformation()
+    ).not.toContain('--apply')
+    expect(
+      expert?.commands.find((command) => command.name() === 'analyze-relations')?.helpInformation()
+    ).toContain('--character-id')
+    expect(
+      expert?.commands.find((command) => command.name() === 'manage-foreshadowing')?.helpInformation()
     ).not.toContain('--apply')
   })
 
@@ -690,6 +698,93 @@ describe('CLI smoke flow', () => {
     expect(spy.mock.calls.at(-1)?.[0]).toMatchObject({
       projectRoot: expect.any(String),
       task_id: 'organize-worldbook',
+      input: {}
+    })
+  })
+
+  it('refuses expert analyze-relations when character id is missing', async () => {
+    const { root } = await initProject()
+
+    await expect(
+      run('expert', 'analyze-relations', '--character-id', 'missing', '--project', root)
+    ).rejects.toThrow('找不到人物，不能分析关系。')
+  })
+
+  it('prints relation-analyze counts without writing relation files', async () => {
+    const { root } = await initProject()
+    await run('character', 'add', 'Lin', '--role', 'protagonist', '--project', root)
+    const [character] = await listDocs<CharacterDoc>(root, 'character')
+    const beforeRelations = await listDocs(root, 'character_relation')
+    const beforeMemberships = await listDocs(root, 'faction_membership')
+    const beforeFactionRelations = await listDocs(root, 'faction_relation')
+
+    const spy = vi.spyOn(agentRuntime, 'executeExpertTask').mockResolvedValue({
+      status: 'completed',
+      execution_id: 'relation-analyze-cli-1',
+      task_id: 'analyze-relations',
+      result: {
+        eval_id: 'relation-analyze-cli-1',
+        character_id: character.data.id,
+        creates: [
+          {
+            proposal_id: 'create-1',
+            title: '盟友',
+            content: '互相信任',
+            type: 'character_relation',
+            fields: {}
+          }
+        ],
+        updates: [{ proposal_id: 'update-1', card_id: 'rel-1', content: '更新', fields: {} }]
+      },
+      run_path: 'runs/relation-analyze-cli-1'
+    })
+
+    output = []
+    await run('expert', 'analyze-relations', '--character-id', character.data.id, '--project', root)
+
+    expect(output.at(-1)).toBe('relation-analyze: creates=1 updates=1')
+    expect(await listDocs(root, 'character_relation')).toHaveLength(beforeRelations.length)
+    expect(await listDocs(root, 'faction_membership')).toHaveLength(beforeMemberships.length)
+    expect(await listDocs(root, 'faction_relation')).toHaveLength(beforeFactionRelations.length)
+    expect(spy.mock.calls.at(-1)?.[0]).toMatchObject({
+      projectRoot: expect.any(String),
+      task_id: 'analyze-relations',
+      input: { character_id: character.data.id }
+    })
+  })
+
+  it('prints foreshadow-manage counts without writing foreshadowing files', async () => {
+    const { root } = await initProject()
+    const before = await listDocs<ForeshadowingDoc>(root, 'foreshadowing')
+
+    const spy = vi.spyOn(agentRuntime, 'executeExpertTask').mockResolvedValue({
+      status: 'completed',
+      execution_id: 'foreshadow-manage-cli-1',
+      task_id: 'manage-foreshadowing',
+      result: {
+        eval_id: 'foreshadow-manage-cli-1',
+        creates: [{ proposal_id: 'create-1', title: '线索', content: '伏笔', fields: {} }],
+        updates: [{ proposal_id: 'update-1', card_id: 'fb-1', content: '更新', fields: {} }],
+        bindings: [
+          {
+            proposal_id: 'binding-1',
+            foreshadowing_id: 'fb-1',
+            document_id: 'chapter-1',
+            plant: 'add'
+          }
+        ]
+      },
+      run_path: 'runs/foreshadow-manage-cli-1'
+    })
+
+    output = []
+    await run('expert', 'manage-foreshadowing', '--project', root)
+
+    expect(output.at(-1)).toBe('foreshadow-manage: creates=1 updates=1 bindings=1')
+    expect(await listDocs<ForeshadowingDoc>(root, 'foreshadowing')).toHaveLength(before.length)
+    expect(spy.mock.calls.at(-1)?.[0]).toMatchObject({
+      projectRoot: expect.any(String),
+      task_id: 'manage-foreshadowing',
       input: {}
     })
   })
