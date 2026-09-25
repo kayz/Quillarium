@@ -379,12 +379,7 @@ describe('applyTimelineManage with rollback', () => {
     await withDawnNode(root)
     const worldPath = await createWorldEntry(root, 'Side only', {}, 'Side body.')
     const created = await readMarkdown<{ id: string }>(worldPath)
-    const specialized = await specializePlanningCard(
-      root,
-      created.data.id,
-      'timeline_event',
-      {}
-    )
+    const specialized = await specializePlanningCard(root, created.data.id, 'timeline_event', {})
     await writeMarkdown(
       specialized.path,
       {

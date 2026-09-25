@@ -50,10 +50,7 @@ import {
   MANAGE_FORESHADOWING_DEFINITION,
   createManageForeshadowingHandler
 } from './tasks/manage-foreshadowing.js'
-import {
-  MANAGE_TIMELINE_DEFINITION,
-  createManageTimelineHandler
-} from './tasks/manage-timeline.js'
+import { MANAGE_TIMELINE_DEFINITION, createManageTimelineHandler } from './tasks/manage-timeline.js'
 import { ORGANIZE_OUTLINE_DEFINITION, createOrganizeOutlineHandler } from './tasks/organize-outline.js'
 import { ORGANIZE_WORLDBOOK_DEFINITION, createOrganizeWorldbookHandler } from './tasks/organize-worldbook.js'
 import {

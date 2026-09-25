@@ -43,9 +43,7 @@ export function registerExpertHandlers(): void {
   typedHandle('expert:applyForeshadowManage', async (_event, root, proposals, decisions) =>
     applyForeshadowManage(root, proposals, decisions)
   )
-  typedHandle('expert:manageTimeline', async (_event, root, trackId) =>
-    evaluateTimelineManage(root, trackId)
-  )
+  typedHandle('expert:manageTimeline', async (_event, root, trackId) => evaluateTimelineManage(root, trackId))
   typedHandle('expert:applyTimelineManage', async (_event, root, proposals, decisions) =>
     applyTimelineManage(root, proposals, decisions)
   )

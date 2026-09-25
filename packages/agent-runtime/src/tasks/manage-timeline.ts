@@ -243,9 +243,7 @@ async function prepareManageTimeline(
           usage: 'evidence' as const
         })),
       ...allEvents
-        .filter(
-          (item) => eventStartNode(item.data, track.id) !== null || isFullyUnattached(item.data)
-        )
+        .filter((item) => eventStartNode(item.data, track.id) !== null || isFullyUnattached(item.data))
         .map((item) => ({
           document_type: 'timeline_event' as const,
           document_id: item.data.id,
@@ -332,7 +330,7 @@ function aggregateManageTimeline(context: AgentAggregateContext): TimelineManage
       ...(item.title !== undefined ? { title: item.title } : {})
     })),
     placements: (output.placements ?? [])
-      .filter((item) => ('event_id' in item) !== ('create_proposal_id' in item))
+      .filter((item) => 'event_id' in item !== 'create_proposal_id' in item)
       .map((item, index) => ({
         proposal_id: `tl-place-${index}`,
         node_id: item.node_id,

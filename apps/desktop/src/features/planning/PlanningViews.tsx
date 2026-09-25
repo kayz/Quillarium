@@ -509,9 +509,7 @@ export function TimelineChainView({
       setOrganizeProposals(proposals)
       setSelectedCreates(Object.fromEntries(proposals.creates.map((item) => [item.proposal_id, true])))
       setSelectedUpdates(Object.fromEntries(proposals.updates.map((item) => [item.proposal_id, true])))
-      setSelectedPlacements(
-        Object.fromEntries(proposals.placements.map((item) => [item.proposal_id, true]))
-      )
+      setSelectedPlacements(Object.fromEntries(proposals.placements.map((item) => [item.proposal_id, true])))
       setSelectedOrders(Object.fromEntries(proposals.orders.map((item) => [item.proposal_id, true])))
     })
   }
@@ -608,8 +606,7 @@ export function TimelineChainView({
       : item.create_proposal_id
         ? `${zh ? '新建提案' : 'Create'} ${item.create_proposal_id}`
         : item.proposal_id
-    const nodeLabel =
-      items.find((doc) => doc.data.id === item.node_id)?.data.title ?? item.node_id
+    const nodeLabel = items.find((doc) => doc.data.id === item.node_id)?.data.title ?? item.node_id
     return (
       <div className="chapter-eval-setting" key={item.proposal_id}>
         <label>
@@ -637,8 +634,7 @@ export function TimelineChainView({
   }
 
   const renderOrderRow = (item: TimelineManageProposalSet['orders'][number]) => {
-    const nodeLabel =
-      items.find((doc) => doc.data.id === item.node_id)?.data.title ?? item.node_id
+    const nodeLabel = items.find((doc) => doc.data.id === item.node_id)?.data.title ?? item.node_id
     return (
       <div className="chapter-eval-setting" key={item.proposal_id}>
         <label>

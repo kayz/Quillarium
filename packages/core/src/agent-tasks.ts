@@ -199,7 +199,8 @@ const definitions = [
     id: 'manage-timeline',
     version: '1.0.0',
     title: '整理时间线',
-    description: '针对当前选中轨道提案新建或整段替换时间事件，并挂到本轨已有节点、调整同节点顺序，确认后才写入。',
+    description:
+      '针对当前选中轨道提案新建或整段替换时间事件，并挂到本轨已有节点、调整同节点顺序，确认后才写入。',
     input_schema_id: 'quillarium.agent.manage-timeline-input.v1',
     output_schema_id: 'quillarium.agent.manage-timeline-proposal.v1',
     context_scopes: ['current-target', 'timeline'],

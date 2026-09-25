@@ -228,9 +228,7 @@ export async function applyTimelineManage(
         }
 
         const events = await listDocs<TimelineEventDoc>(projectRoot, 'timeline_event')
-        const eligible = events.filter(
-          (item) => eventStartNode(item.data, track.id) === proposal.node_id
-        )
+        const eligible = events.filter((item) => eventStartNode(item.data, track.id) === proposal.node_id)
         const expectedHashes: Record<string, string> = {}
         for (const item of eligible) {
           const raw = await readText(item.path)
