@@ -1,0 +1,16 @@
+# 由 keel 管理。与 .keel/protected-paths.txt 保持一致：这些路径是 spec 的四层和骨架自身，改动需要人审核。
+/AGENTS.md                 @kayz
+/docs/intent.md            @kayz
+/docs/adr/           @kayz
+/contracts/                @kayz
+/tests/AGENTS.md           @kayz
+/tests/rules/              @kayz
+/tests/properties/         @kayz
+/tests/flows/              @kayz
+/.dependency-cruiser.cjs   @kayz
+/.dependency-cruiser-known-violations.json  @kayz
+/.keel/                    @kayz
+/.github/                  @kayz
+/scripts/check-fast.ps1    @kayz
+/scripts/check.ps1         @kayz
+/scripts/mutation.ps1      @kayz

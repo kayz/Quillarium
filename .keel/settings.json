@@ -1,0 +1,4 @@
+{
+  "default_branch": "master",
+  "stacks": ["ts-pnpm"]
+}

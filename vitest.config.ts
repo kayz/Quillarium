@@ -7,7 +7,8 @@ export default defineConfig({
       'scripts/**/*.test.mjs',
       'apps/desktop/electron/**/*.test.ts',
       'apps/desktop/src/**/*.test.ts',
-      'apps/desktop/src/**/*.test.tsx'
+      'apps/desktop/src/**/*.test.tsx',
+      'tests/**/*.test.ts'
     ],
     globals: true,
     testTimeout: 15_000,
