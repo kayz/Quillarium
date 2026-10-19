@@ -5,6 +5,7 @@
   "description": "Obsidian-backed writing system for long-form fiction with heavy AI assistance.",
   "license": "MIT",
   "type": "module",
+  "packageManager": "pnpm@10.30.0",
   "scripts": {
     "build": "tsc -b && pnpm --filter @quillarium/checks copy:prompts",
     "test": "vitest run",
