@@ -1,0 +1,107 @@
+[
+  {
+    "type": "cycle",
+    "from": "apps/desktop/src/features/planning/character-relation-graph.ts",
+    "to": "apps/desktop/src/features/planning/PlanningViews.tsx",
+    "unresolvedTo": "./PlanningViews.js",
+    "dependencyTypes": ["local", "type-only", "import"],
+    "rule": {
+      "severity": "error",
+      "name": "no-circular"
+    },
+    "cycle": [
+      {
+        "name": "apps/desktop/src/features/planning/PlanningViews.tsx",
+        "dependencyTypes": ["local", "type-only", "import"]
+      },
+      {
+        "name": "apps/desktop/src/features/planning/character-relation-graph.ts",
+        "dependencyTypes": ["local", "import"]
+      }
+    ]
+  },
+  {
+    "type": "cycle",
+    "from": "packages/checks/src/index.ts",
+    "to": "packages/checks/src/planning.ts",
+    "unresolvedTo": "./planning.js",
+    "dependencyTypes": ["local", "export"],
+    "rule": {
+      "severity": "error",
+      "name": "no-circular"
+    },
+    "cycle": [
+      {
+        "name": "packages/checks/src/planning.ts",
+        "dependencyTypes": ["local", "export"]
+      },
+      {
+        "name": "packages/checks/src/index.ts",
+        "dependencyTypes": ["local", "type-only", "import"]
+      }
+    ]
+  },
+  {
+    "type": "cycle",
+    "from": "packages/checks/src/index.ts",
+    "to": "packages/checks/src/semantic/index.ts",
+    "unresolvedTo": "./semantic/index.js",
+    "dependencyTypes": ["local", "export"],
+    "rule": {
+      "severity": "error",
+      "name": "no-circular"
+    },
+    "cycle": [
+      {
+        "name": "packages/checks/src/semantic/index.ts",
+        "dependencyTypes": ["local", "export"]
+      },
+      {
+        "name": "packages/checks/src/index.ts",
+        "dependencyTypes": ["local", "type-only", "import"]
+      }
+    ]
+  },
+  {
+    "type": "cycle",
+    "from": "packages/core/src/assistant-prompts.ts",
+    "to": "packages/core/src/creator-roles.ts",
+    "unresolvedTo": "./creator-roles.js",
+    "dependencyTypes": ["local", "dynamic-import"],
+    "rule": {
+      "severity": "error",
+      "name": "no-circular"
+    },
+    "cycle": [
+      {
+        "name": "packages/core/src/creator-roles.ts",
+        "dependencyTypes": ["local", "dynamic-import"]
+      },
+      {
+        "name": "packages/core/src/assistant-prompts.ts",
+        "dependencyTypes": ["local", "import"]
+      }
+    ]
+  },
+  {
+    "type": "cycle",
+    "from": "packages/core/src/context-bundles.ts",
+    "to": "packages/core/src/creator-roles.ts",
+    "unresolvedTo": "./creator-roles.js",
+    "dependencyTypes": ["local", "dynamic-import"],
+    "rule": {
+      "severity": "error",
+      "name": "no-circular"
+    },
+    "cycle": [
+      {
+        "name": "packages/core/src/creator-roles.ts",
+        "dependencyTypes": ["local", "dynamic-import"]
+      },
+      {
+        "name": "packages/core/src/context-bundles.ts",
+        "dependencyTypes": ["local", "import"]
+      }
+    ]
+  }
+]

@@ -1,0 +1,11 @@
+# 由 copier 生成，记录骨架版本和选项，供 copier update 使用。不要手改。
+_commit: 6fc76e3
+_src_path: gh:kayz/keel
+adopt_existing: true
+decisions_dir: docs/adr
+default_branch: master
+owner: kayz
+project_description: 本地优先、以 Obsidian 为持久化底座的长篇小说创作系统。
+project_name: Quillarium
+stacks:
+- ts-pnpm

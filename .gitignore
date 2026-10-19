@@ -17,3 +17,6 @@ runs-tmp/
 
 .worktrees/
 
+# 变异测试
+reports/
+.stryker-tmp/

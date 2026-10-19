@@ -1,0 +1,17 @@
+# 受保护的路径：spec 的四层和骨架自身。改动需要人审核。
+# 以 / 结尾表示目录前缀，否则为精确文件路径。与 .github/CODEOWNERS 保持一致。
+AGENTS.md
+docs/intent.md
+docs/adr/
+contracts/
+tests/AGENTS.md
+tests/rules/
+tests/properties/
+tests/flows/
+.dependency-cruiser.cjs
+.dependency-cruiser-known-violations.json
+.keel/
+.github/
+scripts/check-fast.ps1
+scripts/check.ps1
+scripts/mutation.ps1

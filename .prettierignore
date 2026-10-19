@@ -2,3 +2,6 @@
 # `pnpm format:check` honest. Prettier already reads the repository-root .gitignore.
 .superpowers/
 .worktrees/
+# keel 管理的文件保持 keel 自己的格式；keel 更新时整体替换。
+.keel/
+.copier-answers.yml
