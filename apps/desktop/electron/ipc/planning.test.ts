@@ -1,7 +1,7 @@
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   createProjectAt,
   applyIssueBatchAction,
@@ -40,6 +40,15 @@ import {
 } from './planning.js'
 import type { PlanningDocumentKind } from './contract.js'
 import { applyPlanningCheckForIPC, decidePlanningCheckForIPC } from './agent-check.js'
+
+// 这些测试只验证 IPC 处理逻辑，不需要 Electron 运行时。不 mock 时，导入 'electron' 会在本机
+// 缺少 Electron 二进制文件时同步下载，阻塞测试进程且不受 testTimeout 约束。
+vi.mock('electron', () => ({
+  dialog: { showOpenDialog: vi.fn(), showSaveDialog: vi.fn() },
+  ipcMain: { handle: vi.fn() },
+  safeStorage: { isEncryptionAvailable: vi.fn(() => false), encryptString: vi.fn(), decryptString: vi.fn() },
+  shell: { openPath: vi.fn(async () => '') }
+}))
 
 const roots: string[] = []
 const configuredAI: AIConfig = {
