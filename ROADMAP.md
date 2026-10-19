@@ -278,6 +278,22 @@ Simplified Chinese entry points.
 - Consolidate repeated actions, toolbars, surfaces, and form grids into configurable renderer
   primitives while retaining CSS compatibility for existing feature panels.
 
+Added to the same candidate in September 2026 (chapter-centered skeleton):
+
+- Make the chapter (chapter outline plus chapter prose) the delivery unit. Scenes become an optional
+  project-level generation module, off for new projects, and chapter prose is written only after
+  every scene in the chapter is confirmed.
+- Make world entries the default origin of setting facts and specialize the same stable ID in place
+  through one core API shared by the desktop, the CLI, and AI apply.
+- Move card imagery and HTML card faces into an optional project-level display layer: a confirmed
+  one-time reset of 0.3.0 `assets/settings/` images, uploaded or author-requested generated galleries
+  under `assets/display/`, and the `display-card-design` Agent.
+- Fence writing-path AI into an expert lane that never writes prose, with one-click chapter
+  evaluation, outline and world-book organization, relationship analysis, foreshadowing management,
+  and timeline organization. Every result is a proposal the author confirms.
+- Collect each creator-assistant turn's proposals into one confirmation overlay with one lock and full
+  rollback.
+
 ## P1: Auditable Lifecycle and Memory
 
 - Detect project files changed by Obsidian, editors, or Git and surface stale-session conflicts

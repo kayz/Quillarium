@@ -69,27 +69,23 @@ as a reviewed, recoverable operation.
   verify every file, and record a recovery audit. Any failure restores the whole set.
 - Markdown and plain-text manuscript export from finalized/published chapter prose, accepted outputs,
   or final scenes, with explicit gap reporting and optional volume filtering.
-- A seven-level workflow: overview and book outline at the top, then volume, part, optional act,
-  chapter, and scene. Scenes generate plain-text candidates; accepted scenes append to chapter prose.
-  Chapter prose progresses from draft to final to immutable published state.
+- A seven-level structure: overview and book outline at the top, then volume, optional part,
+  optional act, chapter, and scene. The chapter (chapter outline plus chapter prose) is the delivery
+  unit. Scenes are an optional project-level AI-writing module that splits one chapter into roughly
+  1,000-character generation blocks; chapter prose is written only after every scene in the chapter is
+  confirmed. Chapter prose progresses from draft to final to immutable published state.
 - Project settings can hide part, act, or scene levels without deleting their Markdown. Chapters are
   presented under the nearest enabled parent, disabled files remain available through an inspector,
   and disabling scenes also removes the scene-bound AI writing entry. Older projects default to all
-  levels enabled in memory and are not rewritten merely by opening them.
-- World entries, characters, locations, character relationships, and factions can carry one primary
-  project-local image. Originals and PNG thumbnails live under `assets/settings/`; cards and graphs
-  prefer the thumbnail while Markdown stores only validated relative paths, dimensions, hash, focus,
-  alt text, and a small color palette.
-- World entries, characters, locations, and character relationships can be rendered as self-contained
-  sandboxed HTML setting cards. Built-in and saved workspace styles render immediately without a model
-  call; choosing Random style invokes the bounded `setting-card-design` Agent with text plus image
-  dimensions/aspect/palette/alt text—never pixels or local paths. Each Roll receives a different
-  code-owned composition and visual-axis brief; Rolls remain navigable candidates, and an approved
-  candidate can be named and saved into the same style selector for reuse across novels. HTML export
-  opens the native Save As dialog and writes only the author-selected destination.
-  Core attributes receive structured treatment, layouts may safely feature one named core field, and
-  common Markdown in longer biographies renders as headings, tables, lists, quotations, emphasis, and
-  paragraphs.
+  levels enabled in memory and are not rewritten merely by opening them. New projects start with the
+  scene module off.
+- Card imagery and HTML card faces belong to an optional project-level display layer that is kept
+  separate from setting facts; turning it off hides only the shell. Images are uploaded locally or, on
+  an explicit author request, generated through OpenAI Images, an OpenAI-compatible images endpoint, or
+  Gemini. They live as a multi-image gallery under `assets/display/<card-id>/` and are never written
+  back into card frontmatter. Card faces render from built-in or saved templates without a model call;
+  the bounded `display-card-design` Agent only proposes candidates, and templates containing script are
+  refused.
 - Factions are first-class organization cards with separate faction-relationship and character-
   membership documents. All links use stable IDs and optional start-inclusive/end-exclusive timeline
   bounds. Faction emblems appear beside people in the time-filtered character graph; a deterministic
@@ -147,6 +143,32 @@ and button shape/treatment/size through bounded CSS tokens. Settings previews ed
 skin, density, and global language in one operation; reset removes only the selected customization.
 Old global configs and project `default_theme` values require no migration and are not rewritten on
 read. See the bilingual [UI skin contract](docs/UI-SKINS.md).
+
+The candidate also adopts a chapter-centered product skeleton:
+
+- **World entry first, then specialize.** Setting facts start as world entries. The author, the CLI,
+  or a confirmed AI proposal specializes the same stable ID in place into a character, location,
+  foreshadowing, or another supported type, and can convert it back. Missing required target fields
+  fail the whole write.
+- **Expert mode.** Writing-path AI organizes, analyzes, evaluates, and proposes settings, but never
+  writes prose. One-click expert tasks evaluate existing chapter prose (`continuity-check`), organize
+  the selected outline node's children (`organize-outline`) and enabled world entries
+  (`organize-worldbook`), analyze the selected character's relationships (`analyze-relations`), manage
+  enabled foreshadowing and its planted/resolved references (`manage-foreshadowing`), and organize the
+  selected timeline track (`manage-timeline`). Results are unconfirmed proposals: nothing is written
+  until the author confirms, and cancelling leaves the disk unchanged. The CLI evaluates and prints
+  counts without applying.
+- **One confirmation per assistant turn.** The setting-organizer, character-rehearsal, and
+  continuity-review assistants collect each turn's card, issue, and assistant-configuration
+  proposals into one overlay. Confirming writes the checked items under one lock with full rollback;
+  unchecked items are marked rejected.
+- **Generation stays in the scene module.** Prose generation exists only inside the optional scene
+  module and never passes through the expert facade.
+
+Opening a 0.3.0 project that still has files under `assets/settings/` or `image` fields on cards asks
+whether to reset the old display assets. Confirming permanently deletes `assets/settings/` and removes
+those `image` fields, then turns the display layer on; cancelling leaves the disk untouched for the
+session. Back up such projects before upgrading.
 
 AI is optional for project management, import, context assembly, deterministic checks, and export.
 Generation and `check --semantic` require an OpenAI-compatible endpoint or configured provider.
