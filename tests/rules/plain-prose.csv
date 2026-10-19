@@ -12,8 +12,14 @@ P10,```\n代码\n```,reject,confirmed,代码围栏
 P11,他说：#不是标题,accept,confirmed,# 不在行首且后面没有空格
 P12,价格涨了 1.5 倍。,accept,confirmed,数字中的点
 P13,第一行\n# 标题,reject,confirmed,第二行是标题
-P14,这是*斜体*,reject,pending,单个星号也是强调语法
+P14,这是*斜体*,reject,confirmed,成对的单个星号包住文字，是强调语法
 P15,-5 度的清晨,accept,confirmed,行首负号后面没有空格，不是列表
 P16,~~删去的话~~,reject,confirmed,删除线
 P17,![插图](a.png),reject,confirmed,图片
-P18,_他_低声说,reject,pending,单个下划线也是强调语法
+P18,_他_低声说,reject,confirmed,成对的单个下划线包住文字，是强调语法
+P19,他*终于*明白了,reject,confirmed,AI 输出里常见的强调写法
+P20,5*3=15,accept,confirmed,单个星号用作乘号
+P21,***,accept,confirmed,三个星号作场景分隔
+P22,他骂了一句*，转身走了,accept,confirmed,只有一个星号，没有包住文字
+P23,他把文件存成 draft_v2_final,accept,confirmed,英文名里的下划线不是强调
+P24,星号 * 和 * 星号,accept,confirmed,星号旁边是空格，没有包住文字
