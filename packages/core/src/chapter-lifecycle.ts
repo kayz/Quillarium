@@ -74,7 +74,11 @@ export function assertPlainProse(content: string): string {
     /^\s{0,3}>\s?/mu,
     /```|~~~/u,
     /!?\[[^\]]+\]\([^)]+\)/u,
-    /(?:\*\*|__|~~)[^\r\n]+(?:\*\*|__|~~)/u
+    /(?:\*\*|__|~~)[^\r\n]+(?:\*\*|__|~~)/u,
+    // 成对的单个 * 或 _ 包住文字（如“他*终于*明白”）。单独的星号、乘号、*** 场景分隔、
+    // 以及英文名里的下划线（draft_v2）不受影响。
+    /(?<![*\w])\*(?=[^\s*])[^*\r\n]*?[^\s*]\*(?![*\w])/u,
+    /(?<![_\w])_(?=[^\s_])[^_\r\n]*?[^\s_]_(?![_\w])/u
   ].some((pattern) => pattern.test(value))
   if (markdown) throw new Error('正文必须是纯文字，不能包含 Markdown 标题、列表、引用、链接或强调语法。')
   return value
