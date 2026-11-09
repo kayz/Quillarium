@@ -23,6 +23,7 @@ import type {
   LeftMode
 } from '../../app/types.js'
 import { formatDesktopError } from '../../shared/errors.js'
+import { workspaceModeForRole } from '../../app/work-role.js'
 import { bridge } from '../../app/bridge.js'
 import {
   buildOutlinePath,
@@ -94,7 +95,7 @@ export function Workspace({
   const [middlePct, setMiddlePct] = useState(58)
   const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>('planning')
   const [workspacePage, setWorkspacePage] = useState<WorkspacePage>('outline')
-  const [outlineSection, setOutlineSection] = useState<OutlineHomeSection>('overview')
+  const [outlineSection, setOutlineSection] = useState<OutlineHomeSection>('world')
   const [volumeSection, setVolumeSection] = useState<VolumeSection>('parts')
   const [activeVolumeId, setActiveVolumeId] = useState<string | null>(null)
   const [workLevel, setWorkLevel] = useState<WorkLevel>('book')
@@ -109,6 +110,7 @@ export function Workspace({
   const planningStream = useAIStreamPreview('planning-check')
   const planningCancelRequested = useRef(false)
   const displayResetPromptedRoot = useRef<string | null>(null)
+  const landingRoot = useRef<string | null>(null)
   const [displayLayer, setDisplayLayer] = useState({ enabled: false, migrated: true })
 
   const load = async () => {
@@ -143,6 +145,10 @@ export function Workspace({
         })
       )
       setData({ ...loaded, project: { ...loaded.project, root } })
+      if (landingRoot.current !== root) {
+        landingRoot.current = root
+        setWorkspaceMode(workspaceModeForRole(loaded.project.capabilities?.role))
+      }
       setActionError('')
       if (loaded.project.default_theme) onTheme(loaded.project.default_theme)
       setGit(await bridge.gitStatus(root))
@@ -493,14 +499,6 @@ export function Workspace({
       if (applicationOutcome.status === 'failed') return applicationOutcome
       const applied = applicationOutcome.result
       await load()
-      setWorkspaceMode('planning')
-      setWorkspacePage('outline')
-      setOutlineSection('issues')
-      const issueId = applied.created_issue_ids[0] ?? applied.updated_issue_ids[0]
-      if (issueId) {
-        setSelectedTarget({ type: 'issue', id: issueId })
-        setRightOpen(true)
-      }
       return { status: 'applied', result: applied }
     } finally {
       setBusy(false)

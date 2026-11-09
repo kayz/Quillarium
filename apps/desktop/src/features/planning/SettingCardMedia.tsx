@@ -11,7 +11,10 @@ import {
   Trash2,
   X
 } from 'lucide-react'
-import { settingCardDocumentTypeSchema, type SettingCardDocumentType } from '@quillarium/core'
+import {
+  settingCardDocumentTypeSchema,
+  type SettingCardDocumentType
+} from '@quillarium/core/browser-contracts'
 import type { DocEntry, LanguageName } from '../../app/types.js'
 import { bridge } from '../../app/bridge.js'
 import { formatDesktopError } from '../../shared/errors.js'
@@ -21,7 +24,9 @@ import {
   settingCardStyleSource
 } from './setting-card-designer-model.js'
 
-export { SETTING_CARD_TYPES, SETTING_IMAGE_TYPES, SettingThumbnail } from './SettingThumbnail.js'
+import { SETTING_CARD_TYPES, SETTING_IMAGE_TYPES, SettingThumbnail } from './SettingThumbnail.js'
+
+export { SETTING_CARD_TYPES, SETTING_IMAGE_TYPES, SettingThumbnail }
 
 type SettingCardStyle = Awaited<ReturnType<typeof bridge.listSettingCardStyles>>[number]
 type SettingCardCandidate = Awaited<ReturnType<typeof bridge.designSettingCard>>['candidate']
@@ -72,7 +77,8 @@ export function SettingCardMediaPanel({
   root,
   document,
   language,
-  showImageChrome = false
+  showImageChrome = false,
+  allowImageGeneration = true
 }: {
   root: string
   document: DocEntry
@@ -82,9 +88,11 @@ export function SettingCardMediaPanel({
   onReloadProject: () => Promise<void>
   language: LanguageName
   showImageChrome?: boolean
+  allowImageGeneration?: boolean
 }) {
   const zh = language === 'zh'
   const parsedType = settingCardDocumentTypeSchema.safeParse(document.data.type)
+  const canHoldImage = parsedType.success || SETTING_IMAGE_TYPES.has(String(document.data.type))
   const [designerOpen, setDesignerOpen] = useState(false)
   const [manifest, setManifest] = useState<DisplayImageManifest | null>(null)
   const [prompt, setPrompt] = useState(() =>
@@ -99,7 +107,7 @@ export function SettingCardMediaPanel({
   }, [document.data.id])
 
   useEffect(() => {
-    if (!showImageChrome || !parsedType.success) return
+    if (!showImageChrome || !canHoldImage) return
     let active = true
     void bridge
       .listDisplayImages(root, document.data.id)
@@ -112,16 +120,16 @@ export function SettingCardMediaPanel({
     return () => {
       active = false
     }
-  }, [document.data.id, language, parsedType.success, root, showImageChrome])
+  }, [canHoldImage, document.data.id, language, root, showImageChrome])
 
-  if (!parsedType.success) return null
-  const documentType = parsedType.data
+  if (!parsedType.success && (!showImageChrome || !canHoldImage)) return null
+  const documentType = parsedType.success ? parsedType.data : null
   const gallery = manifest?.image_data_urls ?? []
   const selectedUrl = gallery[0]?.data_url ?? null
 
   return (
     <section className="setting-media-panel">
-      {showImageChrome && (
+      {showImageChrome && canHoldImage && (
         <DisplayImageControls
           zh={zh}
           busy={busy}
@@ -166,14 +174,17 @@ export function SettingCardMediaPanel({
               setManifest(await bridge.removeDisplayImage(root, document.data.id, imageId))
             })
           }
+          allowGenerate={allowImageGeneration}
         />
       )}
-      <div className="setting-media-actions">
-        <button className="primary" type="button" onClick={() => setDesignerOpen(true)}>
-          <Bot size={14} /> {zh ? '创建设定卡' : 'Design card'}
-        </button>
-      </div>
-      {designerOpen && (
+      {documentType && (
+        <div className="setting-media-actions">
+          <button className="primary" type="button" onClick={() => setDesignerOpen(true)}>
+            <Bot size={14} /> {zh ? '创建设定卡' : 'Design card'}
+          </button>
+        </div>
+      )}
+      {designerOpen && documentType && (
         <SettingCardDesigner
           root={root}
           document={document}
@@ -686,7 +697,8 @@ function DisplayImageControls({
   onConfirm,
   onCancel,
   onSelect,
-  onRemove
+  onRemove,
+  allowGenerate
 }: {
   zh: boolean
   busy: boolean
@@ -702,6 +714,7 @@ function DisplayImageControls({
   onCancel: () => void
   onSelect: (imageId: string) => void
   onRemove: (imageId: string) => void
+  allowGenerate: boolean
 }) {
   return (
     <div className="setting-media-copy">
@@ -734,28 +747,36 @@ function DisplayImageControls({
           <img src={candidate.data_url} alt={zh ? '生图候选' : 'Generated candidate'} />
         </div>
       )}
-      <label>
-        {zh ? '生图提示词' : 'Image prompt'}
-        <textarea
-          value={prompt}
-          onChange={(event) => onPrompt(event.target.value)}
-          rows={3}
-          disabled={busy}
-        />
-      </label>
+      {allowGenerate && (
+        <label>
+          {zh ? '生图提示词' : 'Image prompt'}
+          <textarea
+            value={prompt}
+            onChange={(event) => onPrompt(event.target.value)}
+            rows={3}
+            disabled={busy}
+          />
+        </label>
+      )}
       <div className="setting-media-actions">
         <button type="button" onClick={onUpload} disabled={busy}>
           <ImagePlus size={14} /> {zh ? '上传图片' : 'Upload image'}
         </button>
-        <button type="button" onClick={onGenerate} disabled={busy || !prompt.trim()}>
-          <Sparkles size={14} /> {zh ? '生成配图' : 'Generate image'}
-        </button>
-        <button type="button" onClick={onConfirm} disabled={busy || !candidate}>
-          <Save size={14} /> {zh ? '确认保存' : 'Confirm save'}
-        </button>
-        <button type="button" onClick={onCancel} disabled={busy || !candidate}>
-          <X size={14} /> {zh ? '取消' : 'Cancel'}
-        </button>
+        {allowGenerate && (
+          <button type="button" onClick={onGenerate} disabled={busy || !prompt.trim()}>
+            <Sparkles size={14} /> {zh ? '生成配图' : 'Generate image'}
+          </button>
+        )}
+        {allowGenerate && (
+          <button type="button" onClick={onConfirm} disabled={busy || !candidate}>
+            <Save size={14} /> {zh ? '确认保存' : 'Confirm save'}
+          </button>
+        )}
+        {allowGenerate && (
+          <button type="button" onClick={onCancel} disabled={busy || !candidate}>
+            <X size={14} /> {zh ? '取消' : 'Cancel'}
+          </button>
+        )}
       </div>
       {error && (
         <p className="settings-notice danger" role="alert">

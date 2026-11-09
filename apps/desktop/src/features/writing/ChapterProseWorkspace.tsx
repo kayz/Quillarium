@@ -4,7 +4,7 @@ import type {
   FinalizationApplicationReport,
   FinalizeReviewSession
 } from '@quillarium/core'
-import { requiredSpecializationFields, specializationTargets } from '@quillarium/core'
+import { requiredSpecializationFields, specializationTargets } from '@quillarium/core/browser-contracts'
 import {
   CheckCircle2,
   ClipboardCheck,

@@ -62,6 +62,7 @@ export function isSpecializationKind(type: string): type is SpecializationKind {
 
 export function specializationTargets(sourceType: string): SpecializationKind[] {
   if (sourceType === 'world_entry') return SPECIALIZATION_KINDS.filter((kind) => kind !== 'world_entry')
+  if (sourceType === 'item') return ['foreshadowing']
   if (isSpecializationKind(sourceType)) return ['world_entry']
   return []
 }

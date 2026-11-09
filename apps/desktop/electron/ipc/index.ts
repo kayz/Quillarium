@@ -21,6 +21,7 @@ import { registerSettingAssetHandlers } from './setting-assets.js'
 import { registerDisplayImageHandlers } from './display-images.js'
 import { registerSettingCardHandlers } from './setting-cards.js'
 import { registerExpertHandlers } from './expert.js'
+import { registerShortPlayHandlers } from './short-play.js'
 
 export function registerAllHandlers(): void {
   registerAIStreamHandlers()
@@ -31,6 +32,7 @@ export function registerAllHandlers(): void {
   registerDisplayImageHandlers()
   registerSettingCardHandlers()
   registerExpertHandlers()
+  registerShortPlayHandlers()
   registerStoryOrderHandlers()
   registerReferenceHandlers()
   registerTimelineHandlers()

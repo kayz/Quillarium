@@ -4,6 +4,11 @@ import {
   assertChapterAllowsAI,
   assertPlainProse,
   acceptSceneIntoChapter,
+  mergeChapterSnapshot,
+  listPromptTemplates,
+  savePromptTemplate,
+  setCurrentPromptTemplate,
+  saveScenePromptLayout,
   answerFinalizeQuestion,
   applyFinalizeReviewSession,
   buildEditableScenePromptPlan,
@@ -288,6 +293,17 @@ export function registerSceneHandlers(): void {
   )
   typedHandle('scene:acceptManual', async (_event, root, sceneId, content) =>
     acceptSceneIntoChapter(root, sceneId, content)
+  )
+  typedHandle('scene:mergeChapter', async (_event, root, chapterId) => mergeChapterSnapshot(root, chapterId))
+  typedHandle('scene:savePromptLayout', async (_event, root, sceneId, layout) => {
+    await saveScenePromptLayout(root, sceneId, layout)
+  })
+  typedHandle('promptTemplate:list', async (_event, root) => listPromptTemplates(root))
+  typedHandle('promptTemplate:save', async (_event, root, title, segments) =>
+    savePromptTemplate(root, title, segments)
+  )
+  typedHandle('promptTemplate:setCurrent', async (_event, root, templateId) =>
+    setCurrentPromptTemplate(root, templateId)
   )
   typedHandle('scene:promptPlan', async (_event, root, sceneId) => {
     const resolved = await resolveDesktopGenerationPreset(root)

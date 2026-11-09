@@ -1,5 +1,4 @@
 import React, { Component, useEffect, useMemo, useState } from 'react'
-import { BookOpen, FileInput, FolderOpen } from 'lucide-react'
 import { resolveUISkin } from '@quillarium/core/ui-skins'
 import type {
   AIStatus,
@@ -11,11 +10,11 @@ import type {
 } from './types.js'
 import { t } from './i18n.js'
 import { bridge } from './bridge.js'
-import { BrandWordmark } from './BrandWordmark.js'
 import { TopChrome } from '../features/settings/TopChrome.js'
 import { Workspace } from '../features/workspace/Workspace.js'
 import { formatDesktopError } from '../shared/errors.js'
 import { applyUISkin } from './ui-skin.js'
+import type { WorkRole } from './work-role.js'
 
 export function App() {
   const [theme, setTheme] = useState<ThemeName>('paper')
@@ -49,8 +48,8 @@ export function App() {
       if (!bridge) {
         setError(
           selectedLanguage === 'zh'
-            ? 'Quillarium 桌面接口不可用，请重新启动客户端。'
-            : 'The Quillarium desktop bridge is unavailable. Restart the client.'
+            ? '琢磨桌面接口不可用，请重新启动客户端。'
+            : 'The 琢磨 desktop bridge is unavailable. Restart the client.'
         )
         return
       }
@@ -179,6 +178,10 @@ function Welcome({
     sectionWords: 1000,
     defaultTheme: theme
   })
+  const [wizard, setWizard] = useState<'audience' | 'writer' | 'form' | 'oc' | null>(null)
+  const [pendingCardImport, setPendingCardImport] = useState<{ sourcePath: string; title: string } | null>(
+    null
+  )
 
   const chooseWritingWorkspace = async () => {
     await bridge.chooseWorkspace()
@@ -190,11 +193,32 @@ function Welcome({
     if (project) onOpen(project.root)
   }
 
-  const create = async () => {
+  const create = async (role: WorkRole) => {
+    if (pendingCardImport) {
+      try {
+        const result = await bridge.importBookCharacterCardProject(
+          pendingCardImport.sourcePath,
+          pendingCardImport.title,
+          role
+        )
+        setWizard(null)
+        setPendingCardImport(null)
+        await onRefresh()
+        onOpen(result.project.root)
+      } catch (cause) {
+        window.alert(formatDesktopError(cause, language))
+      }
+      return
+    }
     if (!form.title.trim()) return
-    const project = await bridge.createProject({ ...form, defaultTheme: theme })
-    await onRefresh()
-    onOpen(project.root)
+    try {
+      const project = await bridge.createProject({ ...form, defaultTheme: theme, role })
+      setWizard(null)
+      await onRefresh()
+      onOpen(project.root)
+    } catch (cause) {
+      window.alert(formatDesktopError(cause, language))
+    }
   }
 
   const importBookCard = async () => {
@@ -203,13 +227,12 @@ function Welcome({
       const inspection = await bridge.chooseBookCharacterCard()
       if (!inspection) return
       const title = window.prompt(
-        zh ? '确认或修改新小说书名' : 'Confirm or edit the new novel title',
+        zh ? '确认或修改新作品名' : 'Confirm or edit the new work title',
         inspection.name
       )
       if (title === null || !title.trim()) return
-      const result = await bridge.importBookCharacterCardProject(inspection.sourcePath, title.trim())
-      await onRefresh()
-      onOpen(result.project.root)
+      setPendingCardImport({ sourcePath: inspection.sourcePath, title: title.trim() })
+      setWizard('audience')
     } catch (cause) {
       window.alert(formatDesktopError(cause, language))
     }
@@ -229,105 +252,184 @@ function Welcome({
         onSkinPreferences={onSkinPreferences}
         onAIStatus={onAIStatus}
       />
-      <main className="welcome-main">
-        <section className="welcome-hero">
-          <span className="welcome-kicker">STRUCTURED FICTION WORKSPACE</span>
-          <h1 className="welcome-brand" aria-label="Quillarium">
-            <BrandWordmark className="welcome-brand-wordmark" decorative />
-          </h1>
-          <p>{t(language, 'welcomeSubtitle')}</p>
-          <div className="vault-card">
-            <div>
-              <strong>{t(language, 'localWritingLibrary')}</strong>
-              <code>{writingWorkspace ?? t(language, 'workspaceNotSet')}</code>
-              <small>{t(language, 'localWritingLibraryHint')}</small>
-            </div>
-            <div className="vault-actions">
-              <button className="primary" onClick={chooseWritingWorkspace}>
-                <FolderOpen size={16} />{' '}
-                {writingWorkspace ? t(language, 'changeLocalWorkspace') : t(language, 'chooseLocalWorkspace')}
-              </button>
-            </div>
+      <div className="library">
+        <aside className="library-side">
+          <div>
+            <span className="library-label">{t(language, 'localWritingLibrary')}</span>
+            <code>{writingWorkspace ?? t(language, 'workspaceNotSet')}</code>
+            <button className="secondary" onClick={chooseWritingWorkspace}>
+              {writingWorkspace ? t(language, 'changeLocalWorkspace') : t(language, 'chooseLocalWorkspace')}
+            </button>
+          </div>
+          <p className="library-hint">{t(language, 'localWritingLibraryHint')}</p>
+          <div className="library-side-actions">
+            <button className="secondary" onClick={chooseProject}>
+              {t(language, 'openExistingProject')}
+            </button>
+            <button className="secondary" onClick={importBookCard} disabled={!writingWorkspace}>
+              {zh ? '从角色卡导入' : 'Import a character card'}
+            </button>
           </div>
           {error && <div className="error-box">{error}</div>}
-        </section>
-        <section className="welcome-panel">
-          <div className="panel-title">
-            <BookOpen size={17} /> {t(language, 'novelProjects')}
-          </div>
-          <div className="project-section">
-            <h3>{zh ? '已有小说' : 'Existing novels'}</h3>
+          <p className="library-colophon">{t(language, 'welcomeSubtitle')}</p>
+        </aside>
+        <section className="library-main" aria-label={t(language, 'novelProjects')}>
+          <form
+            className="library-toolbar"
+            onSubmit={(event) => {
+              event.preventDefault()
+              if (!form.title.trim()) return
+              setPendingCardImport(null)
+              setWizard('audience')
+            }}
+          >
+            <input
+              value={form.title}
+              onChange={(e) => setForm({ ...form, title: e.target.value })}
+              placeholder={t(language, 'novelTitle')}
+              aria-label={t(language, 'novelTitle')}
+            />
+            <button className="secondary" type="submit" disabled={!writingWorkspace || !form.title.trim()}>
+              {zh ? '新建' : 'New'}
+            </button>
+          </form>
+          {wizard && (
+            <section className="library-wizard" aria-label={zh ? '新建作品问卷' : 'New work questionnaire'}>
+              {wizard === 'audience' && (
+                <>
+                  <p>
+                    {zh
+                      ? '这部作品里，你是作家，还是 OC 人？'
+                      : 'In this work, are you a writer or an OC keeper?'}
+                  </p>
+                  <div className="wizard-actions">
+                    <button type="button" onClick={() => setWizard('writer')}>
+                      {zh ? '作家' : 'Writer'}
+                    </button>
+                    <button type="button" onClick={() => setWizard('oc')}>
+                      {zh ? 'OC 人' : 'OC keeper'}
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={() => {
+                        setWizard(null)
+                        setPendingCardImport(null)
+                      }}
+                    >
+                      {zh ? '取消' : 'Cancel'}
+                    </button>
+                  </div>
+                </>
+              )}
+              {wizard === 'writer' && (
+                <>
+                  <p>{zh ? '正文谁来写？' : 'Who writes the prose?'}</p>
+                  <div className="wizard-actions">
+                    <button type="button" onClick={() => void create('traditional_writer')}>
+                      {zh ? '自己写' : 'I write it'}
+                    </button>
+                    <button type="button" onClick={() => setWizard('form')}>
+                      {zh ? 'AI 帮我写' : 'AI helps me write'}
+                    </button>
+                    <button type="button" className="secondary" onClick={() => setWizard('audience')}>
+                      {zh ? '返回' : 'Back'}
+                    </button>
+                  </div>
+                </>
+              )}
+              {wizard === 'form' && (
+                <>
+                  <p>{zh ? '写小说，还是写短剧？' : 'A novel, or a short drama?'}</p>
+                  <div className="wizard-actions">
+                    <button type="button" onClick={() => void create('ai_writer')}>
+                      {zh ? '写小说' : 'Novel'}
+                    </button>
+                    <button type="button" onClick={() => void create('ai_screenwriter')}>
+                      {zh ? '写短剧' : 'Short drama'}
+                    </button>
+                    <button type="button" className="secondary" onClick={() => setWizard('writer')}>
+                      {zh ? '返回' : 'Back'}
+                    </button>
+                  </div>
+                </>
+              )}
+              {wizard === 'oc' && (
+                <>
+                  <p>
+                    {zh
+                      ? '接受生成式 AI 吗？接受会同时打开节与生文、展示层与生图、短剧导出。'
+                      : 'Accept generative AI? Accepting also turns on scene prose, the display layer and image generation, and short-drama export.'}
+                  </p>
+                  <div className="wizard-actions">
+                    <button type="button" onClick={() => void create('oc_person')}>
+                      {zh ? '不接受' : 'No'}
+                    </button>
+                    <button type="button" onClick={() => void create('ai_native')}>
+                      {zh ? '接受' : 'Yes'}
+                    </button>
+                    <button type="button" className="secondary" onClick={() => setWizard('audience')}>
+                      {zh ? '返回' : 'Back'}
+                    </button>
+                  </div>
+                </>
+              )}
+            </section>
+          )}
+          <details className="library-measures">
+            <summary>{zh ? '类型与篇幅' : 'Genre and length'}</summary>
+            <div className="library-measures-body">
+              <label className="zhuomo-field">
+                <span>{zh ? '类型' : 'Genre'}</span>
+                <input value={form.genre} onChange={(e) => setForm({ ...form, genre: e.target.value })} />
+              </label>
+              <div className="number-grid">
+                <label>
+                  {zh ? '全书字数' : 'Book words'}
+                  <input
+                    type="number"
+                    value={form.targetWords}
+                    onChange={(e) => setForm({ ...form, targetWords: Number(e.target.value) })}
+                  />
+                </label>
+                <label>
+                  {zh ? '章字数' : 'Chapter words'}
+                  <input
+                    type="number"
+                    value={form.chapterWords}
+                    onChange={(e) => setForm({ ...form, chapterWords: Number(e.target.value) })}
+                  />
+                </label>
+                <label>
+                  {zh ? '节字数' : 'Scene words'}
+                  <input
+                    type="number"
+                    value={form.sectionWords}
+                    onChange={(e) => setForm({ ...form, sectionWords: Number(e.target.value) })}
+                  />
+                </label>
+              </div>
+            </div>
+          </details>
+          {!writingWorkspace && <p className="library-note">{t(language, 'selectLocalBeforeCreate')}</p>}
+          <div className="library-list">
             {projects.length === 0 ? (
               <div className="empty">{t(language, 'noProjects')}</div>
             ) : (
               <div className="project-list">
                 {projects.map((project) => (
-                  <div key={project.root} className="project-row">
-                    <div>
+                  <button key={project.root} className="project-row" onClick={() => onOpen(project.root)}>
+                    <span>
                       <strong>{project.title}</strong>
                       <small>{project.genre}</small>
-                    </div>
-                    <button className="secondary project-enter" onClick={() => onOpen(project.root)}>
-                      {zh ? '进入' : 'Open'}
-                    </button>
-                  </div>
+                    </span>
+                  </button>
                 ))}
               </div>
             )}
           </div>
-          <div className="create-form">
-            <h3>{zh ? '创建小说' : 'Create a novel'}</h3>
-            <input
-              value={form.title}
-              onChange={(e) => setForm({ ...form, title: e.target.value })}
-              placeholder={t(language, 'novelTitle')}
-            />
-            <input
-              value={form.genre}
-              onChange={(e) => setForm({ ...form, genre: e.target.value })}
-              placeholder={zh ? '类型' : 'Genre'}
-            />
-            <div className="number-grid">
-              <label>
-                {zh ? '全书字数' : 'Book words'}
-                <input
-                  type="number"
-                  value={form.targetWords}
-                  onChange={(e) => setForm({ ...form, targetWords: Number(e.target.value) })}
-                />
-              </label>
-              <label>
-                {zh ? '章字数' : 'Chapter words'}
-                <input
-                  type="number"
-                  value={form.chapterWords}
-                  onChange={(e) => setForm({ ...form, chapterWords: Number(e.target.value) })}
-                />
-              </label>
-              <label>
-                {zh ? '节字数' : 'Scene words'}
-                <input
-                  type="number"
-                  value={form.sectionWords}
-                  onChange={(e) => setForm({ ...form, sectionWords: Number(e.target.value) })}
-                />
-              </label>
-            </div>
-            <div className="create-project-actions">
-              <button className="primary" onClick={create} disabled={!writingWorkspace || !form.title.trim()}>
-                {zh ? '新建小说' : 'New novel'}
-              </button>
-              <button className="secondary" onClick={importBookCard} disabled={!writingWorkspace}>
-                <FileInput size={16} /> {zh ? '从角色卡导入' : 'Import character card'}
-              </button>
-            </div>
-            {!writingWorkspace && <small>{t(language, 'selectLocalBeforeCreate')}</small>}
-            <button className="secondary" onClick={chooseProject}>
-              <FolderOpen size={16} /> {t(language, 'openExistingProject')}
-            </button>
-          </div>
         </section>
-      </main>
+      </div>
     </div>
   )
 }

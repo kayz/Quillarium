@@ -18,12 +18,8 @@ import {
   Upload,
   XCircle
 } from 'lucide-react'
-import {
-  requiredSpecializationFields,
-  specializationTargets,
-  type ForeshadowManageProposalSet,
-  type WorldOrganizeProposalSet
-} from '@quillarium/core'
+import { requiredSpecializationFields, specializationTargets } from '@quillarium/core/browser-contracts'
+import type { ForeshadowManageProposalSet, WorldOrganizeProposalSet } from '@quillarium/core'
 import type {
   DocEntry,
   LanguageName,
@@ -43,6 +39,7 @@ import {
   createInputForOutlineSection,
   docTypeLabel,
   OUTLINE_HOME_SECTIONS,
+  WORLD_BOOK_SECTION_IDS,
   outlineSectionDocs,
   structuredLineForSection
 } from './outline-model.js'
@@ -62,6 +59,7 @@ import { clampPaneSize, SplitHandle } from '../layout/SplitHandle.js'
 import { BoundedPager } from '../layout/BoundedPager.js'
 import { boundedPage } from '../layout/bounded-page.js'
 import { OutlineCreateDialog } from './OutlineCreateDialog.js'
+import { RankHoldingDialog } from './RankHoldingDialog.js'
 import { EditableDocumentTitle } from './EditableDocumentTitle.js'
 import { enumChoiceLabel, fieldLabel } from '../metadata/field-presentation.js'
 import {
@@ -124,6 +122,8 @@ export function OutlineHome({
   onInspectTag,
   onSave,
   onImport,
+  onBookBreakdown,
+  onTransferToForeshadowing,
   language,
   displayLayer
 }: {
@@ -164,6 +164,8 @@ export function OutlineHome({
   onInspectTag: (tag: string, displayValue?: string) => void
   onSave: () => Promise<void>
   onImport: () => void
+  onBookBreakdown?: () => void
+  onTransferToForeshadowing: (doc: DocEntry) => Promise<void>
   language: LanguageName
   displayLayer: DisplayLayerChrome
 }) {
@@ -173,6 +175,7 @@ export function OutlineHome({
   const [navigationWidth, setNavigationWidth] = React.useState(280)
   const [detailMetadataPct, setDetailMetadataPct] = React.useState(38)
   const [createOpen, setCreateOpen] = React.useState(false)
+  const [rankHoldingOpen, setRankHoldingOpen] = React.useState(false)
   const [timelineCoordinate, setTimelineCoordinate] = React.useState<{
     sourceEventId?: string
   } | null>(null)
@@ -639,24 +642,26 @@ export function OutlineHome({
           </button>
         </div>
         <div className="outline-nav-list">
-          {OUTLINE_HOME_SECTIONS.map((item) => (
-            <button
-              key={item.id}
-              className={activeSection === item.id ? 'active' : ''}
-              onClick={() => onSection(item.id)}
-              title={zh ? item.title : item.enTitle}
-            >
-              <item.icon size={17} />
-              {leftOpen ? (
-                <>
-                  <span>{zh ? item.title : item.enTitle}</span>
-                  <small>{countSection(docs, item.id)}</small>
-                </>
-              ) : (
-                <span className="one-char">{zh ? item.short : item.enShort}</span>
-              )}
-            </button>
-          ))}
+          {WORLD_BOOK_SECTION_IDS.map((id) => OUTLINE_HOME_SECTIONS.find((item) => item.id === id))
+            .filter((item): item is (typeof OUTLINE_HOME_SECTIONS)[number] => Boolean(item))
+            .map((item) => (
+              <button
+                key={item.id}
+                className={activeSection === item.id ? 'active' : ''}
+                onClick={() => onSection(item.id)}
+                title={zh ? item.title : item.enTitle}
+              >
+                <item.icon size={17} />
+                {leftOpen ? (
+                  <>
+                    <span>{zh ? item.title : item.enTitle}</span>
+                    <small>{countSection(docs, item.id)}</small>
+                  </>
+                ) : (
+                  <span className="one-char">{zh ? item.short : item.enShort}</span>
+                )}
+              </button>
+            ))}
         </div>
         {activeSection === 'volumes' && leftOpen && (
           <div className="volume-quick-list">
@@ -683,6 +688,20 @@ export function OutlineHome({
             <span className="one-char">{zh ? '导' : 'I'}</span>
           )}
         </button>
+        {onBookBreakdown && (
+          <button
+            className="outline-import"
+            onClick={onBookBreakdown}
+            title={zh ? '拆书' : 'Break down a text'}
+          >
+            <Upload size={17} />
+            {leftOpen ? (
+              <span>{zh ? '拆书' : 'Break down'}</span>
+            ) : (
+              <span className="one-char">{zh ? '拆' : 'B'}</span>
+            )}
+          </button>
+        )}
       </aside>
       {leftOpen && (
         <SplitHandle
@@ -737,13 +756,22 @@ export function OutlineHome({
                     <Bot size={15} /> {zh ? 'AI 讨论新增' : 'Create with AI'}
                   </button>
                 </>
+              ) : activeSection === 'ranks' ? (
+                <>
+                  <button onClick={createCurrent} disabled={busy}>
+                    <Plus size={15} /> {zh ? '新建等级' : 'New rank ladder'}
+                  </button>
+                  <button onClick={() => setRankHoldingOpen(true)} disabled={busy}>
+                    <Plus size={15} /> {zh ? '登记任职' : 'Record a holding'}
+                  </button>
+                </>
               ) : activeSection === 'factions' ? (
                 <>
                   <button onClick={createCurrent} disabled={busy}>
-                    <Plus size={15} /> {zh ? '新建空白势力' : 'New blank faction'}
+                    <Plus size={15} /> {zh ? '新建空白组织' : 'New blank organization'}
                   </button>
                   <button onClick={() => setFactionLinkCreate('relation')} disabled={busy}>
-                    <Link2 size={15} /> {zh ? '势力关系' : 'Faction relationship'}
+                    <Link2 size={15} /> {zh ? '组织关系' : 'Organization relationship'}
                   </button>
                   <button onClick={() => setFactionLinkCreate('membership')} disabled={busy}>
                     <Link2 size={15} /> {zh ? '人物所属' : 'Membership'}
@@ -881,6 +909,10 @@ export function OutlineHome({
               items={items}
               selectedTarget={selectedTarget}
               onSelect={onSelect}
+              onSaveDoc={async (docEntry, nextData) => {
+                await bridge.saveDocBody(docEntry.path, nextData, docEntry.content)
+                await onReloadProject()
+              }}
               language={language}
             />
           ) : (
@@ -999,6 +1031,7 @@ export function OutlineHome({
                         onReloadProject={onReloadProject}
                         language={language}
                         showImageChrome
+                        allowImageGeneration={project.capabilities?.image_generation === true}
                       />
                     )}
                     <PlanningCardSupportPanel
@@ -1081,6 +1114,29 @@ export function OutlineHome({
                       <Bot size={15} /> {zh ? 'AI 协助调整' : 'Edit with AI'}
                     </button>
                   ) : null}
+                  {(doc.data.type === 'world_entry' || doc.data.type === 'item') && (
+                    <button
+                      disabled={dirty || busy}
+                      title={
+                        dirty
+                          ? zh
+                            ? '请先保存当前修改，再转到伏笔。'
+                            : 'Save the current changes before transferring.'
+                          : zh
+                            ? '转到写作页的伏笔，世界书里不再留一份。'
+                            : 'Move it to writing foreshadowing. The world book does not keep a copy.'
+                      }
+                      onClick={() =>
+                        void onTransferToForeshadowing({
+                          path: doc.path,
+                          data: doc.data as DocEntry['data'],
+                          content: doc.content
+                        })
+                      }
+                    >
+                      <ArrowRightLeft size={15} /> {zh ? '转到伏笔' : 'Move to foreshadowing'}
+                    </button>
+                  )}
                   {WORLD_ENTRY_CONVERSION_KINDS.includes(doc.data.type as PlanningDocumentKind) && (
                     <button
                       disabled={dirty}
@@ -1202,6 +1258,23 @@ export function OutlineHome({
             try {
               await onCreate(kind, input)
               setFactionLinkCreate(null)
+            } finally {
+              setCreating(false)
+            }
+          }}
+        />
+      )}
+      {rankHoldingOpen && (
+        <RankHoldingDialog
+          docs={docs}
+          language={language}
+          busy={creating}
+          onClose={() => setRankHoldingOpen(false)}
+          onConfirm={async (input) => {
+            setCreating(true)
+            try {
+              await onCreate('rank_holding', { ...input, content: `## ${input.title}\n` })
+              setRankHoldingOpen(false)
             } finally {
               setCreating(false)
             }

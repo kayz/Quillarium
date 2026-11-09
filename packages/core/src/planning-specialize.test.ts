@@ -2,7 +2,13 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { createCharacter, createCharacterRelation, createWorldEntry, listDocs } from './documents.js'
+import {
+  createCharacter,
+  createCharacterRelation,
+  createItem,
+  createWorldEntry,
+  listDocs
+} from './documents.js'
 import { pathExists, readMarkdown, writeMarkdown } from './fs.js'
 import { specializePlanningCard } from './planning-specialize.js'
 import { DOCUMENT_ORIGIN_FIELD } from './provenance.js'
@@ -50,6 +56,26 @@ describe('specializePlanningCard', () => {
     expect(character!.content).toContain('triggers:')
     expect(character!.content).not.toContain(DOCUMENT_ORIGIN_FIELD)
     expect(JSON.stringify(character!.data)).not.toContain('story_setting')
+  })
+
+  it('moves an important item onto the writing side and leaves no second copy', async () => {
+    const root = await fixture()
+    const source = await createItem(
+      root,
+      '铜铃',
+      { id: 'item-bell', description: '船头的铜铃', important: true },
+      '摇起来会招雾。'
+    )
+    expect(await listDocs(root, 'foreshadowing')).toEqual([])
+    const result = await specializePlanningCard(root, 'item-bell', 'foreshadowing', {})
+    expect(result.data).toMatchObject({ id: 'item-bell', type: 'foreshadowing' })
+    expect(await pathExists(source)).toBe(false)
+    expect(await listDocs(root, 'item')).toEqual([])
+    const moved = await listDocs(root, 'foreshadowing')
+    expect(moved).toHaveLength(1)
+    expect(moved[0]!.data.id).toBe('item-bell')
+    expect(moved[0]!.content).toContain('摇起来会招雾。')
+    expect(moved[0]!.content).toContain('important: true')
   })
 
   it('moves a world entry to a character file and keeps the id', async () => {

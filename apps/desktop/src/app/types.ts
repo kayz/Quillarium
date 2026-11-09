@@ -33,6 +33,8 @@ export type OutlineHomeSection =
   | 'factions'
   | 'timeline'
   | 'locations'
+  | 'items'
+  | 'ranks'
   | 'foreshadowing'
   | 'narrative'
   | 'issues'
@@ -159,6 +161,13 @@ export interface ProjectListItem {
     part_enabled: boolean
     act_enabled: boolean
     scene_enabled: boolean
+  }
+  capabilities?: {
+    role: 'traditional_writer' | 'ai_writer' | 'ai_screenwriter' | 'oc_person' | 'ai_native'
+    scene_prose: boolean
+    display: boolean
+    image_generation: boolean
+    short_drama_export: boolean
   }
   cover?: {
     original_path: string

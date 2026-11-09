@@ -24,7 +24,7 @@ async function createWindow() {
     height: 980,
     minWidth: 760,
     minHeight: 620,
-    title: 'Quillarium',
+    title: '琢磨',
     icon: appIcon,
     backgroundColor: '#f4f0e7',
     ...windowsTitleBar,

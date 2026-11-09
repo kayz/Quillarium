@@ -122,14 +122,20 @@ The task registry describes existing import, planning-card, scene-generation, co
 finalization-review work, plus three creator-assistant tasks. Existing product screens may adopt the
 common execution snapshot incrementally; task identity does not turn those workflows into chat.
 
-As of 2026-08-17, `@quillarium/agent-runtime` is the executable boundary for the project-wide
-planning-integrity check. Its Desktop and CLI entries are thin adapters over the same handler,
-write-ahead audit, typed error, retry, decision, and apply lifecycle. Creator-assistant turns, scene
-generation, import, card re-extraction, planning and Canon collaboration, scene semantic checks, and
-finalization review still retain their separate orchestration paths. They migrate individually;
-existing Runs remain readable and are never silently rewritten. The complete inventory and
-migration boundary are defined in
-[ADR-unified-ai-agent-runtime.md](adr/ADR-unified-ai-agent-runtime.md).
+As of 2026-11-09, `@quillarium/agent-runtime` is the executable boundary for the project-wide
+planning-integrity check, `setting-card-design`, and the six expert tasks (`chapter-evaluate`,
+`outline-organize`, `world-organize`, `relation-analyze`, `foreshadow-manage`, and `timeline-manage`).
+Its Desktop and CLI entries are thin adapters over the same handler, write-ahead audit, typed error,
+retry, decision, and apply lifecycle. Scene prose generation (`ST-6`..`ST-10`) intentionally remains in
+the scene module, while creator-assistant turns, import, card re-extraction, planning and Canon
+collaboration, scene semantic checks, and finalization review retain their dedicated orchestration
+paths; existing Runs remain readable and are never silently rewritten. Provider credentials, model
+selection, `WritingPreset`, and the shared book-generation header prompt live in the dedicated Agent
+view (`AG-1`) rather than mixing into general appearance and work-capability settings. Short-play
+settings, seed-tagged asset prompts, and 5–15 second scene storyboards live in the dedicated
+`short-play/` project subdirectory (`ST-12`..`ST-14`, `IO-8`, `CAP-7`) without adding new Markdown
+document types to the Worldbook/Story-tree schema. The complete runtime inventory and migration
+boundary are defined in [ADR-unified-ai-agent-runtime.md](adr/ADR-unified-ai-agent-runtime.md).
 
 The `setting-card-design` task is the first visual-layout task on this runtime, but it is deliberately
 text-only. It may read exactly one author-selected world entry, character, location, or character-

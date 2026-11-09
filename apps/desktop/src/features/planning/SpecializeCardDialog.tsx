@@ -1,6 +1,6 @@
 import { useEffect, useId, useMemo, useState } from 'react'
 import { X } from 'lucide-react'
-import { requiredSpecializationFields, specializationTargets } from '@quillarium/core'
+import { requiredSpecializationFields, specializationTargets } from '@quillarium/core/browser-contracts'
 import type { LanguageName, PlanningDocumentKind } from '../../app/types.js'
 import { formatDesktopError } from '../../shared/errors.js'
 import { fieldLabel } from '../metadata/field-presentation.js'

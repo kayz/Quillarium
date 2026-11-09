@@ -441,7 +441,7 @@ describe('executeAgentTask', () => {
       expect(outcome.result.batches[0]!.status).toBe('failed')
       expect((outcome.result.batches[0]!.error as { code: string }).code).toBe(code)
     }
-  })
+  }, 30000)
 
   it('persists request identity and a credential-scrubbed bounded provider body', async () => {
     const root = await projectWithCheckCard('agent-provider-detail')

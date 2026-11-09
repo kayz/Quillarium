@@ -61,6 +61,8 @@ export interface ContextCompileOptions {
   /** Stable text representing system/user role wrappers and non-context prompt instructions. */
   framing_text?: string
   prompt_block_order?: PromptBlockKind[]
+  /** When set, render blocks in the order the caller supplied. Budget checks still apply. */
+  preserve_author_order?: boolean
   preset?: { id: string; version: string; snapshot_sha256: string }
 }
 
@@ -115,7 +117,9 @@ export async function compileContextBlocks(
   const blockOrder = resolvePromptBlockOrder(options.prompt_block_order)
   const normalized = candidates.map(normalizeCandidate).map((candidate) => ({
     ...candidate,
-    order: blockOrder.get(candidate.kind)! * 1_000_000 + candidate.order
+    order: options.preserve_author_order
+      ? candidate.order
+      : blockOrder.get(candidate.kind)! * 1_000_000 + candidate.order
   }))
   const tokenCounts = new Map(normalized.map((candidate) => [candidate.id, counter.count(candidate.content)]))
   const entries = new Map<string, ContextTraceEntry>()

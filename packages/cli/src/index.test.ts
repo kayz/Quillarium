@@ -1248,9 +1248,33 @@ describe('CLI smoke flow', () => {
 
   it('appends two timeline events into a previous-link chain', async () => {
     const { root } = await initProject()
-    await run('timeline', 'append', 'Alarm Raised', '--date', '1449-08-01', '--project', root)
+    await run(
+      'timeline',
+      'append',
+      'Alarm Raised',
+      '--date',
+      '1449-08-01',
+      '--characters',
+      'char-guard',
+      '--location',
+      'loc-wall',
+      '--project',
+      root
+    )
     const [first] = await listDocs<TimelineEventDoc>(root, 'timeline_event')
-    await run('timeline', 'append', 'Council Meets', '--date', '1449-08-02', '--project', root)
+    await run(
+      'timeline',
+      'append',
+      'Council Meets',
+      '--date',
+      '1449-08-02',
+      '--characters',
+      'char-elder',
+      '--location',
+      'loc-hall',
+      '--project',
+      root
+    )
 
     const events = await listDocs<TimelineEventDoc>(root, 'timeline_event')
     const second = events.find((event) => event.data.title === 'Council Meets')

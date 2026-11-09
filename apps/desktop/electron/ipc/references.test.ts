@@ -75,9 +75,20 @@ describe('deterministic reference upload', () => {
     )
     expect(references.find((item) => item.data.title === 'terms')?.content.trimEnd()).toBe('卫所：军政组织。')
     for (const reference of references) {
+      expect(reference.data.prompt_material).toBe(false)
       expect(reference.data.location).toBe(path.basename(reference.data.location))
       expect(await readText(reference.path)).not.toContain(path.dirname(markdown))
     }
+  })
+
+  it('marks a writing-page import as prompt material', async () => {
+    const root = await projectRoot()
+    const sources = await tempDir('quillarium-reference-sources-')
+    const markdown = path.join(sources, 'voice.md')
+    await writeFile(markdown, '# 短句\n\n一句一事。', 'utf8')
+    await uploadReferenceFiles(root, [markdown], { promptMaterial: true })
+    const references = await listDocs<ReferenceDoc>(root, 'reference')
+    expect(references.map((item) => item.data.prompt_material)).toEqual([true])
   })
 
   it('rolls back every card created by a failed upload batch', async () => {

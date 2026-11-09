@@ -25,7 +25,10 @@ export const SETTING_IMAGE_DOCUMENT_TYPES = new Set([
   'character',
   'location',
   'character_relation',
-  'faction'
+  'faction',
+  'item',
+  'rank_ladder',
+  'rank_holding'
 ])
 
 export function registerSettingAssetHandlers(): void {

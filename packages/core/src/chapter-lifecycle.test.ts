@@ -4,6 +4,7 @@ import path from 'node:path'
 import { describe, expect, it } from 'vitest'
 import {
   acceptSceneIntoChapter,
+  mergeChapterSnapshot,
   assertChapterAllowsAI,
   assertDocumentDeletable,
   assertDocumentHumanEditable,
@@ -175,6 +176,43 @@ describe('seven-level hierarchy and chapter lifecycle', () => {
     expect(lifecycle.scenes).toEqual([])
     expect(lifecycle.prose.content.trim()).toBe('')
     expect(lifecycle.prose.data.scene_ids).toEqual([])
+  })
+
+  it('replaces the chapter draft with a snapshot and leaves later scene edits until the next merge', async () => {
+    const root = await fixture()
+    const first = await createScene(root, '第一节', {
+      id: 'scene-one',
+      chapter_id: 'chapter',
+      section: 'chapter',
+      order: 0,
+      timeline_node: 'timeline-opening',
+      location: 'location-room',
+      pov: 'character-protagonist'
+    })
+    await createScene(root, '第二节', {
+      id: 'scene-two',
+      chapter_id: 'chapter',
+      section: 'chapter',
+      order: 1,
+      timeline_node: 'timeline-opening',
+      location: 'location-room',
+      pov: 'character-protagonist'
+    })
+    await acceptSceneIntoChapter(root, 'scene-one', '开篇正文。')
+    await acceptSceneIntoChapter(root, 'scene-two', '后文。')
+    const merged = await loadChapterLifecycle(root, 'chapter')
+    expect(merged.prose.data.status).toBe('draft')
+    expect(merged.prose.content.trim()).toBe('开篇正文。后文。')
+
+    const scene = await readMarkdown<Record<string, unknown>>(first)
+    await writeMarkdown(first, scene.data, '改过的开篇。')
+    const untouched = await loadChapterLifecycle(root, 'chapter')
+    expect(untouched.prose.content.trim()).toBe('开篇正文。后文。')
+
+    const again = await mergeChapterSnapshot(root, 'chapter')
+    expect(again.prose.content.trim()).toBe('改过的开篇。后文。')
+    await finalizeChapter(root, 'chapter')
+    await expect(mergeChapterSnapshot(root, 'chapter')).rejects.toThrow('不能再合并')
   })
 
   it('still appends when chapter prose already lists an accepted scene id', async () => {

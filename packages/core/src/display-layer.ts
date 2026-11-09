@@ -65,14 +65,13 @@ export async function resetDisplayLayer(projectRoot: string): Promise<ProjectCon
 }
 
 export async function setDisplayLayerEnabled(projectRoot: string, enabled: boolean): Promise<ProjectConfig> {
-  const raw = (await loadProject(projectRoot)).display_layer
-  if (raw) {
-    return updateProjectConfig(projectRoot, {
-      display_layer: { ...raw, enabled }
-    })
-  }
-  const migrated = !(await needsDisplayMigration(projectRoot))
+  const project = await loadProject(projectRoot)
+  const raw = project.display_layer
+  const display_layer = raw
+    ? { ...raw, enabled }
+    : { enabled, migrated: !(await needsDisplayMigration(projectRoot)) }
   return updateProjectConfig(projectRoot, {
-    display_layer: { enabled, migrated }
+    display_layer,
+    ...(project.capabilities ? { capabilities: { ...project.capabilities, display: enabled } } : {})
   })
 }

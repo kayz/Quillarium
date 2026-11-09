@@ -9,7 +9,10 @@ import {
   createContextTokenCounter,
   createImportSessionPlan,
   ensureDefaultPrompts,
+  buildBookBreakdownPlan,
+  confirmBookBreakdown,
   importMarkdownPath,
+  parseBookBreakdownProposals,
   landImportSession,
   listMarkdownFiles,
   loadImportSession,
@@ -105,6 +108,25 @@ export function registerImportHandlers(): void {
     }
     return imported
   })
+
+  typedHandle('bookBreakdown:plan', async (_event, root, text, importProse) => {
+    let proposals: ReturnType<typeof parseBookBreakdownProposals> = []
+    let warning: string | undefined
+    try {
+      const config = await loadDesktopAIProfile('background')
+      const response = await generateText(
+        `只根据下面的原文列出世界书提案，不要复述全文。返回 JSON：{"proposals":[{"type":"world_entry|character|location|timeline_event|item|faction","title":"名称","content":"条目正文"}]}。type 只能是这六种：world_entry 基础条目，character 人物，location 地点，timeline_event 事件，item 物品，faction 组织。\n\n${text}`,
+        config,
+        'You are Quillarium Background Import Agent. Return strict JSON only.',
+        { responseFormat: 'json_object', timeoutMs: AI_IMPORT_TIMEOUT_MS }
+      )
+      proposals = parseBookBreakdownProposals(response)
+    } catch (error) {
+      warning = error instanceof Error ? error.message : String(error)
+    }
+    return buildBookBreakdownPlan({ text, importProse, proposals, warning })
+  })
+  typedHandle('bookBreakdown:confirm', async (_event, root, plan) => confirmBookBreakdown(root, plan))
 
   typedHandle('import:markdownText', async (_event, root, markdown, title) => {
     const name = (title || markdown.match(/^#\s+(.+)$/m)?.[1] || '粘贴导入').trim()

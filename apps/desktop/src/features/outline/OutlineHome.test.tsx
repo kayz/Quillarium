@@ -20,17 +20,18 @@ const project: ProjectListItem = {
 
 function renderOutlineHome(
   docs: DocEntry[],
-  activeSection: 'issues' | 'world' | 'factions' | 'references' | 'foreshadowing',
-  search = ''
+  activeSection: 'issues' | 'world' | 'factions' | 'references' | 'foreshadowing' | 'ranks' | 'items',
+  search = '',
+  doc: DocEntry | null = null
 ): string {
   return renderToStaticMarkup(
     <OutlineHome
       docs={docs}
-      doc={null}
-      selectedTarget={null}
+      doc={doc}
+      selectedTarget={doc ? { type: doc.data.type, id: doc.data.id } : null}
       activeSection={activeSection}
       leftOpen
-      rightOpen={false}
+      rightOpen={doc != null}
       middlePct={62}
       viewMode="list"
       search={search}
@@ -62,6 +63,7 @@ function renderOutlineHome(
       onInspectTag={noop}
       onSave={noopAsync}
       onImport={noop}
+      onTransferToForeshadowing={noopAsync}
       language="zh"
       displayLayer={{ enabled: false, migrated: true }}
     />
@@ -103,9 +105,9 @@ describe('OutlineHome issue workflow', () => {
     ]
 
     const html = renderOutlineHome(docs, 'factions')
-    expect(html).toContain('势力、关系与成员')
-    expect(html).toContain('新建空白势力')
-    expect(html).toContain('势力关系')
+    expect(html).toContain('组织、关系与成员')
+    expect(html).toContain('新建空白组织')
+    expect(html).toContain('组织关系')
     expect(html).toContain('人物所属')
     expect(html).toContain('AI 讨论新增')
     expect(html.match(/class="outline-item/g)).toHaveLength(3)
@@ -194,6 +196,36 @@ describe('OutlineHome issue workflow', () => {
 
     expect(html).toContain('新建空白卡')
     expect(html).toContain('AI 讨论新增')
+    expect(html).toContain('基础条目')
+    expect(html).toContain('事件')
+    expect(html).toContain('人物')
+    expect(html).toContain('地点')
+    expect(html).toContain('物品')
+    expect(html).toContain('组织')
+    expect(html).toContain('等级设定')
+    expect(html).not.toContain('总览')
+  })
+
+  it('offers an explicit move to foreshadowing for a world entry or an item', () => {
+    const entry: DocEntry = {
+      path: 'world/tide.md',
+      data: { id: 'tide', type: 'world_entry', title: '潮汐' },
+      content: ''
+    }
+    const item: DocEntry = {
+      path: 'items/bell.md',
+      data: { id: 'bell', type: 'item', title: '铜铃', important: true },
+      content: ''
+    }
+    expect(renderOutlineHome([entry], 'world', '', entry)).toContain('转到伏笔')
+    expect(renderOutlineHome([item], 'items', '', item)).toContain('转到伏笔')
+    expect(renderOutlineHome([], 'world')).not.toContain('转到伏笔')
+  })
+
+  it('offers a rank ladder and a holding on the rank tag', () => {
+    const html = renderOutlineHome([], 'ranks')
+    expect(html).toContain('新建等级')
+    expect(html).toContain('登记任职')
   })
 
   it('shows organize world book only in the world section', () => {

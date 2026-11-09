@@ -188,4 +188,42 @@ describe('desktop SillyTavern IPC helpers', () => {
     expect(await pathExists(path.join(workspaceRoot, 'projects', 'imported-novel'))).toBe(false)
     expect(await readdir(path.join(workspaceRoot, 'projects'))).toEqual([])
   })
+
+  it('creates project with role-based capabilities and story structure', async () => {
+    const workspaceRoot = await mkdtemp(path.join(os.tmpdir(), 'quillarium-book-project-role-'))
+    temporaryRoots.push(workspaceRoot)
+    await ensureWorkspaceAt(workspaceRoot)
+    const sourceBytes = Buffer.from('synthetic card content')
+    const sourceSha256 = createHash('sha256').update(sourceBytes).digest('hex')
+    const result = await importBookProjectFromCard(
+      workspaceRoot,
+      'synthetic.card.json',
+      'OC Novel',
+      'oc_person',
+      {
+        inspect: async () => ({
+          format: 'v3',
+          sourcePath: 'synthetic.card.json',
+          name: 'Card title',
+          description: 'Synopsis',
+          hasPngCover: false,
+          worldBookEntryCount: 0
+        }),
+        importCard: async (root) => {
+          const archivePath = path.join(root, 'imports', 'archive', 'synthetic.json')
+          await writeBinary(archivePath, sourceBytes)
+          return {
+            format: 'v3',
+            projectRoot: root,
+            archivePath,
+            sourceSha256,
+            candidateDocumentIds: []
+          }
+        }
+      }
+    )
+    expect(result.project.capabilities?.role).toBe('oc_person')
+    expect(result.project.capabilities?.scene_prose).toBe(false)
+    expect(result.project.display_layer?.enabled).toBe(true)
+  })
 })

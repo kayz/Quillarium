@@ -30,6 +30,9 @@ import {
   createTimelineEventAtNode,
   createTimelineNode,
   createTimelineNodeFromEvent,
+  createItem,
+  createRankHolding,
+  createRankLadder,
   createWorldEntry,
   deleteStoryNode,
   getObsidianDir,
@@ -46,6 +49,7 @@ import {
   resolveDocumentOrigin,
   storyStructureConfigV1Schema,
   updateProjectConfig,
+  updateWorkCapabilitySwitches,
   writeMarkdown,
   removeDisplayImagesForCard,
   type CanonDoc,
@@ -58,11 +62,14 @@ import {
   type FactionMembershipDoc,
   type FactionRelationDoc,
   type IssueDoc,
+  type ItemDoc,
   type LocationDoc,
   type NarrativeDoc,
   type OutlineDoc,
   type OutlineLevelInput,
   type PatternDoc,
+  type RankHoldingDoc,
+  type RankLadderDoc,
   type ReferenceDoc,
   type RouteDoc,
   type SceneDoc,
@@ -138,8 +145,17 @@ export function registerProjectHandlers(): void {
       ...structure,
       act_enabled: structure.part_enabled ? structure.act_enabled : false
     })
-    return updateProjectConfig(root, { story_structure: normalized })
+    const current = await loadProject(root)
+    return updateProjectConfig(root, {
+      story_structure: normalized,
+      ...(current.capabilities
+        ? { capabilities: { ...current.capabilities, scene_prose: normalized.scene_enabled } }
+        : {})
+    })
   })
+  typedHandle('project:updateCapabilities', async (_event, root, patch) =>
+    updateWorkCapabilitySwitches(root, patch)
+  )
 
   typedHandle('doc:read', async (_event, filePath) => readDesktopDocument(filePath))
   typedHandle('doc:saveBody', async (_event, filePath, data, body) =>
@@ -317,6 +333,28 @@ export async function createProjectDocument(
         root,
         requiredString(input.title, 'title'),
         input as Partial<WorldEntryDoc>,
+        optionalString(input.content)
+      )
+    case 'item':
+      return createItem(
+        root,
+        requiredString(input.title, 'title'),
+        input as Partial<ItemDoc>,
+        optionalString(input.content)
+      )
+    case 'rank_ladder':
+      return createRankLadder(
+        root,
+        requiredString(input.title, 'title'),
+        input as Partial<RankLadderDoc>,
+        optionalString(input.content)
+      )
+    case 'rank_holding':
+      return createRankHolding(
+        root,
+        requiredString(input.title, 'title'),
+        input as Partial<RankHoldingDoc> &
+          Pick<RankHoldingDoc, 'ladder_id' | 'holder_type' | 'holder_id' | 'rung_id'>,
         optionalString(input.content)
       )
     case 'reference':

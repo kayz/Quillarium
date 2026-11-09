@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import {
+  ArrowDown,
   ArrowRight,
+  ArrowUp,
   CheckCircle2,
   FileText,
   Layers3,
@@ -49,6 +51,7 @@ export function AIWritingWorkspace({
   onSelectScene,
   onOpenProse,
   onContinuityReview = () => undefined,
+  focus = 'scene',
   language
 }: {
   root: string
@@ -75,20 +78,27 @@ export function AIWritingWorkspace({
   onSelectScene: (sceneId: string) => void
   onOpenProse: () => void
   onContinuityReview?: () => void
+  focus?: 'scene' | 'prompt'
   language: LanguageName
 }) {
   const zh = language === 'zh'
   const [activeTab, setActiveTab] = useState<'prompt' | 'context' | 'runs'>('prompt')
   const [sourceBlocks, setSourceBlocks] = useState<PromptSourceBlock[]>([])
+  const [segmentEdits, setSegmentEdits] = useState<Record<string, string>>({})
+  const [openSegmentId, setOpenSegmentId] = useState('')
   const [availableBlocks, setAvailableBlocks] = useState<PromptSourceBlock[]>([])
   const [lifecycle, setLifecycle] = useState<ChapterLifecycleSnapshot | null>(null)
   const [localError, setLocalError] = useState('')
   const [sourceToAdd, setSourceToAdd] = useState('')
   const [bundleTitle, setBundleTitle] = useState('')
   const [bundleNotice, setBundleNotice] = useState('')
+  const [promptTemplates, setPromptTemplates] = useState<
+    Array<{ id: string; title: string; current: boolean; segments: string[] }>
+  >([])
   const promptGridRef = useRef<HTMLDivElement | null>(null)
   const [promptSourcePct, setPromptSourcePct] = useState(30)
   const [candidateDraft, setCandidateDraft] = useState('')
+  const [dragIndex, setDragIndex] = useState<number | null>(null)
   const [candidateCount, setCandidateCount] = useState(3)
   const [promptViewer, setPromptViewer] = useState<PromptViewerData | null>(null)
   const requestedSceneId = scene?.data.id
@@ -125,6 +135,8 @@ export function AIWritingWorkspace({
     setLifecycle(next)
     setAvailableBlocks([])
     setSourceToAdd('')
+    setSegmentEdits({})
+    setOpenSegmentId('')
     const active = next.scenes.find((item) => item.data.id === requestedSceneId && !item.data.accepted_at)
     if (active && next.prose.data.status === 'draft') {
       const plan = await bridge.buildScenePromptPlan(root, active.data.id)
@@ -137,13 +149,29 @@ export function AIWritingWorkspace({
     }
   }
 
+  const loadPromptTemplates = async () => {
+    setPromptTemplates(await bridge.listPromptTemplates(root))
+  }
+
+  useEffect(() => {
+    if (focus === 'prompt') setActiveTab('prompt')
+  }, [focus])
+
+  useEffect(() => {
+    void loadPromptTemplates().catch((error) => setLocalError(formatDesktopError(error, language)))
+  }, [root])
+
   useEffect(() => {
     setActiveTab('prompt')
     setLocalError('')
     void refreshChapter().catch((error) => setLocalError(formatDesktopError(error, language)))
   }, [outline?.data.id, scene?.data.id])
 
-  const compileSources = async (nextSources: PromptSourceBlock[], nextAvailable: PromptSourceBlock[]) => {
+  const compileSources = async (
+    nextSources: PromptSourceBlock[],
+    nextAvailable: PromptSourceBlock[],
+    persistLayout = false
+  ) => {
     if (!currentScene) return
     try {
       setLocalError('')
@@ -151,24 +179,64 @@ export function AIWritingWorkspace({
       const plan = await bridge.compileScenePromptOverlay(
         root,
         currentScene.data.id,
-        nextSources.map(promptSourceSelection)
+        nextSources.map((source) => promptSourceSelection(source, segmentEdits))
       )
       setSourceBlocks(plan.sources)
       setAvailableBlocks(nextAvailable)
       onPromptChange(plan.prompt)
+      if (persistLayout) {
+        await bridge.saveScenePromptLayout(
+          root,
+          currentScene.data.id,
+          plan.sources
+            .filter((source) => source.source_type && source.source_id)
+            .map((source) => ({
+              kind: source.kind,
+              source_type: source.source_type ?? '',
+              source_id: source.source_id ?? ''
+            }))
+        )
+      }
     } catch (error) {
       setLocalError(formatDesktopError(error, language))
     }
   }
 
+  const moveSource = (index: number, delta: number) => {
+    const target = index + delta
+    if (target < 0 || target >= sourceBlocks.length) return
+    const next = [...sourceBlocks]
+    const [item] = next.splice(index, 1)
+    if (!item) return
+    next.splice(target, 0, item)
+    void compileSources(next, availableBlocks, true)
+  }
+
+  const editSegment = (source: PromptSourceBlock, text: string) => {
+    const nextEdits = { ...segmentEdits, [source.id]: text }
+    setSegmentEdits(nextEdits)
+    if (!currentScene) return
+    void bridge
+      .compileScenePromptOverlay(
+        root,
+        currentScene.data.id,
+        sourceBlocks.map((item) => promptSourceSelection(item, nextEdits))
+      )
+      .then((plan) => {
+        setSourceBlocks(plan.sources)
+        onPromptChange(plan.prompt)
+      })
+      .catch((error) => setLocalError(formatDesktopError(error, language)))
+  }
+
   const removeSource = (source: PromptSourceBlock) => {
     const nextSources = sourceBlocks.filter((item) => item.id !== source.id)
-    void compileSources(nextSources, [...availableBlocks, source])
+    void compileSources(nextSources, [...availableBlocks, source], true)
   }
 
   const addSource = (source: PromptSourceBlock) => {
     const nextAvailable = availableBlocks.filter((item) => item.id !== source.id)
-    void compileSources([...sourceBlocks, source], nextAvailable)
+    void compileSources([...sourceBlocks, source], nextAvailable, true)
   }
 
   const addDocumentSource = () => {
@@ -183,8 +251,39 @@ export function AIWritingWorkspace({
       source_type: String(source.data.type),
       source_id: source.data.id
     }
-    void compileSources([...sourceBlocks, nextSource], availableBlocks)
+    void compileSources([...sourceBlocks, nextSource], availableBlocks, true)
     setSourceToAdd('')
+  }
+
+  const saveOrderAsTemplate = async () => {
+    try {
+      setLocalError('')
+      const saved = await bridge.savePromptTemplate(
+        root,
+        bundleTitle,
+        sourceBlocks.map((source) => source.kind)
+      )
+      await loadPromptTemplates()
+      setBundleNotice(zh ? `已保存模板：${saved.title}` : `Template saved: ${saved.title}`)
+    } catch (error) {
+      setLocalError(formatDesktopError(error, language))
+    }
+  }
+
+  const usePromptTemplate = async (templateId: string) => {
+    try {
+      setLocalError('')
+      await bridge.setCurrentPromptTemplate(root, templateId)
+      await loadPromptTemplates()
+      await refreshChapter()
+      setBundleNotice(
+        zh
+          ? '已换成当前模板。已经排过的节仍用自己的顺序。'
+          : 'This is now the current template. A scene that was already arranged keeps its own order.'
+      )
+    } catch (error) {
+      setLocalError(formatDesktopError(error, language))
+    }
   }
 
   const saveAsContextBundle = async () => {
@@ -193,7 +292,7 @@ export function AIWritingWorkspace({
       const saved = await bridge.savePromptSourcesAsBundle(
         root,
         bundleTitle,
-        sourceBlocks.map(promptSourceSelection)
+        sourceBlocks.map((source) => promptSourceSelection(source, segmentEdits))
       )
       setBundleNotice(
         zh ? `已保存资料包：${saved.value.title}` : `Context bundle saved: ${saved.value.title}`
@@ -223,7 +322,7 @@ export function AIWritingWorkspace({
           root,
           currentScene.data.id,
           assembledPrompt,
-          sourceBlocks.map(promptSourceSelection)
+          sourceBlocks.map((source) => promptSourceSelection(source, segmentEdits))
         )
       )
     } catch (error) {
@@ -300,7 +399,7 @@ export function AIWritingWorkspace({
                     assembledPrompt,
                     candidateCount,
                     undefined,
-                    sourceBlocks.map(promptSourceSelection)
+                    sourceBlocks.map((source) => promptSourceSelection(source, segmentEdits))
                   )
                 }
                 disabled={busy || sceneLocked || !assembledPrompt.trim()}
@@ -393,13 +492,67 @@ export function AIWritingWorkspace({
                         <strong>{zh ? '提示词来源' : 'Prompt sources'}</strong>
                         <small>{zh ? '可增删来源卡片' : 'Add or remove cards'}</small>
                       </header>
-                      {sourceBlocks.map((source) => (
-                        <article key={source.id} className={`prompt-source-card kind-${source.kind}`}>
-                          <span>{source.title}</span>
+                      {sourceBlocks.map((source, index) => (
+                        <article
+                          key={source.id}
+                          className={`prompt-source-card kind-${source.kind}${dragIndex === index ? ' dragging' : ''}`}
+                          draggable={!sceneLocked}
+                          onDragStart={(event) => {
+                            if (sceneLocked) return
+                            setDragIndex(index)
+                            event.dataTransfer.effectAllowed = 'move'
+                            event.dataTransfer.setData('text/plain', String(index))
+                          }}
+                          onDragOver={(event) => {
+                            if (sceneLocked) return
+                            event.preventDefault()
+                            event.dataTransfer.dropEffect = 'move'
+                          }}
+                          onDrop={(event) => {
+                            if (sceneLocked) return
+                            event.preventDefault()
+                            const fromIndex =
+                              dragIndex ?? Number.parseInt(event.dataTransfer.getData('text/plain'), 10)
+                            setDragIndex(null)
+                            if (Number.isNaN(fromIndex) || fromIndex === index) return
+                            const next = [...sourceBlocks]
+                            const [item] = next.splice(fromIndex, 1)
+                            if (!item) return
+                            next.splice(index, 0, item)
+                            void compileSources(next, availableBlocks, true)
+                          }}
+                          onDragEnd={() => setDragIndex(null)}
+                        >
+                          <span>
+                            {source.title} · {promptSourceKindLabel(source.kind, language)}
+                          </span>
                           <small>
-                            {promptSourceKindLabel(source.kind, language)}
-                            {source.required ? (zh ? ' · 默认' : ' · default') : ''}
+                            {zh ? '来源' : 'Source'} {source.source_type ?? source.kind}
+                            {source.source_id ? `:${source.source_id}` : ''} · {countWords(source.content)}{' '}
+                            {zh ? '字' : 'chars'}
                           </small>
+                          <button
+                            onClick={() => moveSource(index, -1)}
+                            disabled={sceneLocked || index === 0}
+                            title={zh ? '上移' : 'Move up'}
+                          >
+                            <ArrowUp size={13} />
+                          </button>
+                          <button
+                            onClick={() => moveSource(index, 1)}
+                            disabled={sceneLocked || index === sourceBlocks.length - 1}
+                            title={zh ? '下移' : 'Move down'}
+                          >
+                            <ArrowDown size={13} />
+                          </button>
+                          <button
+                            onClick={() =>
+                              setOpenSegmentId((current) => (current === source.id ? '' : source.id))
+                            }
+                            disabled={sceneLocked}
+                          >
+                            {zh ? '展开' : 'Expand'}
+                          </button>
                           <button
                             onClick={() => removeSource(source)}
                             disabled={sceneLocked}
@@ -409,6 +562,14 @@ export function AIWritingWorkspace({
                           >
                             <Trash2 size={13} />
                           </button>
+                          {openSegmentId === source.id && (
+                            <textarea
+                              value={segmentEdits[source.id] ?? source.content}
+                              onChange={(event) => editSegment(source, event.target.value)}
+                              aria-label={zh ? '这一次的段文字' : 'Segment text for this run'}
+                              readOnly={sceneLocked}
+                            />
+                          )}
                         </article>
                       ))}
                       {availableBlocks.map((source) => (
@@ -455,6 +616,31 @@ export function AIWritingWorkspace({
                         >
                           <Layers3 size={13} /> {zh ? '保存' : 'Save'}
                         </button>
+                        <button
+                          onClick={() => void saveOrderAsTemplate()}
+                          disabled={sceneLocked || !bundleTitle.trim() || sourceBlocks.length === 0}
+                        >
+                          {zh ? '另存为模板' : 'Save as template'}
+                        </button>
+                        {promptTemplates.length > 0 && (
+                          <ul className="prompt-template-list">
+                            {promptTemplates.map((template) => (
+                              <li key={template.id}>
+                                <span>
+                                  {template.title}
+                                  {template.current ? (zh ? ' · 当前' : ' · current') : ''}
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => void usePromptTemplate(template.id)}
+                                  disabled={sceneLocked || template.current}
+                                >
+                                  {zh ? '设为当前' : 'Use as current'}
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
                         {bundleNotice && <small className="success-note">{bundleNotice}</small>}
                       </div>
                     </aside>
@@ -480,7 +666,7 @@ export function AIWritingWorkspace({
                         value={assembledPrompt}
                         onChange={(event) => onPromptChange(event.target.value)}
                         spellCheck={false}
-                        readOnly={sceneLocked}
+                        readOnly
                         aria-label={zh ? '本次生成提示词' : 'Generation prompt'}
                       />
                     </label>
@@ -533,7 +719,7 @@ export function AIWritingWorkspace({
                     assembledPrompt,
                     candidateCount,
                     parentRunId,
-                    sourceBlocks.map(promptSourceSelection)
+                    sourceBlocks.map((source) => promptSourceSelection(source, segmentEdits))
                   )
                 }
                 language={language}
@@ -693,13 +879,17 @@ function statusLabel(value: string, language: LanguageName): string {
   return enumChoiceLabel('status', value, language, { documentType: 'chapter_prose' })
 }
 
-function promptSourceSelection(source: PromptSourceBlock): PromptSourceSelection {
+function promptSourceSelection(
+  source: PromptSourceBlock,
+  edits: Record<string, string> = {}
+): PromptSourceSelection {
   return {
     id: source.id,
     ...(source.source_type ? { source_type: source.source_type } : {}),
     ...(source.source_id ? { source_id: source.source_id } : {}),
     mode: source.required ? 'required' : 'preferred',
-    usage: promptSourceUsage(source.kind)
+    usage: promptSourceUsage(source.kind),
+    ...(edits[source.id] !== undefined ? { text: edits[source.id] } : {})
   }
 }
 
@@ -749,18 +939,19 @@ function hasStableBundleSource(sources: PromptSourceBlock[]): boolean {
 function promptSourceKindLabel(kind: PromptSourceBlock['kind'], language: LanguageName): string {
   const labels: Record<PromptSourceBlock['kind'], { zh: string; en: string }> = {
     instruction: { zh: '写作要求', en: 'Instruction' },
-    outline: { zh: '章规划', en: 'Chapter outline' },
-    'scene-outline': { zh: '节规划', en: 'Scene outline' },
+    outline: { zh: '大纲', en: 'Outline' },
+    'scene-outline': { zh: '本节细纲', en: 'Scene outline' },
     guidance: { zh: '共享指导', en: 'Shared guidance' },
     canon: { zh: '正设约束', en: 'Canon constraint' },
     timeline: { zh: '时间线', en: 'Timeline' },
     location: { zh: '地点', en: 'Location' },
     character: { zh: '人物', en: 'Character' },
-    world: { zh: '世界书触发', en: 'World entry trigger' },
-    foreshadowing: { zh: '伏笔提醒', en: 'Foreshadowing reminder' },
+    world: { zh: '世界书', en: 'World book' },
+    reference: { zh: '参考资料', en: 'Reference' },
+    foreshadowing: { zh: '伏笔', en: 'Foreshadowing' },
     narrative: { zh: '叙事规则', en: 'Narrative rule' },
     context: { zh: '连续性上下文', en: 'Continuity context' },
-    'finalized-prose': { zh: '已定稿正文', en: 'Finalized prose' },
+    'finalized-prose': { zh: '附近章节', en: 'Nearby chapters' },
     continuation: { zh: '前文续写', en: 'Continuation' }
   }
   return labels[kind][language]

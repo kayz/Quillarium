@@ -88,6 +88,26 @@ describe('SettingCardMediaPanel', () => {
     expect(html).not.toContain('确认保存')
   })
 
+  it('hides image generation while upload stays available', () => {
+    const html = renderToStaticMarkup(
+      <SettingCardMediaPanel
+        root="C:/projects/sample"
+        document={document}
+        dirty={false}
+        onSave={async () => undefined}
+        onReloadDocument={async () => undefined}
+        onReloadProject={async () => undefined}
+        language="zh"
+        showImageChrome
+        allowImageGeneration={false}
+      />
+    )
+
+    expect(html).toContain('上传图片')
+    expect(html).not.toContain('生成配图')
+    expect(html).not.toContain('生图提示词')
+  })
+
   it('offers the HTML designer for allowlist types beyond world_entry/character/location/character_relation', () => {
     for (const type of ['canon', 'faction', 'timeline_event', 'narrative'] as const) {
       const html = renderToStaticMarkup(
@@ -127,5 +147,29 @@ describe('SettingCardMediaPanel', () => {
       />
     )
     expect(html).toBe('')
+  })
+
+  it('allows display images on item and rank_ladder without showing card designer', () => {
+    for (const type of ['item', 'rank_ladder'] as const) {
+      const html = renderToStaticMarkup(
+        <SettingCardMediaPanel
+          root="C:/projects/sample"
+          document={{
+            path: `${type}/sample.md`,
+            data: { id: `${type}-sample`, type, title: '样本' },
+            content: '描述'
+          }}
+          dirty={false}
+          onSave={async () => undefined}
+          onReloadDocument={async () => undefined}
+          onReloadProject={async () => undefined}
+          language="zh"
+          showImageChrome
+        />
+      )
+      expect(html, type).toContain('上传图片')
+      expect(html, type).toContain('生成配图')
+      expect(html, type).not.toContain('创建设定卡')
+    }
   })
 })

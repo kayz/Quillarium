@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>琢磨</title>
+  </head>
+  <body>
+    <div class="welcome">
+      <header class="top-chrome">
+        <button class="brand" type="button" aria-label="琢磨">
+          <span class="brand-wordmark top-brand-wordmark">琢磨</span>
+        </button>
+        <div class="top-spacer"></div>
+        <button class="status-pill" type="button">设置</button>
+      </header>
+      <div class="library">
+        <aside class="library-side">
+          <div>
+            <span class="library-label">本地写作库</span>
+            <code>D:\Writing\琢磨</code>
+            <button class="secondary" type="button">更换本地文件夹</button>
+          </div>
+          <p class="library-hint">作品以 Markdown 与 YAML 直接保存在这个文件夹里，不需要账号。</p>
+          <div class="library-side-actions">
+            <button class="secondary" type="button">打开已有作品</button>
+            <button class="secondary" type="button">从角色卡导入</button>
+          </div>
+          <p class="library-colophon">创造想象中的世界。</p>
+        </aside>
+        <section class="library-main" aria-label="作品">
+          <form class="library-toolbar">
+            <input placeholder="作品名" aria-label="作品名" />
+            <button class="secondary" type="button">新建</button>
+          </form>
+          <details class="library-measures">
+            <summary>类型与篇幅</summary>
+          </details>
+          <div class="library-list">
+            <div class="project-list">
+              <a class="project-row" href="/preview-writer.html">
+                <span><strong>山海未完</strong><small>作家</small></span>
+              </a>
+              <a class="project-row" href="/preview-oc.html">
+                <span><strong>灯下的城</strong><small>OC</small></span>
+              </a>
+            </div>
+          </div>
+        </section>
+      </div>
+    </div>
+    <script type="module">
+      import '/src/styles.css'
+    </script>
+  </body>
+</html>

@@ -104,6 +104,7 @@ export function VolumeHome({
   onInspectTag,
   onSave,
   onImport,
+  onBookBreakdown,
   language,
   displayLayer
 }: {
@@ -147,6 +148,7 @@ export function VolumeHome({
   onInspectTag: (tag: string, displayValue?: string) => void
   onSave: () => Promise<void>
   onImport: () => void
+  onBookBreakdown?: () => void
   language: LanguageName
   displayLayer: DisplayLayerChrome
 }) {
@@ -350,6 +352,20 @@ export function VolumeHome({
             <span className="one-char">{zh ? '导' : 'I'}</span>
           )}
         </button>
+        {onBookBreakdown && (
+          <button
+            className="outline-import"
+            onClick={onBookBreakdown}
+            title={zh ? '拆书' : 'Break down a text'}
+          >
+            <Upload size={17} />
+            {leftOpen ? (
+              <span>{zh ? '拆书' : 'Break down'}</span>
+            ) : (
+              <span className="one-char">{zh ? '拆' : 'B'}</span>
+            )}
+          </button>
+        )}
       </aside>
       {leftOpen && (
         <SplitHandle
@@ -574,6 +590,7 @@ export function VolumeHome({
                         onReloadProject={onReloadProject}
                         language={language}
                         showImageChrome
+                        allowImageGeneration={project.capabilities?.image_generation === true}
                       />
                     )}
                     <PlanningCardSupportPanel

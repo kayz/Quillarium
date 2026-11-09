@@ -42,6 +42,7 @@ const api: QuillariumAPI = {
   chooseProject: () => invoke('project:choose'),
   loadProject: (root) => invoke('project:load', root),
   updateProjectStoryStructure: (root, structure) => invoke('project:updateStoryStructure', root, structure),
+  updateWorkCapabilities: (root, patch) => invoke('project:updateCapabilities', root, patch),
   needsDisplayMigration: (root) => invoke('display:needsMigration', root),
   resetDisplayLayer: (root) => invoke('display:reset', root),
   setDisplayLayerEnabled: (root, enabled) => invoke('display:setEnabled', root, enabled),
@@ -110,7 +111,9 @@ const api: QuillariumAPI = {
   createDoc: (root, kind, input) => invoke('doc:create', root, kind, input),
   reorderStorySiblings: (root, input) => invoke('story:reorder', root, input),
   rebuildDocumentLinkIndex: (root) => invoke('references:index', root),
-  uploadReferenceDocuments: (root, sourcePaths) => invoke('references:upload', root, sourcePaths),
+  uploadReferenceDocuments: (root, sourcePaths, options) =>
+    invoke('references:upload', root, sourcePaths, options),
+  draftWritingReference: (root, request) => invoke('writingReference:draft', root, request),
   formatDocumentLink: (root, documentId, displayText) =>
     invoke('references:format', root, documentId, displayText),
   planDocumentReferenceMigration: (root) => invoke('references:migrationPlan', root),
@@ -141,6 +144,8 @@ const api: QuillariumAPI = {
   chooseMarkdownImport: (root) => invoke('import:chooseMarkdown', root),
   chooseImportSources: () => invoke('import:chooseSources'),
   importMarkdownText: (root, markdown, title) => invoke('import:markdownText', root, markdown, title),
+  planBookBreakdown: (root, text, importProse) => invoke('bookBreakdown:plan', root, text, importProse),
+  confirmBookBreakdown: (root, plan) => invoke('bookBreakdown:confirm', root, plan),
   syncMarkdownImports: (root) => invoke('import:syncMarkdown', root),
   initPrompts: (root) => invoke('prompt:init', root),
   readPrompt: (root, name) => invoke('prompt:read', root, name),
@@ -188,6 +193,11 @@ const api: QuillariumAPI = {
     invoke('outline:generateCandidates', root, outlineId, prompt, sceneId, count, parentRunId, promptSources),
   prepareScene: (root, chapterId) => invoke('scene:prepare', root, chapterId),
   acceptManualScene: (root, sceneId, content) => invoke('scene:acceptManual', root, sceneId, content),
+  mergeChapterSnapshot: (root, chapterId) => invoke('scene:mergeChapter', root, chapterId),
+  saveScenePromptLayout: (root, sceneId, layout) => invoke('scene:savePromptLayout', root, sceneId, layout),
+  listPromptTemplates: (root) => invoke('promptTemplate:list', root),
+  savePromptTemplate: (root, title, segments) => invoke('promptTemplate:save', root, title, segments),
+  setCurrentPromptTemplate: (root, templateId) => invoke('promptTemplate:setCurrent', root, templateId),
   buildScenePromptPlan: (root, sceneId) => invoke('scene:promptPlan', root, sceneId),
   compileScenePromptOverlay: (root, sceneId, sources) =>
     invoke('scene:compilePromptOverlay', root, sceneId, sources),
@@ -212,7 +222,8 @@ const api: QuillariumAPI = {
   exportManuscript: (root, options) => invoke('export:manuscript', root, options),
   importSillyTavernCard: (root, filePath) => invoke('st:importCard', root, filePath),
   chooseBookCharacterCard: () => invoke('st:chooseBookCard'),
-  importBookCharacterCardProject: (sourcePath, title) => invoke('st:importBookProject', sourcePath, title),
+  importBookCharacterCardProject: (sourcePath, title, role) =>
+    invoke('st:importBookProject', sourcePath, title, role),
   exportBookCharacterCard: (root, options) => invoke('st:exportBookCard', root, options),
   exportSillyTavernCard: (root, characterId) => invoke('st:exportCard', root, characterId),
   exportSillyTavernLorebook: (root) => invoke('st:exportLorebook', root),
@@ -239,7 +250,26 @@ const api: QuillariumAPI = {
     invoke('expert:applyForeshadowManage', root, proposals, decisions),
   manageTimeline: (root, trackId) => invoke('expert:manageTimeline', root, trackId),
   applyTimelineManage: (root, proposals, decisions) =>
-    invoke('expert:applyTimelineManage', root, proposals, decisions)
+    invoke('expert:applyTimelineManage', root, proposals, decisions),
+  loadShortPlaySettings: (root) => invoke('shortPlay:loadSettings', root),
+  saveShortPlaySettings: (root, input) => invoke('shortPlay:saveSettings', root, input),
+  listShortPlayAssets: (root) => invoke('shortPlay:listAssets', root),
+  saveShortPlayAsset: (root, input) => invoke('shortPlay:saveAsset', root, input),
+  deleteShortPlayAsset: (root, assetId) => invoke('shortPlay:deleteAsset', root, assetId),
+  proposeShortPlayAssets: (root) => invoke('shortPlay:proposeAssets', root),
+  applyShortPlayAssetProposals: (root, proposals) => invoke('shortPlay:applyAssetProposals', root, proposals),
+  reconcileShortPlayAssetBySeed: (root, seedId, externalResultRef) =>
+    invoke('shortPlay:reconcileAssetBySeed', root, seedId, externalResultRef),
+  loadSceneStoryboard: (root, sceneId) => invoke('shortPlay:loadStoryboard', root, sceneId),
+  listSceneStoryboards: (root) => invoke('shortPlay:listStoryboards', root),
+  saveSceneStoryboard: (root, input) => invoke('shortPlay:saveStoryboard', root, input),
+  reorderSceneStoryboardShots: (root, sceneId, orderedShotIds) =>
+    invoke('shortPlay:reorderStoryboardShots', root, sceneId, orderedShotIds),
+  proposeSceneStoryboard: (root, sceneId, options) =>
+    invoke('shortPlay:proposeStoryboard', root, sceneId, options),
+  previewShortPlayExport: (root) => invoke('shortPlay:previewExport', root),
+  exportShortPlayToFile: (root, format, destinationPath) =>
+    invoke('shortPlay:exportToFile', root, format, destinationPath)
 }
 
 contextBridge.exposeInMainWorld('quillarium', api)

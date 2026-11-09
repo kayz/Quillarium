@@ -12,18 +12,19 @@ the local `0.3.1` candidate and its UI-skin contract is documented separately be
 
 ## Start Here
 
-| Goal                                                               | Document                              |
-| ------------------------------------------------------------------ | ------------------------------------- |
-| Understand the product and run it from source                      | [Project README](../README.md)        |
-| Read the full Simplified Chinese product guide                     | [中文版 README](../README.zh-CN.md)   |
-| Use the command-line workflow                                      | [CLI guide](CLI.md)                   |
-| Understand storage, authority, compatibility, and the 0.3.0 design | [System design](DESIGN.md)            |
-| Understand the desktop information architecture                    | [UI architecture](UI-ARCHITECTURE.md) |
-| Customize or audit the 0.3.1 interface skins                       | [UI skin contract](UI-SKINS.md)       |
-| Understand Agents, ContextBundles, permissions, and snapshots      | [Agent design](AGENT-DESIGN.md)       |
-| Build or audit an immutable release                                | [Release process](RELEASING.md)       |
-| Follow delivered gates and future priorities                       | [Product roadmap](../ROADMAP.md)      |
-| Review external design sources and license boundaries              | [References](REFERENCES.md)           |
+| Goal                                                               | Document                                       |
+| ------------------------------------------------------------------ | ---------------------------------------------- |
+| Understand the product and run it from source                      | [Project README](../README.md)                 |
+| Read the full Simplified Chinese product guide                     | [中文版 README](../README.zh-CN.md)            |
+| Use the command-line workflow                                      | [CLI guide](CLI.md)                            |
+| Understand storage, authority, compatibility, and the 0.3.0 design | [System design](DESIGN.md)                     |
+| Understand the desktop information architecture                    | [UI architecture](UI-ARCHITECTURE.md)          |
+| Customize or audit the 0.3.1 interface skins                       | [UI skin contract](UI-SKINS.md)                |
+| Understand Agents, ContextBundles, permissions, and snapshots      | [Agent design](AGENT-DESIGN.md)                |
+| Build or audit an immutable release                                | [Release process](RELEASING.md)                |
+| Follow delivered gates and future priorities                       | [Product roadmap](../ROADMAP.md)               |
+| Read the module feature catalog                                    | [Feature catalog (Chinese)](FEATURES.zh-CN.md) |
+| Review external design sources and license boundaries              | [References](REFERENCES.md)                    |
 
 ## v0.3.0 Feature Map
 
@@ -53,6 +54,7 @@ manual blank setting cards, and four editable CSS-token interface skins. See the
 The `adr/` directory records decisions that should remain stable even when implementation details
 move:
 
+- [Work audiences and module ownership (Chinese)](adr/ADR-work-audiences.md)
 - [Unified Agent runtime](adr/ADR-unified-ai-agent-runtime.md)
 - [Agent runtime and ContextBundles](adr/ADR-agent-runtime-and-context-bundles.md)
 - [Context activation](adr/ADR-context-activation.md)
@@ -67,6 +69,8 @@ move:
   promises.
 - [P0 Agent runtime prompt](implementation/AGENT-RUNTIME-P0-PROMPT.md) is a completed implementation
   brief.
+- [2026-11-08 implementation gap (Chinese)](GAP-2026-11-08.zh-CN.md) is an analysis snapshot, not a
+  product promise.
 - Package-level READMEs describe internal package boundaries and public exports.
 
 The Simplified Chinese edition currently covers the complete product README, this documentation map,

@@ -28,6 +28,9 @@ import {
   resolveWorkspacePath,
   stableProjectId,
   writeText,
+  projectDefaultsForRole,
+  WRITER_DEFAULT_DISPLAY_LAYER,
+  type WorkRole,
   type DocumentIdentity
 } from '@quillarium/core'
 import { typedHandle, type ImportedBookProject } from './contract.js'
@@ -58,10 +61,10 @@ export function registerSillyTavernHandlers(): void {
   typedHandle('st:exportCard', async (_event, root, characterId) => exportSillyTavernCard(root, characterId))
   typedHandle('st:exportLorebook', async (_event, root) => exportSillyTavernLorebook(root))
   typedHandle('st:chooseBookCard', async () => chooseBookCharacterCard())
-  typedHandle('st:importBookProject', async (_event, sourcePath, title) => {
+  typedHandle('st:importBookProject', async (_event, sourcePath, title, role) => {
     const workspaceRoot = await getWorkspaceDir()
     if (!workspaceRoot) throw new Error('请先注册写作工作区，再从角色卡新建小说。')
-    return importBookProjectFromCard(workspaceRoot, sourcePath, title)
+    return importBookProjectFromCard(workspaceRoot, sourcePath, title, role)
   })
   typedHandle('st:exportBookCard', async (_event, root, options) =>
     writeBookCharacterCardV3Png(root, options)
@@ -83,8 +86,12 @@ export async function importBookProjectFromCard(
   workspaceRoot: string,
   sourcePath: string,
   title: string,
-  dependencies: BookProjectImportDependencies = {}
+  roleOrDeps?: WorkRole | BookProjectImportDependencies,
+  dependenciesInput?: BookProjectImportDependencies
 ): Promise<ImportedBookProject> {
+  const role = typeof roleOrDeps === 'string' ? roleOrDeps : undefined
+  const dependencies =
+    typeof roleOrDeps === 'object' && roleOrDeps !== null ? roleOrDeps : (dependenciesInput ?? {})
   const inspect = dependencies.inspect ?? inspectBookCharacterCard
   const importCard = dependencies.importCard ?? importBookCharacterCardIntoProject
   const saveCover = dependencies.saveCover ?? saveProjectCover
@@ -119,7 +126,20 @@ export async function importBookProjectFromCard(
       markerPath,
       `${JSON.stringify({ schema_version: 1, transaction_id: transactionId, project_id: id }, null, 2)}\n`
     )
-    await createProjectAt(temporaryRoot, { id, title: chosenTitle })
+    const shaped = role
+      ? projectDefaultsForRole(role)
+      : {
+          capabilities: undefined,
+          story_structure: { part_enabled: false, act_enabled: false, scene_enabled: false },
+          display_layer: WRITER_DEFAULT_DISPLAY_LAYER
+        }
+    await createProjectAt(temporaryRoot, {
+      id,
+      title: chosenTitle,
+      story_structure: shaped.story_structure,
+      display_layer: shaped.display_layer,
+      capabilities: shaped.capabilities
+    })
     const imported = await importCard(temporaryRoot, sourcePath, { title: chosenTitle })
     if (inspection.hasPngCover) await saveCover(temporaryRoot, sourcePath)
     await verifyImportedBookProject(temporaryRoot, chosenTitle, inspection, imported)

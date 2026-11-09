@@ -22,6 +22,8 @@ import type {
   LoadedCreatorRole,
   ResolvedContextBundle,
   CandidateGroupSummary,
+  BookBreakdownPlan,
+  BookBreakdownResult,
   ChapterLifecycleSnapshot,
   ChapterPublicationResult,
   ChapterPromptPlan,
@@ -41,8 +43,10 @@ import type {
   ManuscriptExportResult,
   MarkdownImportResult,
   ProjectConfig,
+  WorkRole,
   PromptBlock,
   PromptSourceSelection,
+  PromptTemplate,
   PromptAsset,
   PromptName,
   QuillariumConfig,
@@ -84,6 +88,7 @@ import type {
   SettingCardSizeV1,
   SettingCardTemplateV1,
   StoryStructureConfigV1,
+  WorkCapabilities,
   DisplayImageManifest,
   DisplayImageProvider,
   ChapterEvalProposalSet,
@@ -92,7 +97,15 @@ import type {
   RelationAnalyzeProposalSet,
   RelationExpertType,
   TimelineManageProposalSet,
-  WorldOrganizeProposalSet
+  WorldOrganizeProposalSet,
+  ShortPlayAssetCategory,
+  ShortPlayAssetInput,
+  ShortPlayAssetProposalV1,
+  ShortPlayAssetV1,
+  ShortPlayExportPackageV1,
+  ShortPlaySceneStoryboardV1,
+  ShortPlaySettingsV1,
+  ShortPlayStoryboardProposalV1
 } from '@quillarium/core'
 import { recordIpcFailure } from '../logging.js'
 import type { CheckReport, CheckScore } from '@quillarium/checks'
@@ -194,6 +207,7 @@ export interface ProjectCreateInput {
   chapterWords?: number
   sectionWords?: number
   defaultTheme?: ProjectConfig['default_theme']
+  role?: WorkRole
 }
 
 export interface ProjectCoverResult {
@@ -623,6 +637,15 @@ export interface IpcContract {
     request: [root: string, structure: StoryStructureConfigV1]
     response: ProjectConfig
   }
+  'project:updateCapabilities': {
+    request: [
+      root: string,
+      patch: Partial<
+        Pick<WorkCapabilities, 'scene_prose' | 'display' | 'image_generation' | 'short_drama_export'>
+      >
+    ]
+    response: ProjectConfig
+  }
   'display:needsMigration': { request: [root: string]; response: boolean }
   'display:reset': { request: [root: string]; response: ProjectConfig }
   'display:setEnabled': { request: [root: string, enabled: boolean]; response: ProjectConfig }
@@ -852,8 +875,12 @@ export interface IpcContract {
     response: LocalDocumentLinkIndexV1
   }
   'references:upload': {
-    request: [root: string, sourcePaths?: string[]]
+    request: [root: string, sourcePaths?: string[], options?: { prompt_material?: boolean }]
     response: ReferenceUploadResult
+  }
+  'writingReference:draft': {
+    request: [root: string, request: string]
+    response: { title: string; content: string }
   }
   'references:format': {
     request: [root: string, documentId: string, displayText?: string]
@@ -945,6 +972,14 @@ export interface IpcContract {
   'import:markdownText': {
     request: [root: string, markdown: string, title?: string]
     response: MarkdownImportResult[]
+  }
+  'bookBreakdown:plan': {
+    request: [root: string, text: string, importProse: boolean]
+    response: BookBreakdownPlan
+  }
+  'bookBreakdown:confirm': {
+    request: [root: string, plan: BookBreakdownPlan]
+    response: BookBreakdownResult
   }
   'import:syncMarkdown': { request: [root: string]; response: MarkdownImportResult[] }
   'prompt:init': { request: [root: string]; response: PromptAsset[] }
@@ -1082,6 +1117,27 @@ export interface IpcContract {
     request: [root: string, sceneId: string, content: string]
     response: ChapterLifecycleSnapshot
   }
+  'scene:mergeChapter': {
+    request: [root: string, chapterId: string]
+    response: ChapterLifecycleSnapshot
+  }
+  'scene:savePromptLayout': {
+    request: [
+      root: string,
+      sceneId: string,
+      layout: Array<{ kind: string; source_type: string; source_id: string }>
+    ]
+    response: void
+  }
+  'promptTemplate:list': { request: [root: string]; response: PromptTemplate[] }
+  'promptTemplate:save': {
+    request: [root: string, title: string, segments: string[]]
+    response: { id: string; title: string; segments: string[] }
+  }
+  'promptTemplate:setCurrent': {
+    request: [root: string, templateId: string]
+    response: PromptTemplate
+  }
   'scene:promptPlan': {
     request: [root: string, sceneId: string]
     response: EditableScenePromptPlan
@@ -1151,7 +1207,7 @@ export interface IpcContract {
   }
   'st:chooseBookCard': { request: []; response: BookCharacterCardInspection | null }
   'st:importBookProject': {
-    request: [sourcePath: string, title: string]
+    request: [sourcePath: string, title: string, role?: WorkRole]
     response: ImportedBookProject
   }
   'st:exportBookCard': {
@@ -1273,6 +1329,80 @@ export interface IpcContract {
       ordered_node_ids: string[]
     }
   }
+  'shortPlay:loadSettings': {
+    request: [root: string]
+    response: ShortPlaySettingsV1
+  }
+  'shortPlay:saveSettings': {
+    request: [root: string, input: Partial<ShortPlaySettingsV1>]
+    response: ShortPlaySettingsV1
+  }
+  'shortPlay:listAssets': {
+    request: [root: string]
+    response: ShortPlayAssetV1[]
+  }
+  'shortPlay:saveAsset': {
+    request: [root: string, input: ShortPlayAssetInput]
+    response: ShortPlayAssetV1
+  }
+  'shortPlay:deleteAsset': {
+    request: [root: string, assetId: string]
+    response: boolean
+  }
+  'shortPlay:proposeAssets': {
+    request: [root: string]
+    response: ShortPlayAssetProposalV1[]
+  }
+  'shortPlay:applyAssetProposals': {
+    request: [
+      root: string,
+      proposals: Array<{
+        seed_id?: string
+        category: ShortPlayAssetCategory
+        title: string
+        linked_doc_id?: string
+        prompt: string
+        tags?: string[]
+      }>
+    ]
+    response: ShortPlayAssetV1[]
+  }
+  'shortPlay:reconcileAssetBySeed': {
+    request: [root: string, seedId: string, externalResultRef: string]
+    response: ShortPlayAssetV1
+  }
+  'shortPlay:loadStoryboard': {
+    request: [root: string, sceneId: string]
+    response: ShortPlaySceneStoryboardV1 | null
+  }
+  'shortPlay:listStoryboards': {
+    request: [root: string]
+    response: ShortPlaySceneStoryboardV1[]
+  }
+  'shortPlay:saveStoryboard': {
+    request: [root: string, input: Omit<ShortPlaySceneStoryboardV1, 'schema_version'>]
+    response: ShortPlaySceneStoryboardV1
+  }
+  'shortPlay:reorderStoryboardShots': {
+    request: [root: string, sceneId: string, orderedShotIds: string[]]
+    response: ShortPlaySceneStoryboardV1
+  }
+  'shortPlay:proposeStoryboard': {
+    request: [
+      root: string,
+      sceneId: string,
+      options?: { shotDurationSec?: number; targetTotalDurationSec?: number }
+    ]
+    response: ShortPlayStoryboardProposalV1
+  }
+  'shortPlay:previewExport': {
+    request: [root: string]
+    response: ShortPlayExportPackageV1
+  }
+  'shortPlay:exportToFile': {
+    request: [root: string, format?: 'markdown' | 'json', destinationPath?: string]
+    response: { outputPath: string; assetCount: number; shotCount: number } | null
+  }
 }
 
 export type IpcChannel = keyof IpcContract
@@ -1305,6 +1435,7 @@ export const QUILLARIUM_API_CHANNELS = {
   chooseProject: 'project:choose',
   loadProject: 'project:load',
   updateProjectStoryStructure: 'project:updateStoryStructure',
+  updateWorkCapabilities: 'project:updateCapabilities',
   needsDisplayMigration: 'display:needsMigration',
   resetDisplayLayer: 'display:reset',
   setDisplayLayerEnabled: 'display:setEnabled',
@@ -1360,6 +1491,7 @@ export const QUILLARIUM_API_CHANNELS = {
   reorderStorySiblings: 'story:reorder',
   rebuildDocumentLinkIndex: 'references:index',
   uploadReferenceDocuments: 'references:upload',
+  draftWritingReference: 'writingReference:draft',
   formatDocumentLink: 'references:format',
   planDocumentReferenceMigration: 'references:migrationPlan',
   applyDocumentReferenceMigration: 'references:migrationApply',
@@ -1385,6 +1517,8 @@ export const QUILLARIUM_API_CHANNELS = {
   chooseMarkdownImport: 'import:chooseMarkdown',
   chooseImportSources: 'import:chooseSources',
   importMarkdownText: 'import:markdownText',
+  planBookBreakdown: 'bookBreakdown:plan',
+  confirmBookBreakdown: 'bookBreakdown:confirm',
   syncMarkdownImports: 'import:syncMarkdown',
   initPrompts: 'prompt:init',
   readPrompt: 'prompt:read',
@@ -1423,6 +1557,11 @@ export const QUILLARIUM_API_CHANNELS = {
   generateOutlineCandidates: 'outline:generateCandidates',
   prepareScene: 'scene:prepare',
   acceptManualScene: 'scene:acceptManual',
+  mergeChapterSnapshot: 'scene:mergeChapter',
+  saveScenePromptLayout: 'scene:savePromptLayout',
+  listPromptTemplates: 'promptTemplate:list',
+  savePromptTemplate: 'promptTemplate:save',
+  setCurrentPromptTemplate: 'promptTemplate:setCurrent',
   buildScenePromptPlan: 'scene:promptPlan',
   compileScenePromptOverlay: 'scene:compilePromptOverlay',
   savePromptSourcesAsBundle: 'scene:savePromptBundle',
@@ -1464,7 +1603,22 @@ export const QUILLARIUM_API_CHANNELS = {
   manageForeshadowing: 'expert:manageForeshadowing',
   applyForeshadowManage: 'expert:applyForeshadowManage',
   manageTimeline: 'expert:manageTimeline',
-  applyTimelineManage: 'expert:applyTimelineManage'
+  applyTimelineManage: 'expert:applyTimelineManage',
+  loadShortPlaySettings: 'shortPlay:loadSettings',
+  saveShortPlaySettings: 'shortPlay:saveSettings',
+  listShortPlayAssets: 'shortPlay:listAssets',
+  saveShortPlayAsset: 'shortPlay:saveAsset',
+  deleteShortPlayAsset: 'shortPlay:deleteAsset',
+  proposeShortPlayAssets: 'shortPlay:proposeAssets',
+  applyShortPlayAssetProposals: 'shortPlay:applyAssetProposals',
+  reconcileShortPlayAssetBySeed: 'shortPlay:reconcileAssetBySeed',
+  loadSceneStoryboard: 'shortPlay:loadStoryboard',
+  listSceneStoryboards: 'shortPlay:listStoryboards',
+  saveSceneStoryboard: 'shortPlay:saveStoryboard',
+  reorderSceneStoryboardShots: 'shortPlay:reorderStoryboardShots',
+  proposeSceneStoryboard: 'shortPlay:proposeStoryboard',
+  previewShortPlayExport: 'shortPlay:previewExport',
+  exportShortPlayToFile: 'shortPlay:exportToFile'
 } as const satisfies Record<string, IpcChannel>
 
 type AssertNever<Value extends never> = Value

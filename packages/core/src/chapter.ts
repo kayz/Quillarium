@@ -7,6 +7,13 @@ import { readPrompt } from './prompts.js'
 import { compileContextBlocks, type ContextCompileOptions } from './context-compiler.js'
 import { compareStoryOrder } from './story-order.js'
 import {
+  currentPromptTemplateKinds,
+  orderPromptSources,
+  refreshPromptLayout,
+  sceneOutlineIsEmpty,
+  STRUCTURAL_PROMPT_SEGMENT_KINDS
+} from './prompt-templates.js'
+import {
   bundleDocumentTypes,
   contextBundleV1Schema,
   createContextBundle,
@@ -18,6 +25,7 @@ import {
 import type {
   ContextTrace,
   OutlineDoc,
+  ReferenceDoc,
   PromptBlock,
   PromptBlockAuthority,
   PromptBlockKind,
@@ -57,6 +65,7 @@ export interface PromptSourceBlock {
     | 'location'
     | 'character'
     | 'world'
+    | 'reference'
     | 'foreshadowing'
     | 'narrative'
     | 'context'
@@ -79,6 +88,8 @@ export interface PromptSourceSelection {
   source_id?: string
   mode: ContextSourceMode
   usage: ContextSourceUsage
+  /** This run only. Never written back to the source document. */
+  text?: string
 }
 
 export interface EditableScenePromptPlan extends ScenePromptPlan {
@@ -210,9 +221,45 @@ export async function buildEditableScenePromptPlan(
       required: false
     })
   }
+  const references = await listDocs<ReferenceDoc>(projectRoot, 'reference')
+  const promptReferences = references.filter((item) => item.data.prompt_material === true)
+  const relevantReferenceIds = new Set(
+    promptReferences
+      .filter((item) => referenceMatchesSceneOutline(item.data, item.content, scene.data))
+      .map((item) => item.data.id)
+  )
+  for (const item of references) {
+    if (
+      availableSources.some(
+        (source) => source.source_type === 'reference' && source.source_id === item.data.id
+      )
+    ) {
+      continue
+    }
+    availableSources.push({
+      id: `document:reference:${item.data.id}`,
+      kind: 'reference',
+      title: item.data.title,
+      content: item.content.trim() || item.data.title,
+      required: false,
+      source_id: item.data.id,
+      source_type: 'reference'
+    })
+  }
+  const templateSources = availableSources.filter(
+    (source) =>
+      source.kind !== 'reference' || (source.source_id != null && relevantReferenceIds.has(source.source_id))
+  )
   const sources = requestedSources
     ? await resolveRequestedPromptSources(projectRoot, availableSources, requestedSources)
-    : availableSources
+    : scene.data.prompt_layout?.length
+      ? refreshPromptLayout(availableSources, scene.data.prompt_layout)
+      : orderPromptSources(
+          templateSources,
+          sceneOutlineIsEmpty(scene.data)
+            ? STRUCTURAL_PROMPT_SEGMENT_KINDS
+            : await currentPromptTemplateKinds(projectRoot)
+        )
   const compiled = await compilePromptSourceBlocks(scene.data.id, sources, contextOptions)
   return {
     scene_id: scene.data.id,
@@ -363,7 +410,11 @@ async function resolveRequestedPromptSources(
     seen.add(request.id)
     const builtin = availableById.get(request.id)
     if (builtin) {
-      selected.push({ ...builtin, required: request.mode === 'required' })
+      selected.push({
+        ...builtin,
+        content: request.text ?? builtin.content,
+        required: request.mode === 'required'
+      })
       continue
     }
     if (!request.source_type || !request.source_id) {
@@ -390,7 +441,9 @@ async function resolveRequestedPromptSources(
       id: request.id,
       kind: promptSourceKindForDocumentType(request.source_type),
       title: document.data.title,
-      content: renderOverlayDocument(document.data as unknown as Record<string, unknown>, document.content),
+      content:
+        request.text ??
+        renderOverlayDocument(document.data as unknown as Record<string, unknown>, document.content),
       required: request.mode === 'required',
       source_type: request.source_type,
       source_id: request.source_id
@@ -458,7 +511,10 @@ async function compilePromptSourceBlocks(
     trigger_chain: ['product-boundary', 'plain-prose-output'],
     truncation: 'none'
   })
-  const compiled = await compileContextBlocks({ type: 'scene', id: sceneId }, candidates, contextOptions)
+  const compiled = await compileContextBlocks({ type: 'scene', id: sceneId }, candidates, {
+    ...contextOptions,
+    preserve_author_order: true
+  })
   const includedByCandidateId = new Map(compiled.blocks.map((block) => [block.id, block]))
   return {
     sources: sources
@@ -524,6 +580,7 @@ function promptBlockKindForSource(kind: PromptSourceBlock['kind']): PromptBlockK
     location: 'location',
     character: 'character',
     world: 'world',
+    reference: 'project_guidance',
     foreshadowing: 'foreshadowing',
     narrative: 'project_guidance',
     context: 'warning',
@@ -547,12 +604,12 @@ function promptSourceKindForDocumentType(type: string): PromptSourceBlock['kind'
     character_relation: 'character',
     character_state: 'character',
     world_entry: 'world',
+    reference: 'reference',
     foreshadowing: 'foreshadowing',
     strategy: 'narrative',
     pattern: 'narrative',
     narrative: 'narrative',
     issue: 'context',
-    reference: 'context',
     resource: 'context',
     causality: 'context',
     prompt: 'guidance'
@@ -663,6 +720,90 @@ function renderSceneOutline(data: SceneDoc): string {
     `时间线：${data.timeline_node}`,
     data.outline_content.trim()
   ].join('\n')
+}
+
+const CJK_STOP_CHARS = new Set([
+  '的',
+  '了',
+  '在',
+  '是',
+  '和',
+  '与',
+  '或',
+  '用',
+  '把',
+  '被',
+  '向',
+  '从',
+  '着',
+  '过'
+])
+
+function extractPromptTokens(text: string): string[] {
+  const rawTokens = text
+    .toLocaleLowerCase()
+    .split(/[^\p{L}\p{N}]+/u)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 2)
+  const cjkBigrams: string[] = []
+  for (const token of rawTokens) {
+    if (!/\p{Script=Han}/u.test(token) || token.length <= 2) continue
+    for (let i = 0; i < token.length - 1; i += 1) {
+      const a = token[i]!
+      const b = token[i + 1]!
+      if (CJK_STOP_CHARS.has(a) || CJK_STOP_CHARS.has(b)) continue
+      cjkBigrams.push(a + b)
+    }
+  }
+  return [...new Set([...rawTokens, ...cjkBigrams])].slice(0, 80)
+}
+
+export function referenceMatchesSceneOutline(
+  reference: ReferenceDoc,
+  content: string,
+  scene: SceneDoc
+): boolean {
+  if (sceneOutlineIsEmpty(scene)) return false
+  const focusText = [
+    scene.title,
+    scene.outline_content,
+    scene.scene_goal,
+    scene.scene_conflict,
+    scene.scene_change,
+    scene.writing_focus,
+    scene.writing_environment
+  ]
+    .filter(Boolean)
+    .join('\n')
+    .toLocaleLowerCase()
+
+  const keywords = [
+    reference.title,
+    reference.id,
+    reference.source_title,
+    ...(reference.topic_tags ?? []),
+    ...(reference.extracted_entries ?? [])
+  ]
+    .map((k) => (k ?? '').trim().toLocaleLowerCase())
+    .filter((k) => k.length >= 2)
+
+  if (keywords.some((keyword) => focusText.includes(keyword))) {
+    return true
+  }
+
+  const tokens = extractPromptTokens(focusText)
+  const refHaystack = [
+    reference.id,
+    reference.title,
+    reference.source_title,
+    ...(reference.topic_tags ?? []),
+    ...(reference.extracted_entries ?? []),
+    content
+  ]
+    .join('\n')
+    .toLocaleLowerCase()
+
+  return tokens.some((token) => refHaystack.includes(token))
 }
 
 export async function latestFinalSceneStyle(

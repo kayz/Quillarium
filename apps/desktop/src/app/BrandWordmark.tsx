@@ -1,5 +1,3 @@
-import wordmarkUrl from '../../../../assets/brand/quillarium-wordmark.png'
-
 export function BrandWordmark({
   className = '',
   decorative = false
@@ -8,11 +6,8 @@ export function BrandWordmark({
   decorative?: boolean
 }) {
   return (
-    <img
-      className={`brand-wordmark ${className}`.trim()}
-      src={wordmarkUrl}
-      alt={decorative ? '' : 'Quillarium'}
-      draggable={false}
-    />
+    <span className={`brand-wordmark ${className}`.trim()} aria-hidden={decorative || undefined}>
+      琢磨
+    </span>
   )
 }

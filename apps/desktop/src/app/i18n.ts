@@ -2,20 +2,19 @@ import type { LanguageName } from './types.js'
 
 export const I18N = {
   zh: {
-    welcomeSubtitle: '为长篇小说而建的 AI 写作书房。世界、人物、时间线与手稿一起生长。',
+    welcomeSubtitle: '创造想象中的世界。',
     changeVault: '更换 Obsidian 目录',
     chooseVault: '选择 Obsidian 目录',
-    novelProjects: '小说项目',
-    noProjects: '还没有项目。新项目会出现在写作工作区的 projects/ 目录下。',
+    novelProjects: '作品',
+    noProjects: '还没有作品。新作品会出现在写作库的 projects/ 目录下。',
     localWritingLibrary: '本地写作库',
-    localWritingLibraryHint:
-      '小说与写作数据直接保存在这个文件夹，无需 GitHub 账号；以后可在设置中连接 GitHub 并上传。',
+    localWritingLibraryHint: '作品以 Markdown 与 YAML 直接保存在这个文件夹里，不需要账号。',
     workspaceNotSet: '未选择本地文件夹',
     chooseLocalWorkspace: '选择本地文件夹',
     changeLocalWorkspace: '更换本地文件夹',
-    selectLocalBeforeCreate: '先选择一个本地文件夹即可创建小说，Quillarium 会自动建立写作库。',
-    novelTitle: '小说名',
-    openExistingProject: '打开已有项目',
+    selectLocalBeforeCreate: '先选择一个本地文件夹，琢磨会在其中建立写作库。',
+    novelTitle: '作品名',
+    openExistingProject: '打开已有作品',
     bookOutline: '全书大纲',
     book: '全书',
     writing: '写作',
@@ -238,22 +237,19 @@ export const I18N = {
     canonCurator: '正设整理员'
   },
   en: {
-    welcomeSubtitle:
-      'An AI writing studio for long-form fiction, where worlds, characters, timelines, and drafts grow together.',
+    welcomeSubtitle: 'Create the world you imagine.',
     changeVault: 'Change Obsidian Vault',
     chooseVault: 'Choose Obsidian Vault',
-    novelProjects: 'Novel Projects',
-    noProjects: 'No projects yet. New projects will appear under projects/ in your writing workspace.',
+    novelProjects: 'Works',
+    noProjects: 'No works yet. New works appear under projects/ in the writing library.',
     localWritingLibrary: 'Local writing library',
-    localWritingLibraryHint:
-      'Novels and writing data are stored directly in this folder. No GitHub account is required; connect GitHub in Settings later if you want to upload.',
+    localWritingLibraryHint: 'Works are stored in this folder as Markdown and YAML. No account is required.',
     workspaceNotSet: 'No local folder selected',
     chooseLocalWorkspace: 'Choose local folder',
     changeLocalWorkspace: 'Change local folder',
-    selectLocalBeforeCreate:
-      'Choose any local folder to create a novel. Quillarium will initialize the writing library automatically.',
-    novelTitle: 'Novel title',
-    openExistingProject: 'Open Existing Project',
+    selectLocalBeforeCreate: 'Choose a local folder. 琢磨 will create the writing library inside it.',
+    novelTitle: 'Work title',
+    openExistingProject: 'Open an existing work',
     bookOutline: 'Book Outline',
     book: 'Book',
     writing: 'Writing',

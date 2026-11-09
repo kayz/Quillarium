@@ -29,7 +29,7 @@ import type {
 } from '../../app/types.js'
 import { t } from '../../app/i18n.js'
 import { bridge } from '../../app/bridge.js'
-import { ModuleNav, StructureTree } from '../navigation/WorkspaceNavigation.js'
+import { StructureTree } from '../navigation/WorkspaceNavigation.js'
 import { ModuleView } from '../modules/ModuleView.js'
 import { OutlineHome } from '../outline/OutlineHome.js'
 import { OutlineCreateDialog } from '../outline/OutlineCreateDialog.js'
@@ -37,14 +37,18 @@ import { VolumeHome } from '../outline/VolumeHome.js'
 import { TopChrome } from '../settings/TopChrome.js'
 import { AIWritingWorkspace } from '../writing/AIWritingWorkspace.js'
 import { ChapterProseWorkspace } from '../writing/ChapterProseWorkspace.js'
+import { ForeshadowingWorkspace } from '../writing/ForeshadowingWorkspace.js'
+import { ShortPlayWorkspace } from '../writing/ShortPlayWorkspace.js'
+import { WritingReferenceWorkspace } from '../writing/WritingReferenceWorkspace.js'
 import { WritingWorkspace } from '../writing/WritingWorkspace.js'
 import { PlanningCreationDialog } from '../planning/PlanningCreationDialog.js'
 import { CardOriginDialog } from '../import/CardOriginDialog.js'
 import { AIImportDialog } from '../import/AIImportDialog.js'
+import { BookBreakdownDialog } from '../import/BookBreakdownDialog.js'
 import { FileDropIntentDialog, pathsFromDroppedFiles } from '../import/FileDropIntentDialog.js'
 import { TagIndexDrawer } from '../metadata/TagIndexDrawer.js'
 import { clampPaneSize, SplitHandle } from '../layout/SplitHandle.js'
-import { normalizeStoryStructure, outlineLevelLabel } from '../../shared/outline.js'
+import { compareStoryEntries, normalizeStoryStructure, outlineLevelLabel } from '../../shared/outline.js'
 import { ToastNotice } from '../feedback/ToastNotice.js'
 import { formatDesktopError } from '../../shared/errors.js'
 import { CreatorAssistantWorkspace } from '../assistants/CreatorAssistantWorkspace.js'
@@ -198,6 +202,10 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
     onBack
   } = app
   const skinLayout = resolveUISkin(theme, skinPreferences).layout
+  const [bookBreakdownOpen, setBookBreakdownOpen] = useState(false)
+  const [writingTag, setWritingTag] = useState<
+    'tree' | 'foreshadowing' | 'scenes' | 'references' | 'prompts' | 'short_play'
+  >('tree')
   const {
     data,
     workspaceMode,
@@ -290,10 +298,14 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
     }
     setPlanningDialog({ module, documentId: card.data.id })
   }
-  const uploadReferences = async (sourcePaths?: string[]) => {
+  const uploadReferences = async (sourcePaths?: string[], promptMaterial = false) => {
     setReferenceUploadError('')
     try {
-      const result = await bridge.uploadReferenceDocuments(root, sourcePaths)
+      const result = await bridge.uploadReferenceDocuments(
+        root,
+        sourcePaths,
+        promptMaterial ? { prompt_material: true } : undefined
+      )
       const latest = result.items.at(-1)
       if (!latest) return
       await load()
@@ -332,6 +344,15 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
     await load()
   }
   const storyStructure = normalizeStoryStructure(data.project.story_structure)
+  const shortDramaEnabled = data.project.capabilities?.short_drama_export === true
+  const visibleWritingTag =
+    writingTag === 'short_play'
+      ? shortDramaEnabled
+        ? 'short_play'
+        : 'tree'
+      : storyStructure.scene_enabled || writingTag === 'tree' || writingTag === 'foreshadowing'
+        ? writingTag
+        : 'tree'
 
   return (
     <div
@@ -413,10 +434,10 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
           workspaceMode === 'writing'
             ? `${t(language, 'writing')} / ${projectPath}`
             : workspacePage === 'volume' && activeVolume
-              ? `${language === 'zh' ? '规划' : 'Planning'} / ${activeVolume.data.title}`
+              ? `${language === 'zh' ? '世界书' : 'World book'} / ${activeVolume.data.title}`
               : language === 'zh'
-                ? '规划'
-                : 'Planning'
+                ? '世界书'
+                : 'World book'
         }
         workspaceMode={workspaceMode}
         onWorkspaceMode={(mode) => {
@@ -430,23 +451,100 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
           <div className="workspace writing-route">
             <aside className="sidebar writing-route-sidebar">
               <div className="sidebar-header">
-                <span>{t(language, 'bookOutline')}</span>
+                <span>
+                  {visibleWritingTag === 'tree'
+                    ? t(language, 'bookOutline')
+                    : language === 'zh'
+                      ? '选章'
+                      : 'Chapters'}
+                </span>
                 <button onClick={() => setLeftOpen(false)}>{t(language, 'collapse')}</button>
               </div>
-              <StructureTree
-                docs={docs}
-                storyStructure={storyStructure}
-                selectedTarget={selectedTarget}
-                onSelect={selectWritingTarget}
-                onReorder={reorderStory}
-                language={language}
-              />
-              <ModuleNav
-                active={activeModule}
-                onSelect={(module) => setActiveModule(module)}
-                docs={docs}
-                language={language}
-              />
+              {visibleWritingTag === 'tree' ? (
+                <StructureTree
+                  docs={docs}
+                  storyStructure={storyStructure}
+                  selectedTarget={selectedTarget}
+                  onSelect={selectWritingTarget}
+                  onReorder={reorderStory}
+                  language={language}
+                />
+              ) : (
+                <div
+                  className="chapter-picker-list"
+                  role="navigation"
+                  aria-label={language === 'zh' ? '选章' : 'Select chapter'}
+                >
+                  <div className="chapter-picker-head">
+                    <small className="muted">{language === 'zh' ? '章节列表' : 'Chapters'}</small>
+                  </div>
+                  {docs
+                    .filter((item) => item.data.type === 'outline' && item.data.level === 'chapter')
+                    .sort(compareStoryEntries)
+                    .map((ch) => {
+                      const isSelected = writingOutline?.data.id === ch.data.id
+                      return (
+                        <button
+                          key={ch.data.id}
+                          type="button"
+                          className={`chapter-picker-item ${isSelected ? 'active' : ''}`}
+                          onClick={() => {
+                            if (visibleWritingTag === 'foreshadowing' || visibleWritingTag === 'references') {
+                              setWritingTag(storyStructure.scene_enabled ? 'scenes' : 'tree')
+                            }
+                            selectWritingTarget({
+                              type: 'outline',
+                              id: ch.data.id,
+                              view: storyStructure.scene_enabled ? 'ai' : undefined
+                            })
+                          }}
+                        >
+                          <span>{ch.data.title}</span>
+                        </button>
+                      )
+                    })}
+                  {!docs.some((item) => item.data.type === 'outline' && item.data.level === 'chapter') && (
+                    <p className="empty-row muted">{language === 'zh' ? '暂无章节' : 'No chapters yet'}</p>
+                  )}
+                </div>
+              )}
+              <div className="module-nav">
+                {(
+                  [
+                    ['tree', language === 'zh' ? '结构树' : 'Structure'],
+                    ['foreshadowing', language === 'zh' ? '伏笔' : 'Foreshadowing'],
+                    ...(storyStructure.scene_enabled
+                      ? ([
+                          ['scenes', language === 'zh' ? '节' : 'Scenes'],
+                          ['references', language === 'zh' ? 'AI 参考资料' : 'References'],
+                          ['prompts', language === 'zh' ? '提示词' : 'Prompts']
+                        ] as const)
+                      : []),
+                    ...(shortDramaEnabled
+                      ? ([['short_play', language === 'zh' ? '剧本与分镜' : 'Short Play']] as const)
+                      : [])
+                  ] as const
+                ).map(([id, label]) => (
+                  <button
+                    key={id}
+                    className={visibleWritingTag === id ? 'active' : ''}
+                    onClick={() => {
+                      setWritingTag(id)
+                      setActiveModule('write')
+                      if ((id === 'scenes' || id === 'prompts') && !writingOutline) {
+                        const firstChapter = docs
+                          .filter((item) => item.data.type === 'outline' && item.data.level === 'chapter')
+                          .sort(compareStoryEntries)[0]
+                        if (firstChapter) {
+                          selectWritingTarget({ type: 'outline', id: firstChapter.data.id, view: 'ai' })
+                        }
+                      }
+                    }}
+                  >
+                    <span>{label}</span>
+                  </button>
+                ))}
+              </div>
             </aside>
             {leftOpen && (
               <SplitHandle
@@ -472,7 +570,70 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
                   {t(language, 'bookOutline')}
                 </button>
               )}
-              {activeModule === 'assistants' ? (
+              {visibleWritingTag === 'short_play' ? (
+                <ShortPlayWorkspace
+                  root={root}
+                  data={data}
+                  language={language}
+                  activeSceneId={selectedScene?.data.id ?? null}
+                  onSelectScene={(sceneId) => selectWritingTarget({ type: 'scene', id: sceneId, view: 'ai' })}
+                />
+              ) : visibleWritingTag === 'foreshadowing' ? (
+                <ForeshadowingWorkspace
+                  docs={docs}
+                  doc={doc}
+                  dirty={dirty}
+                  busy={busy}
+                  language={language}
+                  projectRoot={root}
+                  onSelect={(card) => {
+                    setDoc(card)
+                    setSelectedTarget({ type: 'foreshadowing', id: card.data.id })
+                    setDirty(false)
+                  }}
+                  onCreate={async (input) => {
+                    const createdPath = await createDoc('foreshadowing', input)
+                    const created = await bridge.readDoc(String(createdPath))
+                    const createdDoc = { ...created, path: String(createdPath) }
+                    setDoc(createdDoc)
+                    setSelectedTarget({ type: 'foreshadowing', id: String(created.data.id) })
+                    setDirty(false)
+                  }}
+                  onDocChange={(next) => {
+                    setDoc(next)
+                    setDirty(true)
+                  }}
+                  onSave={save}
+                  onReloadProject={load}
+                />
+              ) : visibleWritingTag === 'references' ? (
+                <WritingReferenceWorkspace
+                  docs={docs}
+                  doc={doc}
+                  dirty={dirty}
+                  busy={busy}
+                  language={language}
+                  onSelect={(card) => {
+                    setDoc(card)
+                    setSelectedTarget({ type: 'reference', id: card.data.id })
+                    setDirty(false)
+                  }}
+                  onCreate={async (input) => {
+                    const createdPath = await createDoc('reference', input)
+                    const created = await bridge.readDoc(String(createdPath))
+                    setDoc({ ...created, path: String(createdPath) })
+                    setSelectedTarget({ type: 'reference', id: String(created.data.id) })
+                    setDirty(false)
+                  }}
+                  onImport={() => uploadReferences(undefined, true)}
+                  onDraft={(request) => bridge.draftWritingReference(root, request)}
+                  onDocChange={(next) => {
+                    setDoc(next)
+                    setDirty(true)
+                  }}
+                  onSave={save}
+                />
+              ) : activeModule === 'assistants' ? (
                 <CreatorAssistantWorkspace
                   root={root}
                   projectId={data.project.id}
@@ -484,7 +645,10 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
                   language={language}
                 />
               ) : activeModule === 'write' ? (
-                selectedTarget?.type === 'chapter_prose' && doc && writingOutline ? (
+                selectedTarget?.type === 'chapter_prose' &&
+                doc &&
+                writingOutline &&
+                visibleWritingTag === 'tree' ? (
                   <ChapterProseWorkspace
                     key={writingOutline.data.id}
                     chapterTitle={writingOutline.data.title}
@@ -507,8 +671,10 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
                     onContinuityApplied={load}
                     language={language}
                   />
-                ) : workLevel === 'ai' && storyStructure.scene_enabled ? (
+                ) : (visibleWritingTag === 'scenes' || visibleWritingTag === 'prompts') &&
+                  storyStructure.scene_enabled ? (
                   <AIWritingWorkspace
+                    focus={visibleWritingTag === 'prompts' ? 'prompt' : 'scene'}
                     root={root}
                     docs={docs}
                     runs={data.runs}
@@ -586,6 +752,10 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
                     onCheck={runCheck}
                     onAcceptScene={async (sceneId, content) => {
                       await bridge.acceptManualScene(root, sceneId, content)
+                      await load()
+                    }}
+                    onMergeChapter={async (chapterId) => {
+                      await bridge.mergeChapterSnapshot(root, chapterId)
                       await load()
                     }}
                     onImportPanel={() => openAIImport()}
@@ -742,6 +912,7 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
           onInspectTag={(value, displayValue) => setActiveTag({ value, displayValue })}
           onSave={save}
           onImport={() => openAIImport()}
+          onBookBreakdown={() => setBookBreakdownOpen(true)}
           language={language}
           displayLayer={displayLayer}
         />
@@ -824,8 +995,23 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
           onInspectTag={(value, displayValue) => setActiveTag({ value, displayValue })}
           onSave={save}
           onImport={() => openAIImport()}
+          onBookBreakdown={() => setBookBreakdownOpen(true)}
+          onTransferToForeshadowing={async (card) => {
+            await specializePlanningCard(card, 'foreshadowing', {})
+            setWritingTag('foreshadowing')
+            setActiveModule('write')
+            setWorkspaceMode('writing')
+          }}
           language={language}
           displayLayer={displayLayer}
+        />
+      )}
+      {bookBreakdownOpen && (
+        <BookBreakdownDialog
+          root={root}
+          language={language}
+          onClose={() => setBookBreakdownOpen(false)}
+          onImported={load}
         />
       )}
       {importOpen && (
@@ -877,7 +1063,15 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
             await load()
             const createdDoc = { ...document, path: createdPath } as DocEntry
             const nextSection = outlineSectionForDocument(createdDoc)
-            if (nextSection && planningDialog.module === 'prose-extraction') {
+            if (createdDoc.data.type === 'foreshadowing') {
+              setWorkspaceMode('writing')
+              setWritingTag('foreshadowing')
+              setActiveModule('write')
+            } else if (createdDoc.data.type === 'reference' && storyStructure.scene_enabled) {
+              setWorkspaceMode('writing')
+              setWritingTag('references')
+              setActiveModule('write')
+            } else if (nextSection && planningDialog.module === 'prose-extraction') {
               setWorkspaceMode('planning')
               setWorkspacePage('outline')
               setOutlineSection(nextSection)
@@ -939,7 +1133,21 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
         onClose={() => setActiveTag(null)}
         onSelect={(target, matchedDoc) => {
           const section = outlineSectionForDocument(matchedDoc)
-          if (section) {
+          if (matchedDoc.data.type === 'foreshadowing') {
+            setWorkspaceMode('writing')
+            setWritingTag('foreshadowing')
+            setActiveModule('write')
+            setDoc(matchedDoc)
+          } else if (matchedDoc.data.type === 'reference' && storyStructure.scene_enabled) {
+            setWorkspaceMode('writing')
+            setWritingTag('references')
+            setActiveModule('write')
+            setDoc(matchedDoc)
+          } else if (matchedDoc.data.type === 'outline') {
+            setWorkspaceMode('writing')
+            setWritingTag('tree')
+            setActiveModule('write')
+          } else if (section) {
             setWorkspaceMode('planning')
             setWorkspacePage('outline')
             setOutlineSection(section)
@@ -975,15 +1183,7 @@ export function WorkspaceView({ app, state, actions }: WorkspaceViewProps) {
 }
 
 function outlineSectionForDocument(doc: DocEntry): OutlineHomeSection | null {
-  if (doc.data.type === 'outline') {
-    const level = String(doc.data.level ?? '')
-    if (level === 'overview') return 'overview'
-    if (level === 'book') return 'book'
-    if (level === 'volume') return 'volumes'
-    return null
-  }
   const sections: Partial<Record<string, OutlineHomeSection>> = {
-    canon: 'canon',
     world_entry: 'world',
     character: 'characters',
     character_relation: 'characters',
@@ -993,12 +1193,9 @@ function outlineSectionForDocument(doc: DocEntry): OutlineHomeSection | null {
     timeline_node: 'timeline',
     timeline_event: 'timeline',
     location: 'locations',
-    foreshadowing: 'foreshadowing',
-    pattern: 'narrative',
-    strategy: 'narrative',
-    narrative: 'narrative',
-    issue: 'issues',
-    reference: 'references'
+    item: 'items',
+    rank_ladder: 'ranks',
+    rank_holding: 'ranks'
   }
   return sections[doc.data.type] ?? null
 }

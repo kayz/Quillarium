@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { Bot, ChevronDown, Link2, Plus, Trash2, X } from 'lucide-react'
+import { Bot, ChevronDown, ChevronUp, Link2, Plus, Trash2, X } from 'lucide-react'
 import type { LocalDocumentLinkIndexV1, LocalDocumentReferenceResult } from '@quillarium/core'
 import type { DocEntry, LanguageName, TargetSelection } from '../../app/types.js'
 import { formatFieldValue } from '../../shared/outline.js'
@@ -17,6 +17,7 @@ import {
   fieldDescription,
   fieldLabel,
   fieldPresentation,
+  outlineLevelDisplayLabel,
   type FieldPresentationContext
 } from '../metadata/field-presentation.js'
 import { structuredLineForSection, timelineBelongsToArc } from './outline-model.js'
@@ -810,6 +811,136 @@ function MetadataField({
 }) {
   const options = enumOptionsForField(name, context)
   const presentation = fieldPresentation(name, language, context)
+  if (name === 'rungs' && Array.isArray(value)) {
+    const rungs = value.filter(isRecord).map((row) => ({
+      id: String(row.id ?? ''),
+      label: String(row.label ?? '')
+    }))
+    const write = (next: Array<{ id: string; label: string }>) => onChange(next)
+    const move = (index: number, delta: number) => {
+      const target = index + delta
+      if (target < 0 || target >= rungs.length) return
+      const next = rungs.slice()
+      const [row] = next.splice(index, 1)
+      if (!row) return
+      next.splice(target, 0, row)
+      write(next)
+    }
+    return (
+      <div className="metadata-field">
+        <span>{language === 'zh' ? '档（从低到高）' : 'Rungs, low to high'}</span>
+        {rungs.map((rung, index) => (
+          <span key={rung.id || index}>
+            <input
+              value={rung.label}
+              aria-label={language === 'zh' ? `第${index + 1}档` : `Rung ${index + 1}`}
+              onChange={(event) =>
+                write(
+                  rungs.map((row, rowIndex) =>
+                    rowIndex === index ? { ...row, label: event.target.value } : row
+                  )
+                )
+              }
+            />
+            <button
+              type="button"
+              disabled={index === 0}
+              onClick={() => move(index, -1)}
+              aria-label={language === 'zh' ? '上移' : 'Move up'}
+            >
+              <ChevronUp size={14} />
+            </button>
+            <button
+              type="button"
+              disabled={index === rungs.length - 1}
+              onClick={() => move(index, 1)}
+              aria-label={language === 'zh' ? '下移' : 'Move down'}
+            >
+              <ChevronDown size={14} />
+            </button>
+            <button
+              type="button"
+              onClick={() => write(rungs.filter((_, rowIndex) => rowIndex !== index))}
+              aria-label={language === 'zh' ? '删除这一档' : 'Delete rung'}
+            >
+              <Trash2 size={14} />
+            </button>
+          </span>
+        ))}
+        <button type="button" onClick={() => write([...rungs, { id: crypto.randomUUID(), label: '' }])}>
+          {language === 'zh' ? '添加更高一档' : 'Add a higher rung'}
+        </button>
+      </div>
+    )
+  }
+  if (name === 'attributes' && isRecord(value)) {
+    const entries = Object.entries(value).map(([key, entry]) => [key, String(entry ?? '')] as const)
+    const write = (next: Array<readonly [string, string]>) => {
+      onChange(Object.fromEntries(next.filter(([key]) => key.trim())))
+    }
+    return (
+      <div className="metadata-field">
+        <span>{language === 'zh' ? '作者字段' : 'Author fields'}</span>
+        {entries.map(([key, entry], index) => (
+          <span key={`${key}-${index}`}>
+            <input
+              value={key}
+              aria-label={language === 'zh' ? '字段名' : 'Field name'}
+              onChange={(event) =>
+                write(
+                  entries.map((pair, pairIndex) =>
+                    pairIndex === index ? [event.target.value, pair[1]] : pair
+                  )
+                )
+              }
+            />
+            <input
+              value={entry}
+              aria-label={language === 'zh' ? '字段内容' : 'Field value'}
+              onChange={(event) =>
+                write(
+                  entries.map((pair, pairIndex) =>
+                    pairIndex === index ? [pair[0], event.target.value] : pair
+                  )
+                )
+              }
+            />
+          </span>
+        ))}
+        <button type="button" onClick={() => write([...entries, [`字段${entries.length + 1}`, '']])}>
+          {language === 'zh' ? '添加字段' : 'Add field'}
+        </button>
+      </div>
+    )
+  }
+  if (name === 'plant_outline_id' || name === 'resolve_outline_id') {
+    const storyLevels = new Set(['volume', 'part', 'arc', 'act', 'chapter'])
+    const positions = docs.filter(
+      (item) => item.data.type === 'outline' && storyLevels.has(String(item.data.level ?? ''))
+    )
+    const current = docs.find((item) => item.data.id === value)
+    const outlines =
+      current && !positions.some((item) => item.data.id === current.data.id)
+        ? [current, ...positions]
+        : positions
+    return (
+      <label className="metadata-field">
+        <span>{language === 'zh' ? (name === 'plant_outline_id' ? '埋设位置' : '回收位置') : name}</span>
+        <select
+          value={value == null ? '' : String(value)}
+          onChange={(event) => onChange(event.target.value || null)}
+        >
+          <option value="">{language === 'zh' ? '未指定' : 'Unset'}</option>
+          {outlines.map((item) => (
+            <option key={item.data.id} value={item.data.id}>
+              {outlineLevelDisplayLabel(String(item.data.level ?? 'outline'), language)} ·{' '}
+              {String(item.data.title)}
+            </option>
+          ))}
+        </select>
+      </label>
+    )
+  }
   if (name === 'planned_plant_ref' || name === 'planned_resolve_ref') {
     return (
       <ForeshadowTimePositionEditor

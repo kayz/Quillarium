@@ -25,6 +25,10 @@
     "./ui-skins": {
       "types": "./dist/ui-skins.d.ts",
       "import": "./dist/ui-skins.js"
+    },
+    "./browser-contracts": {
+      "types": "./dist/browser-contracts.d.ts",
+      "import": "./dist/browser-contracts.js"
     }
   },
   "scripts": {

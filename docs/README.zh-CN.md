@@ -22,6 +22,8 @@ schema、命令帮助和测试为准。当前工作区是 `0.3.1` 本地候选�
 | 理解 Agent、ContextBundle、权限和快照     | [Agent 设计（英文）](AGENT-DESIGN.md)  |
 | 构建或审计不可变发布                      | [发布流程（中文）](RELEASING.zh-CN.md) |
 | 查看已交付门禁和后续优先级                | [产品路线图（英文）](../ROADMAP.md)    |
+| 按模块查看功能点与验收状态                | [功能清单](FEATURES.zh-CN.md)          |
+| 从 2026-11-08 的暂停处继续主体            | [接着做](NEXT.zh-CN.md)                |
 | 查看外部设计来源和许可证边界              | [参考资料（英文）](REFERENCES.md)      |
 
 ## v0.3.0 功能索引
@@ -48,6 +50,7 @@ schema、命令帮助和测试为准。当前工作区是 `0.3.1` 本地候选�
 
 `adr/` 目录记录即使实现位置变化也应保持稳定的架构决策：
 
+- [作品上的用户能力与模块所有权](adr/ADR-work-audiences.md)
 - [统一 Agent Runtime（英文）](adr/ADR-unified-ai-agent-runtime.md)
 - [Agent Runtime 与 ContextBundle（英文）](adr/ADR-agent-runtime-and-context-bundles.md)
 - [上下文激活（英文）](adr/ADR-context-activation.md)
@@ -60,6 +63,7 @@ schema、命令帮助和测试为准。当前工作区是 `0.3.1` 本地候选�
 - [MVP 工作清单（英文）](MVP-WORKLIST.md) 仅用于保留项目沿革，不是当前使用指南。
 - [UI 工作清单（英文）](UI-WORKLIST.md) 和 `superpowers/` 下的文件是实现记录，不构成产品承诺。
 - [P0 Agent Runtime 实施提示（英文）](implementation/AGENT-RUNTIME-P0-PROMPT.md) 是已经完成的实施简报。
+- [2026-11-08 实现与目标差异](GAP-2026-11-08.zh-CN.md) 是当天的分析快照，不是产品承诺。
 - 各 package 的 README 说明内部包边界和公开导出。
 
 简体中文版目前覆盖完整产品 README、本导航和发布指南。详细架构规范与 ADR 仍以英文版本作为唯一

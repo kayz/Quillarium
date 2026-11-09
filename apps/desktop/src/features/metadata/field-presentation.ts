@@ -294,6 +294,44 @@ const FIELD_DEFINITIONS: Record<string, LocalizedFieldDefinition> = {
     'Legacy resolution text',
     'Free text retained for compatibility until an explicit story-time migration.'
   ),
+  plant_outline_id: field(
+    '埋设位置',
+    '这条伏笔埋在写作树的哪一个卷、篇、幕或章。',
+    'Planted at',
+    'The writing-tree node where this foreshadowing is planted.'
+  ),
+  resolve_outline_id: field(
+    '回收位置',
+    '这条伏笔在写作树的哪一个节点回收。',
+    'Payoff at',
+    'The writing-tree node where this foreshadowing pays off.'
+  ),
+  order_state: field(
+    '排序',
+    '缺人物、时间或地点时只是草稿，不进入前后顺序。',
+    'Order',
+    'Incomplete events stay drafts and do not enter the sequence.'
+  ),
+  attributes: field(
+    '作者字段',
+    '作者自己加在这条世界上的说明，没有预设模板。',
+    'Author fields',
+    'Author-defined notes on this world entry.'
+  ),
+  important: field(
+    '重要道具',
+    '只是一个标记，不会自动生成伏笔。',
+    'Important prop',
+    'A mark only. It does not create foreshadowing.'
+  ),
+  function_text: field('作用', '这件物品做什么。', 'Function', 'What this item does.'),
+  prompt_material: field(
+    '提示词材料',
+    '是否作为写作指导材料进入生文提示词。',
+    'Prompt material',
+    'Whether this writing reference should be included in scene prompts.'
+  ),
+  rungs: field('档', '从低到高的一列等级。', 'Rungs', 'The ladder from low to high.'),
   planned_resolve_ref: field(
     '计划回收时间位置',
     '以稳定时间线、时间节点或事件引用定位，可继续关联章或节。',
@@ -1262,6 +1300,42 @@ const FIELD_DEFINITIONS: Record<string, LocalizedFieldDefinition> = {
     'Floor / level',
     'Floor or elevation within a building or three-dimensional space.'
   ),
+  map_layer: field(
+    '挂载图层',
+    '该地点挂载在哪个缩放图层上；留空表示暂保留在待挂载地点池中。',
+    'Mounted map layer',
+    'Which zoom layer this location is mounted on; blank keeps it in the unmounted pool.'
+  ),
+  map_x: field(
+    '图层横坐标 (X)',
+    '地点在所挂载图层上的横向位置（0–100%）。',
+    'Layer X coordinate',
+    'Horizontal position (0–100%) on the mounted map layer.'
+  ),
+  map_y: field(
+    '图层纵坐标 (Y)',
+    '地点在所挂载图层上的纵向位置（0–100%）。',
+    'Layer Y coordinate',
+    'Vertical position (0–100%) on the mounted map layer.'
+  ),
+  map_width: field(
+    '房型宽度',
+    '室内房型图层中该房间矩形的宽度百分比。',
+    'Room width',
+    'Room rectangle width percentage on the interior floor plan.'
+  ),
+  map_height: field(
+    '房型高度',
+    '室内房型图层中该房间矩形的高度百分比。',
+    'Room height',
+    'Room rectangle height percentage on the interior floor plan.'
+  ),
+  map_room_type: field(
+    '房间功能类型',
+    '室内房型图层中该房间的功能分区类型（如正厅、内寝、书房、暗室等）。',
+    'Room functional type',
+    'Functional room type on the interior floor plan.'
+  ),
   diagram_nodes: field(
     '简图节点',
     '布局简图中的物体、区域、入口和锚点。',
@@ -1402,6 +1476,12 @@ const FIELD_OVERRIDES: Record<string, LocalizedFieldDefinition> = {
     'L1 最关键，L5 最轻；用于安排检查和回收优先级。',
     'Foreshadowing level',
     'L1 is most critical and L5 is lightest; used for review and payoff priority.'
+  ),
+  'foreshadowing.summary': field(
+    '被掩盖的真相',
+    '读者此时还不知道、要在回收位置揭开的事实。',
+    'Hidden truth',
+    'The fact the reader does not yet know, revealed at the payoff.'
   ),
   'character.role': field(
     '人物定位',
@@ -1565,7 +1645,21 @@ const DEFAULT_ENUM_OPTIONS: Record<string, readonly string[]> = {
   faction_kind: ['organization', 'government', 'guild', 'religion', 'military', 'family', 'other'],
   visibility: ['public', 'private', 'secret'],
   precision: ['month', 'day', 'hour', 'minute'],
-  scale: ['global', 'region', 'city', 'district', 'estate', 'interior'],
+  order_state: ['draft', 'formal'],
+  scale: [
+    'global',
+    'province',
+    'region',
+    'city',
+    'county',
+    'town',
+    'district',
+    'cluster',
+    'estate',
+    'interior'
+  ],
+  map_layer: ['global', 'province', 'city', 'county', 'town', 'district', 'cluster', 'interior'],
+  map_room_type: ['hall', 'bedroom', 'study', 'secret', 'corridor', 'courtyard', 'kitchen', 'gate', 'other'],
   relation_kind: [
     'related',
     'supports',
@@ -1585,6 +1679,7 @@ const DEFAULT_ENUM_OPTIONS: Record<string, readonly string[]> = {
 const ENUM_LABELS: Record<string, { zh: string; en: string }> = {
   canon: { zh: '正设', en: 'Canon' },
   draft: { zh: '草稿', en: 'Draft' },
+  formal: { zh: '正式', en: 'Formal' },
   final: { zh: '已定稿', en: 'Final' },
   published: { zh: '已发布', en: 'Published' },
   confirmed: { zh: '已确认', en: 'Confirmed' },
@@ -1660,9 +1755,13 @@ const ENUM_LABELS: Record<string, { zh: string; en: string }> = {
   hour: { zh: '精确到时', en: 'Hour' },
   minute: { zh: '精确到分', en: 'Minute' },
   global: { zh: '全世界', en: 'Global' },
+  province: { zh: '省级', en: 'Province' },
   region: { zh: '区域', en: 'Region' },
   city: { zh: '城市', en: 'City' },
+  county: { zh: '县级', en: 'County' },
+  town: { zh: '镇级', en: 'Town' },
   district: { zh: '城区/辖区', en: 'District' },
+  cluster: { zh: '组团级（宅院）', en: 'Cluster / Compound' },
   estate: { zh: '建筑群/庄园', en: 'Estate' },
   interior: { zh: '室内', en: 'Interior' },
   related: { zh: '相关', en: 'Related' },
@@ -1713,11 +1812,14 @@ const DOCUMENT_TYPE_LABELS: Record<string, { zh: string; en: string }> = {
   canon: { zh: '正设', en: 'Canon' },
   character: { zh: '人物', en: 'Character' },
   character_relation: { zh: '人物关系', en: 'Character relationship' },
-  faction: { zh: '势力', en: 'Faction' },
-  faction_relation: { zh: '势力关系', en: 'Faction relationship' },
-  faction_membership: { zh: '势力成员关系', en: 'Faction membership' },
+  faction: { zh: '组织', en: 'Organization' },
+  faction_relation: { zh: '组织关系', en: 'Organization relationship' },
+  faction_membership: { zh: '组织成员', en: 'Organization membership' },
   foreshadowing: { zh: '伏笔', en: 'Foreshadowing' },
-  world_entry: { zh: '世界书', en: 'World entry' },
+  world_entry: { zh: '基础条目', en: 'Base entry' },
+  item: { zh: '物品', en: 'Item' },
+  rank_ladder: { zh: '等级', en: 'Rank ladder' },
+  rank_holding: { zh: '等级任职', en: 'Rank holding' },
   reference: { zh: '参考材料', en: 'Reference material' },
   issue: { zh: '问题', en: 'Issue' },
   strategy: { zh: '叙事策略（旧类型）', en: 'Narrative strategy (legacy)' },

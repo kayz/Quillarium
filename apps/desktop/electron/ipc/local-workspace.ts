@@ -1,8 +1,8 @@
 import path from 'node:path'
 import {
   WRITER_DEFAULT_DISPLAY_LAYER,
-  WRITER_DEFAULT_STORY_STRUCTURE,
   createProjectAt,
+  projectDefaultsForRole,
   ensureWorkspaceAt,
   loadProject,
   loadWorkspace,
@@ -25,6 +25,13 @@ export async function createLocalWorkspaceProject(
   const id = input.id ?? stableProjectId(input.title)
   const relativePath = path.posix.join(workspace.manifest.projects_dir.replace(/\\/g, '/'), id)
   const root = path.join(workspace.root, ...relativePath.split('/'))
+  const shaped = input.role
+    ? projectDefaultsForRole(input.role)
+    : {
+        capabilities: undefined,
+        story_structure: { part_enabled: false, act_enabled: false, scene_enabled: false },
+        display_layer: WRITER_DEFAULT_DISPLAY_LAYER
+      }
   const paths = await createProjectAt(root, {
     id,
     title: input.title,
@@ -33,8 +40,9 @@ export async function createLocalWorkspaceProject(
     chapter_words: input.chapterWords,
     section_words: input.sectionWords,
     default_theme: input.defaultTheme,
-    story_structure: WRITER_DEFAULT_STORY_STRUCTURE,
-    display_layer: WRITER_DEFAULT_DISPLAY_LAYER
+    story_structure: shaped.story_structure,
+    display_layer: shaped.display_layer,
+    capabilities: shaped.capabilities
   })
   await registerWorkspaceProject(workspace.root, { id, path: relativePath })
   return { root: paths.root, ...(await loadProject(paths.root)) }

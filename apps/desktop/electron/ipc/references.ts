@@ -10,9 +10,12 @@ import {
   loadLocalDocumentLinkIndex,
   readMarkdown,
   readText,
+  parseWritingReferenceDraft,
   rebuildLocalDocumentLinkIndex,
   withProjectWriteLock
 } from '@quillarium/core'
+import { generateText } from '@quillarium/ai'
+import { loadDesktopAIProfile } from './credentials.js'
 import type { DocumentIdentity } from '@quillarium/core'
 import { typedHandle, type ReferenceUploadResult } from './contract.js'
 
@@ -25,13 +28,28 @@ export interface ReferenceUploadDialog {
 
 export interface ReferenceUploadDependencies {
   beforeCreate?: (sourcePath: string, index: number) => void | Promise<void>
+  promptMaterial?: boolean
 }
 
 export function registerReferenceHandlers(): void {
   typedHandle('references:index', async (_event, root) => loadLocalDocumentLinkIndex(root))
-  typedHandle('references:upload', async (_event, root, providedSourcePaths) => {
+  typedHandle('references:upload', async (_event, root, providedSourcePaths, options) => {
     const sourcePaths = await resolveReferenceUploadSources(providedSourcePaths)
-    return uploadReferenceFiles(root, sourcePaths)
+    return uploadReferenceFiles(root, sourcePaths, { promptMaterial: options?.prompt_material === true })
+  })
+  typedHandle('writingReference:draft', async (_event, _root, request) => {
+    const note = request.trim()
+    if (!note) throw new Error('先写下想要的冲突、文风、戏剧理论或写作指导。')
+    const config = await loadDesktopAIProfile('background')
+    const response = await generateText(
+      `根据作者的要求起草一条写作参考资料。只返回 JSON：{"title":"名称","content":"正文"}。\n\n要求：\n${note}`,
+      config,
+      'You draft one writing reference. Return strict JSON only.',
+      { responseFormat: 'json_object', timeoutMs: 120_000 }
+    )
+    const draft = parseWritingReferenceDraft(response)
+    if (!draft) throw new Error('模型没有给出可确认的写作资料。')
+    return draft
   })
   typedHandle('references:format', async (_event, root, documentId, displayText) => {
     const document = (await listDocs<DocumentIdentity>(root)).find(
@@ -112,7 +130,8 @@ export async function uploadReferenceFiles(
             source_title: source.title,
             material_type: 'other',
             location: source.sourceName,
-            reading_status: 'unread'
+            reading_status: 'unread',
+            prompt_material: dependencies.promptMaterial === true
           },
           source.content
         )

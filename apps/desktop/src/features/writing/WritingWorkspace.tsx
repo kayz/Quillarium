@@ -69,6 +69,7 @@ export function WritingWorkspace({
   onDelete,
   onCheck,
   onAcceptScene,
+  onMergeChapter,
   onImportPanel,
   onReload,
   language
@@ -99,6 +100,7 @@ export function WritingWorkspace({
   onDelete: () => Promise<void>
   onCheck: () => Promise<void>
   onAcceptScene: (sceneId: string, content: string) => Promise<void>
+  onMergeChapter: (chapterId: string) => Promise<void>
   onImportPanel: () => void
   onReload: () => Promise<void>
   language: LanguageName
@@ -365,7 +367,7 @@ export function WritingWorkspace({
                       if (!doc) return
                       onDocChange({ ...doc, content: event.target.value })
                     }}
-                    readOnly={leftMode === 'read' || Boolean(selected.data.accepted_at)}
+                    readOnly={leftMode === 'read'}
                     spellCheck
                   />
                 </label>
@@ -387,7 +389,17 @@ export function WritingWorkspace({
                     onClick={() => void onAcceptScene(selected.data.id, doc?.content ?? '')}
                     disabled={busy || !doc?.content.trim()}
                   >
-                    <CheckCircle2 size={15} /> 接受并加入章正文
+                    <CheckCircle2 size={15} /> {language === 'zh' ? '定稿这一节' : 'Finalize this scene'}
+                  </button>
+                )}
+                {selected.data.type === 'scene' && Boolean(selected.data.accepted_at) && (
+                  <button
+                    onClick={() =>
+                      void onMergeChapter(String(selected.data.chapter_id || selected.data.section || ''))
+                    }
+                    disabled={busy}
+                  >
+                    {language === 'zh' ? '再次合并进本章' : 'Merge into this chapter again'}
                   </button>
                 )}
                 <button onClick={onCheck} disabled={busy || !selectedTarget}>

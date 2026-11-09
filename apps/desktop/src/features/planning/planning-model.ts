@@ -50,7 +50,7 @@ export function blankSettingCardInput(kind: PlanningDocumentKind, title: string)
     case 'canon':
       return { ...shared, strength: 'hard', source: 'user' }
     case 'world_entry':
-      return { ...shared, entry_status: 'candidate' }
+      return { ...shared, entry_status: 'candidate', attributes: {} }
     case 'foreshadowing':
       return { ...shared, state: 'planned' }
     case 'narrative':

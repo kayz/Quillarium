@@ -114,7 +114,7 @@ export async function assertDocumentHumanEditable(
   const { prose, scenes } = await loadChapterLifecycle(projectRoot, chapterId)
   const current = scenes.find((item) => item.data.id === data['id'])
   if (prose.data.status !== 'draft') throw new Error('本章已定稿或已发布，节不允许再修改。')
-  if (current?.data.accepted_at) throw new Error('本节已接受进入章正文；请直接编辑章正文。')
+  if (!current) return
 }
 
 export async function assertDocumentExternalOpenAllowed(
@@ -260,10 +260,7 @@ export async function deleteStoryNode(
       )
       if (chapterProse?.data.status === 'draft') {
         if (!changedProse.includes(chapterProse)) changedProse.push(chapterProse)
-        await commitConfirmedScenesIntoChapterProse(
-          projectRoot,
-          await loadChapterLifecycle(projectRoot, chapterId)
-        )
+        await mergeChapterSnapshot(projectRoot, chapterId)
       }
     }
     await rm(staging, { recursive: true, force: true })
@@ -305,7 +302,7 @@ export async function acceptSceneIntoChapter(
     (item) => item.data.order < scene.data.order && !item.data.accepted_at
   )
   if (earlier) throw new Error(`请先接受前一节「${earlier.data.title}」，章正文必须按节顺序写入。`)
-  if (lifecycle.prose.content.trim() && !hasCommittedScenes(lifecycle.prose.data)) {
+  if (isHandwrittenChapter(lifecycle.prose)) {
     throw new Error('章正文已有手写内容，不能用节模块覆盖。请先清空章正文，或关闭节模块后继续手写。')
   }
   const prose = assertPlainProse(candidate ?? scene.content)
@@ -317,64 +314,47 @@ export async function acceptSceneIntoChapter(
   }
   await writeMarkdown(scene.path, nextScene as unknown as Record<string, unknown>, prose)
   try {
-    return await writeChapterProseForAcceptedScene(projectRoot, lifecycle.chapter.data.id, {
-      ...scene,
-      data: nextScene,
-      content: prose
-    })
+    return await writeChapterProseForAcceptedScene(projectRoot, lifecycle.chapter.data.id)
   } catch (error) {
     await writeMarkdown(scene.path, scene.data as unknown as Record<string, unknown>, scene.content)
     throw error
   }
 }
 
-/**
- * Nonempty `scene_ids` means this chapter already took the incremental-append path: either a legacy
- * half-commit written before the deferred commit existed, or a draft whose scenes were committed and
- * is now accepting a scene added afterwards. Such a chapter keeps appending instead of rejoining.
- */
-function hasCommittedScenes(prose: ChapterProseDoc): boolean {
-  return prose.scene_ids.length > 0
+function isHandwrittenChapter(prose: { data: ChapterProseDoc; content: string }): boolean {
+  return prose.content.trim().length > 0 && prose.data.scene_ids.length === 0
 }
 
 async function writeChapterProseForAcceptedScene(
   projectRoot: string,
-  chapterId: string,
-  justAccepted: { path: string; data: SceneDoc; content: string }
+  chapterId: string
 ): Promise<ChapterLifecycleSnapshot> {
-  const lifecycle = await loadChapterLifecycle(projectRoot, chapterId)
-  if (hasCommittedScenes(lifecycle.prose.data)) {
-    const nextProse: ChapterProseDoc = {
-      ...lifecycle.prose.data,
-      scene_ids: [...lifecycle.prose.data.scene_ids, justAccepted.data.id]
-    }
-    await writeMarkdown(
-      lifecycle.prose.path,
-      nextProse as unknown as Record<string, unknown>,
-      `${lifecycle.prose.content.trimEnd()}${justAccepted.content}`
-    )
-    return loadChapterLifecycle(projectRoot, chapterId)
-  }
-  await commitConfirmedScenesIntoChapterProse(projectRoot, lifecycle)
+  await mergeChapterSnapshot(projectRoot, chapterId)
   return loadChapterLifecycle(projectRoot, chapterId)
 }
 
 /**
- * Deferred chapter commit: joins every scene of a draft chapter into its prose, in scene order,
- * once no scene is still open. Does nothing while a scene is unconfirmed, when the chapter already
- * holds handwritten or committed prose, or when no scene remains — an emptied chapter stays a
- * handwritten chapter.
+ * Writes a draft snapshot of every finalized scene, in order. Does nothing while any scene is still
+ * open. A later edit to a scene stays on that scene until this is called again. Final and published
+ * chapters refuse another merge. Handwritten chapter prose is left unchanged.
  */
-async function commitConfirmedScenesIntoChapterProse(
+export async function mergeChapterSnapshot(
   projectRoot: string,
-  lifecycle: ChapterLifecycleSnapshot
-): Promise<void> {
-  if (lifecycle.prose.data.status !== 'draft') return
-  if (hasCommittedScenes(lifecycle.prose.data) || lifecycle.prose.content.trim()) return
-  if (!lifecycle.scenes.length) return
-  if (lifecycle.scenes.some((item) => !item.data.accepted_at)) return
+  chapterId: string
+): Promise<ChapterLifecycleSnapshot> {
+  const lifecycle = await loadChapterLifecycle(projectRoot, chapterId)
+  if (lifecycle.prose.data.status !== 'draft') {
+    throw new Error('已经定稿或已发布的章，不能再合并。')
+  }
+  if (!lifecycle.scenes.length || lifecycle.scenes.some((item) => !item.data.accepted_at)) {
+    return lifecycle
+  }
+  if (isHandwrittenChapter(lifecycle.prose)) {
+    throw new Error('章正文已有手写内容，不能用节模块覆盖。请先清空章正文，或关闭节模块后继续手写。')
+  }
   const nextProse: ChapterProseDoc = {
     ...lifecycle.prose.data,
+    status: 'draft',
     scene_ids: lifecycle.scenes.map((item) => item.data.id)
   }
   await writeMarkdown(
@@ -382,6 +362,7 @@ async function commitConfirmedScenesIntoChapterProse(
     nextProse as unknown as Record<string, unknown>,
     lifecycle.scenes.map((item) => assertPlainProse(item.content)).join('')
   )
+  return loadChapterLifecycle(projectRoot, chapterId)
 }
 
 export async function finalizeChapter(

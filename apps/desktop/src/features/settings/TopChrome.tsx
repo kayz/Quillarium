@@ -39,11 +39,11 @@ import { gitActionFor } from './git-presentation.js'
 import { BUILTIN_UI_SKINS, UI_SKIN_IDS, cloneUISkin, resolveUISkin } from '@quillarium/core/ui-skins'
 import { applyUISkin } from '../../app/ui-skin.js'
 import { ActionBar, ActionButton, FormGrid, SurfacePanel } from '../../shared/UIPrimitives.js'
-import {
-  resolveDisplayLayer,
-  type BookGenerationHeaderState,
-  type StoryStructureConfigV1,
-  type WritingPresetListItem
+import { resolveDisplayLayer } from '@quillarium/core/browser-contracts'
+import type {
+  BookGenerationHeaderState,
+  StoryStructureConfigV1,
+  WritingPresetListItem
 } from '@quillarium/core'
 
 type CoverResult = NonNullable<Awaited<ReturnType<typeof bridge.getProjectCover>>>
@@ -101,13 +101,13 @@ export function TopChrome({
   onWorkspaceMode?: (mode: WorkspaceMode) => void
   onProjectChanged?: () => void | Promise<void>
 }) {
-  const [showSettings, setShowSettings] = useState(false)
+  const [activeModal, setActiveModal] = useState<'settings' | 'agent' | null>(null)
   const [showExport, setShowExport] = useState(false)
   const gitAction = gitActionFor(language, git)
 
   return (
     <header className="top-chrome">
-      <button className="brand" onClick={onBack} aria-label="Quillarium" title="Quillarium">
+      <button className="brand" onClick={onBack} aria-label="琢磨" title="琢磨">
         <BrandWordmark className="top-brand-wordmark" decorative />
       </button>
       {projectName && (
@@ -122,7 +122,7 @@ export function TopChrome({
             className={workspaceMode === 'planning' ? 'active' : ''}
             onClick={() => onWorkspaceMode('planning')}
           >
-            <BookOpen size={15} /> {language === 'zh' ? '规划' : 'Plan'}
+            <BookOpen size={15} /> {language === 'zh' ? '世界书' : 'World book'}
           </button>
           <button
             className={workspaceMode === 'writing' ? 'active' : ''}
@@ -140,49 +140,54 @@ export function TopChrome({
       )}
       <button
         className={`status-pill ai-status ${aiStatusTone(aiStatus)}`}
-        onClick={() => setShowSettings(true)}
+        onClick={() => setActiveModal('agent')}
         title={t(language, 'configureAI')}
       >
         <Circle size={10} aria-hidden="true" />{' '}
         {root ? (
           aiStatus.ready ? (
-            t(language, 'aiReady')
+            `Agent · ${t(language, 'aiReady')}`
           ) : aiStatus.prose || aiStatus.background || aiStatus.check ? (
             language === 'zh' ? (
-              'AI 部分配置'
+              'Agent · AI 部分配置'
             ) : (
-              'AI partly configured'
+              'Agent · AI partly configured'
             )
           ) : (
-            t(language, 'aiNotConfigured')
+            `Agent · ${t(language, 'aiNotConfigured')}`
           )
         ) : (
-          <span className="sr-only">
-            {aiStatus.ready
-              ? t(language, 'aiReady')
-              : aiStatus.prose || aiStatus.background || aiStatus.check
-                ? language === 'zh'
-                  ? 'AI 部分配置'
-                  : 'AI partly configured'
-                : t(language, 'aiNotConfigured')}
-          </span>
+          <>
+            <span>Agent</span>
+            <span className="sr-only">
+              {aiStatus.ready
+                ? t(language, 'aiReady')
+                : aiStatus.prose || aiStatus.background || aiStatus.check
+                  ? language === 'zh'
+                    ? 'AI 部分配置'
+                    : 'AI partly configured'
+                  : t(language, 'aiNotConfigured')}
+            </span>
+          </>
         )}
       </button>
       {root && git ? (
         <button
           className="status-pill"
-          onClick={git.remote ? onGitSync : () => setShowSettings(true)}
+          onClick={git.remote ? onGitSync : () => setActiveModal('settings')}
           title={gitAction.title}
           disabled={gitBusy}
         >
           <GitBranch size={14} /> {gitBusy ? gitBusyLabel(language, git) : gitAction.label}
         </button>
       ) : null}
-      <button className="status-pill" onClick={() => setShowSettings(true)}>
+      <button className="status-pill" onClick={() => setActiveModal('settings')}>
         {t(language, 'settings')}
       </button>
-      {showSettings && (
+      {activeModal && (
         <SettingsModal
+          mode={activeModal}
+          onModeChange={setActiveModal}
           root={root}
           git={git ?? null}
           theme={theme}
@@ -199,7 +204,7 @@ export function TopChrome({
           onClose={() => {
             applyUISkin(document.documentElement, resolveUISkin(theme, skinPreferences))
             document.documentElement.dataset.density = density
-            setShowSettings(false)
+            setActiveModal(null)
           }}
         />
       )}
@@ -290,7 +295,9 @@ function updateStatusMessage(language: LanguageName, result: UpdateCheck): strin
   return messages[result.reason ?? 'service-error'][language]
 }
 
-function SettingsModal({
+export function SettingsModal({
+  mode = 'settings',
+  onModeChange,
   root,
   git,
   theme,
@@ -306,6 +313,8 @@ function SettingsModal({
   onProjectChanged,
   onClose
 }: {
+  mode?: 'settings' | 'agent'
+  onModeChange?: (mode: 'settings' | 'agent') => void
   root?: string
   git: GitState | null
   theme: ThemeName
@@ -367,6 +376,12 @@ function SettingsModal({
     scene_enabled: true
   })
   const [displayLayer, setDisplayLayer] = useState({ enabled: false, migrated: true })
+  const [capabilitySwitches, setCapabilitySwitches] = useState<null | {
+    scene_prose: boolean
+    display: boolean
+    image_generation: boolean
+    short_drama_export: boolean
+  }>(null)
   const [projectDocs, setProjectDocs] = useState<DocEntry[]>([])
   const [busyAction, setBusyAction] = useState<string | null>(null)
   const [notice, setNotice] = useState<SettingsNotice | null>(null)
@@ -490,6 +505,7 @@ function SettingsModal({
           setDisplayLayer(
             loadedProject ? resolveDisplayLayer(loadedProject.project) : { enabled: false, migrated: true }
           )
+          setCapabilitySwitches(loadedProject?.project.capabilities ?? null)
         }
       } catch (error) {
         if (!cancelled) {
@@ -622,8 +638,9 @@ function SettingsModal({
         ...storyStructure,
         act_enabled: storyStructure.part_enabled && storyStructure.act_enabled
       }
-      await bridge.updateProjectStoryStructure(root, normalized)
+      const saved = await bridge.updateProjectStoryStructure(root, normalized)
       setStoryStructure(normalized)
+      setCapabilitySwitches(saved.capabilities ?? null)
       await onProjectChanged?.()
       setNotice({
         tone: 'success',
@@ -644,8 +661,47 @@ function SettingsModal({
     setBusyAction('toggle-display-layer')
     setNotice(null)
     try {
-      setDisplayLayer(resolveDisplayLayer(await bridge.setDisplayLayerEnabled(root, enabled)))
+      const saved = await bridge.setDisplayLayerEnabled(root, enabled)
+      setDisplayLayer(resolveDisplayLayer(saved))
+      setCapabilitySwitches(saved.capabilities ?? null)
       await onProjectChanged?.()
+    } catch (error) {
+      setNotice({ tone: 'danger', message: formatDesktopError(error, language) })
+    } finally {
+      setBusyAction(null)
+    }
+  }
+
+  const saveCapability = async (
+    patch: Partial<{
+      scene_prose: boolean
+      display: boolean
+      image_generation: boolean
+      short_drama_export: boolean
+    }>
+  ) => {
+    if (!root) return
+    setBusyAction('save-capabilities')
+    setNotice(null)
+    try {
+      const saved = await bridge.updateWorkCapabilities(root, patch)
+      setCapabilitySwitches(saved.capabilities ?? null)
+      if (saved.story_structure) {
+        setStoryStructure({
+          part_enabled: saved.story_structure.part_enabled,
+          act_enabled: saved.story_structure.part_enabled && saved.story_structure.act_enabled,
+          scene_enabled: saved.story_structure.scene_enabled
+        })
+      }
+      setDisplayLayer(resolveDisplayLayer(saved))
+      await onProjectChanged?.()
+      setNotice({
+        tone: 'success',
+        message:
+          language === 'zh'
+            ? '已收起对应入口，文件仍留在作品里。'
+            : 'The entry is hidden. Files stay in the work.'
+      })
     } catch (error) {
       setNotice({ tone: 'danger', message: formatDesktopError(error, language) })
     } finally {
@@ -990,52 +1046,88 @@ function SettingsModal({
       >
         <header className="settings-modal-head">
           <div>
-            <h2 id="settings-title">{t(language, 'settings')}</h2>
-            <p>{t(language, 'privacyHint')}</p>
+            <h2 id="settings-title">{mode === 'agent' ? 'Agent' : t(language, 'settings')}</h2>
+            <p>
+              {mode === 'agent'
+                ? language === 'zh'
+                  ? '查看和修改 Provider、模型选择、写作预设与公共提示词。密钥留在本机配置，不进入作品目录。'
+                  : 'Inspect and edit providers, model selection, WritingPreset, and shared prompts. API keys remain in local config outside the project.'
+                : t(language, 'privacyHint')}
+            </p>
             <span className="settings-version">
-              Quillarium · {language === 'zh' ? '版本' : 'Version'} {appVersion || '…'}
+              琢磨 · {language === 'zh' ? '版本' : 'Version'} {appVersion || '…'}
             </span>
           </div>
-          <button
-            ref={closeRef}
-            className="secondary"
-            type="button"
-            onClick={onClose}
-            disabled={busyAction !== null}
-          >
-            {t(language, 'close')}
-          </button>
+          <div className="settings-section-actions">
+            {onModeChange && (
+              <div
+                className="icon-segment"
+                role="tablist"
+                aria-label={language === 'zh' ? '配置分类' : 'Configuration'}
+              >
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={mode === 'settings'}
+                  className={mode === 'settings' ? 'active' : ''}
+                  onClick={() => onModeChange('settings')}
+                >
+                  {t(language, 'settings')}
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={mode === 'agent'}
+                  className={mode === 'agent' ? 'active' : ''}
+                  onClick={() => onModeChange('agent')}
+                >
+                  Agent
+                </button>
+              </div>
+            )}
+            <button
+              ref={closeRef}
+              className="secondary"
+              type="button"
+              onClick={onClose}
+              disabled={busyAction !== null}
+            >
+              {t(language, 'close')}
+            </button>
+          </div>
         </header>
-        <section
-          className={`credential-security-band ${storageHealthy ? 'is-encrypted' : 'is-warning'}`}
-          aria-live="polite"
-        >
-          <div className="credential-security-icon" aria-hidden="true">
-            {storageHealthy ? <ShieldCheck size={22} /> : <ShieldAlert size={22} />}
-          </div>
-          <div className="credential-security-copy">
-            <span>{t(language, 'credentialSecurity')}</span>
-            <strong>
-              {storage
-                ? storageEncrypted
-                  ? t(language, 'encryptedStorage')
-                  : t(language, 'plaintextFallback')
-                : t(language, 'checkingCredentials')}
-            </strong>
-            <p title={storage?.warning ?? undefined}>{storageStatusMessage(language, storage)}</p>
-          </div>
-          <button
-            className="secondary credential-refresh"
-            type="button"
-            onClick={refreshCredentials}
-            disabled={busyAction !== null}
+        {mode === 'agent' && (
+          <section
+            className={`credential-security-band ${storageHealthy ? 'is-encrypted' : 'is-warning'}`}
+            aria-live="polite"
           >
-            <RefreshCw size={15} className={busyAction === 'refresh-credentials' ? 'spin' : ''} />
-            {busyAction === 'refresh-credentials'
-              ? t(language, 'checkingCredentials')
-              : t(language, 'checkMigrateCredentials')}
-          </button>
-        </section>
+            <div className="credential-security-icon" aria-hidden="true">
+              {storageHealthy ? <ShieldCheck size={22} /> : <ShieldAlert size={22} />}
+            </div>
+            <div className="credential-security-copy">
+              <span>{t(language, 'credentialSecurity')}</span>
+              <strong>
+                {storage
+                  ? storageEncrypted
+                    ? t(language, 'encryptedStorage')
+                    : t(language, 'plaintextFallback')
+                  : t(language, 'checkingCredentials')}
+              </strong>
+              <p title={storage?.warning ?? undefined}>{storageStatusMessage(language, storage)}</p>
+            </div>
+            <button
+              className="secondary credential-refresh"
+              type="button"
+              onClick={refreshCredentials}
+              disabled={busyAction !== null}
+            >
+              <RefreshCw size={15} className={busyAction === 'refresh-credentials' ? 'spin' : ''} />
+              {busyAction === 'refresh-credentials'
+                ? t(language, 'checkingCredentials')
+                : t(language, 'checkMigrateCredentials')}
+            </button>
+          </section>
+        )}
         {notice && (
           <p
             className={`settings-notice ${notice.tone}`}
@@ -1044,600 +1136,666 @@ function SettingsModal({
             {notice.message}
           </p>
         )}
-        <SurfacePanel className="settings-group skin-settings">
-          <div className="settings-section-head">
-            <div>
-              <span className="settings-kicker">
-                <Palette size={14} /> {language === 'zh' ? '界面皮肤' : 'Interface skin'}
-              </span>
-              <h3>{language === 'zh' ? '写作者的可换装书桌' : 'A dressable writer’s desk'}</h3>
-              <p className="muted">
-                {language === 'zh'
-                  ? '四个兼容皮肤同时定义配色、字体、面板排列与按钮语言；修改会即时预览，保存后才写入配置。'
-                  : 'Four compatible skins define color, type, panel placement, and button language. Edits preview live and persist only when saved.'}
-              </p>
-            </div>
-            <ActionBar align="end">
-              <ActionButton
-                type="button"
-                icon={<Copy size={14} />}
-                onClick={() => void copySkinDefinition()}
-                disabled={busyAction !== null}
-              >
-                {language === 'zh' ? '复制定义' : 'Copy definition'}
-              </ActionButton>
-              <ActionButton
-                type="button"
-                icon={<RotateCcw size={14} />}
-                onClick={() => void saveDisplay(true)}
-                disabled={busyAction !== null}
-              >
-                {language === 'zh' ? '恢复内置' : 'Reset built-in'}
-              </ActionButton>
-              <ActionButton
-                tone="primary"
-                type="button"
-                icon={<Save size={14} />}
-                onClick={() => void saveDisplay()}
-                disabled={busyAction !== null}
-              >
-                {busyAction === 'save-display'
-                  ? t(language, 'saving')
-                  : language === 'zh'
-                    ? '保存皮肤'
-                    : 'Save skin'}
-              </ActionButton>
-            </ActionBar>
-          </div>
-
-          <FormGrid columns={3} className="display-settings-grid skin-basics-grid">
-            <label>
-              {language === 'zh' ? '皮肤' : 'Skin'}
-              <select value={display.theme} onChange={(event) => selectSkin(event.target.value as ThemeName)}>
-                {UI_SKIN_IDS.map((item) => (
-                  <option key={item} value={item}>
-                    {resolveUISkin(item, skinPreferences).name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              {language === 'zh' ? '界面密度' : 'Interface density'}
-              <select
-                value={display.density}
-                onChange={(event) =>
-                  setDisplay((current) => ({
-                    ...current,
-                    density: event.target.value as DensityName
-                  }))
-                }
-              >
-                <option value="comfortable">{t(language, 'comfortable')}</option>
-                <option value="compact">{t(language, 'compact')}</option>
-              </select>
-            </label>
-            <label>
-              {language === 'zh' ? '界面语言（全局）' : 'Interface language (global)'}
-              <select
-                value={display.language}
-                onChange={(event) =>
-                  setDisplay((current) => ({
-                    ...current,
-                    language: event.target.value as LanguageName
-                  }))
-                }
-              >
-                <option value="zh">中文</option>
-                <option value="en">English</option>
-              </select>
-            </label>
-          </FormGrid>
-
-          <div className="skin-editor-layout">
-            <div className="skin-editor-controls">
-              <label>
-                {language === 'zh' ? '皮肤名称' : 'Skin name'}
-                <input
-                  value={skinDraft.name}
-                  maxLength={48}
-                  onChange={(event) => setSkinDraft((current) => ({ ...current, name: event.target.value }))}
-                />
-              </label>
-
-              <fieldset className="skin-fieldset">
-                <legend>{language === 'zh' ? '配色' : 'Palette'}</legend>
-                <div className="skin-color-grid">
-                  {SKIN_COLOR_FIELDS.map((field) => (
-                    <label key={field.key}>
-                      <span>{language === 'zh' ? field.zh : field.en}</span>
-                      <span className="skin-color-control">
-                        <input
-                          type="color"
-                          value={skinDraft.palette[field.key]}
-                          onChange={(event) =>
-                            setSkinDraft((current) => ({
-                              ...current,
-                              palette: { ...current.palette, [field.key]: event.target.value }
-                            }))
-                          }
-                        />
-                        <code>{skinDraft.palette[field.key]}</code>
-                      </span>
-                    </label>
-                  ))}
+        {mode === 'settings' && (
+          <>
+            <SurfacePanel className="settings-group skin-settings">
+              <div className="settings-section-head">
+                <div>
+                  <span className="settings-kicker">
+                    <Palette size={14} /> {language === 'zh' ? '界面皮肤' : 'Interface skin'}
+                  </span>
+                  <h3>{language === 'zh' ? '写作者的可换装书桌' : 'A dressable writer’s desk'}</h3>
+                  <p className="muted">
+                    {language === 'zh'
+                      ? '四个兼容皮肤同时定义配色、字体、面板排列与按钮语言；修改会即时预览，保存后才写入配置。'
+                      : 'Four compatible skins define color, type, panel placement, and button language. Edits preview live and persist only when saved.'}
+                  </p>
                 </div>
-              </fieldset>
+                <ActionBar align="end">
+                  <ActionButton
+                    type="button"
+                    icon={<Copy size={14} />}
+                    onClick={() => void copySkinDefinition()}
+                    disabled={busyAction !== null}
+                  >
+                    {language === 'zh' ? '复制定义' : 'Copy definition'}
+                  </ActionButton>
+                  <ActionButton
+                    type="button"
+                    icon={<RotateCcw size={14} />}
+                    onClick={() => void saveDisplay(true)}
+                    disabled={busyAction !== null}
+                  >
+                    {language === 'zh' ? '恢复内置' : 'Reset built-in'}
+                  </ActionButton>
+                  <ActionButton
+                    tone="primary"
+                    type="button"
+                    icon={<Save size={14} />}
+                    onClick={() => void saveDisplay()}
+                    disabled={busyAction !== null}
+                  >
+                    {busyAction === 'save-display'
+                      ? t(language, 'saving')
+                      : language === 'zh'
+                        ? '保存皮肤'
+                        : 'Save skin'}
+                  </ActionButton>
+                </ActionBar>
+              </div>
 
-              <FormGrid columns={3} className="skin-behavior-grid">
+              <FormGrid columns={3} className="display-settings-grid skin-basics-grid">
                 <label>
-                  {language === 'zh' ? '界面字体' : 'Interface font'}
+                  {language === 'zh' ? '皮肤' : 'Skin'}
                   <select
-                    value={skinDraft.typography.interfaceFont}
-                    onChange={(event) =>
-                      setSkinDraft((current) => ({
-                        ...current,
-                        typography: {
-                          ...current.typography,
-                          interfaceFont: event.target
-                            .value as UISkinDefinitionV1['typography']['interfaceFont']
-                        }
-                      }))
-                    }
+                    value={display.theme}
+                    onChange={(event) => selectSkin(event.target.value as ThemeName)}
                   >
-                    <option value="modern">{language === 'zh' ? '现代无衬线' : 'Modern sans'}</option>
-                    <option value="editorial">{language === 'zh' ? '编辑体衬线' : 'Editorial serif'}</option>
-                    <option value="system">{language === 'zh' ? '系统字体' : 'System font'}</option>
+                    {UI_SKIN_IDS.map((item) => (
+                      <option key={item} value={item}>
+                        {resolveUISkin(item, skinPreferences).name}
+                      </option>
+                    ))}
                   </select>
                 </label>
                 <label>
-                  {language === 'zh' ? '正文编辑字体' : 'Prose font'}
+                  {language === 'zh' ? '界面密度' : 'Interface density'}
                   <select
-                    value={skinDraft.typography.proseFont}
+                    value={display.density}
                     onChange={(event) =>
-                      setSkinDraft((current) => ({
+                      setDisplay((current) => ({
                         ...current,
-                        typography: {
-                          ...current.typography,
-                          proseFont: event.target.value as UISkinDefinitionV1['typography']['proseFont']
-                        }
+                        density: event.target.value as DensityName
                       }))
                     }
                   >
-                    <option value="editorial">{language === 'zh' ? '编辑体衬线' : 'Editorial serif'}</option>
-                    <option value="modern">{language === 'zh' ? '现代无衬线' : 'Modern sans'}</option>
-                    <option value="system">{language === 'zh' ? '系统字体' : 'System font'}</option>
+                    <option value="comfortable">{t(language, 'comfortable')}</option>
+                    <option value="compact">{t(language, 'compact')}</option>
                   </select>
                 </label>
                 <label>
-                  {language === 'zh'
-                    ? `字号比例 ${Math.round(skinDraft.typography.scale * 100)}%`
-                    : `Type scale ${Math.round(skinDraft.typography.scale * 100)}%`}
-                  <input
-                    type="range"
-                    min="90"
-                    max="115"
-                    step="1"
-                    value={Math.round(skinDraft.typography.scale * 100)}
-                    onChange={(event) =>
-                      setSkinDraft((current) => ({
-                        ...current,
-                        typography: { ...current.typography, scale: Number(event.target.value) / 100 }
-                      }))
-                    }
-                  />
-                </label>
-                <label>
-                  {language === 'zh' ? '主导航位置' : 'Navigation position'}
+                  {language === 'zh' ? '界面语言（全局）' : 'Interface language (global)'}
                   <select
-                    value={skinDraft.layout.navigation}
+                    value={display.language}
                     onChange={(event) =>
-                      setSkinDraft((current) => ({
+                      setDisplay((current) => ({
                         ...current,
-                        layout: {
-                          ...current.layout,
-                          navigation: event.target.value as UISkinDefinitionV1['layout']['navigation']
-                        }
+                        language: event.target.value as LanguageName
                       }))
                     }
                   >
-                    <option value="left">{language === 'zh' ? '左侧' : 'Left'}</option>
-                    <option value="right">{language === 'zh' ? '右侧' : 'Right'}</option>
-                  </select>
-                </label>
-                <label>
-                  {language === 'zh' ? '详情面板位置' : 'Detail position'}
-                  <select
-                    value={skinDraft.layout.detail}
-                    onChange={(event) =>
-                      setSkinDraft((current) => ({
-                        ...current,
-                        layout: {
-                          ...current.layout,
-                          detail: event.target.value as UISkinDefinitionV1['layout']['detail']
-                        }
-                      }))
-                    }
-                  >
-                    <option value="right">{language === 'zh' ? '右侧' : 'Right'}</option>
-                    <option value="left">{language === 'zh' ? '左侧' : 'Left'}</option>
-                  </select>
-                </label>
-                <label>
-                  {language === 'zh' ? '工具栏排列' : 'Toolbar alignment'}
-                  <select
-                    value={skinDraft.layout.toolbar}
-                    onChange={(event) =>
-                      setSkinDraft((current) => ({
-                        ...current,
-                        layout: {
-                          ...current.layout,
-                          toolbar: event.target.value as UISkinDefinitionV1['layout']['toolbar']
-                        }
-                      }))
-                    }
-                  >
-                    <option value="start">{language === 'zh' ? '靠前' : 'Start'}</option>
-                    <option value="end">{language === 'zh' ? '靠后' : 'End'}</option>
-                    <option value="split">{language === 'zh' ? '两端分布' : 'Split'}</option>
-                  </select>
-                </label>
-                <label>
-                  {language === 'zh' ? '面板间距' : 'Panel spacing'}
-                  <select
-                    value={skinDraft.layout.spacing}
-                    onChange={(event) =>
-                      setSkinDraft((current) => ({
-                        ...current,
-                        layout: {
-                          ...current.layout,
-                          spacing: event.target.value as UISkinDefinitionV1['layout']['spacing']
-                        }
-                      }))
-                    }
-                  >
-                    <option value="tight">{language === 'zh' ? '紧凑' : 'Tight'}</option>
-                    <option value="regular">{language === 'zh' ? '常规' : 'Regular'}</option>
-                    <option value="airy">{language === 'zh' ? '舒展' : 'Airy'}</option>
-                  </select>
-                </label>
-                <label>
-                  {language === 'zh' ? '按钮形状' : 'Button shape'}
-                  <select
-                    value={skinDraft.buttons.shape}
-                    onChange={(event) =>
-                      setSkinDraft((current) => ({
-                        ...current,
-                        buttons: {
-                          ...current.buttons,
-                          shape: event.target.value as UISkinDefinitionV1['buttons']['shape']
-                        }
-                      }))
-                    }
-                  >
-                    <option value="square">{language === 'zh' ? '方正' : 'Square'}</option>
-                    <option value="soft">{language === 'zh' ? '柔和圆角' : 'Soft'}</option>
-                    <option value="pill">{language === 'zh' ? '胶囊' : 'Pill'}</option>
-                  </select>
-                </label>
-                <label>
-                  {language === 'zh' ? '按钮风格' : 'Button treatment'}
-                  <select
-                    value={skinDraft.buttons.treatment}
-                    onChange={(event) =>
-                      setSkinDraft((current) => ({
-                        ...current,
-                        buttons: {
-                          ...current.buttons,
-                          treatment: event.target.value as UISkinDefinitionV1['buttons']['treatment']
-                        }
-                      }))
-                    }
-                  >
-                    <option value="solid">{language === 'zh' ? '实色' : 'Solid'}</option>
-                    <option value="tonal">{language === 'zh' ? '同色调' : 'Tonal'}</option>
-                    <option value="outline">{language === 'zh' ? '描边' : 'Outline'}</option>
-                  </select>
-                </label>
-                <label>
-                  {language === 'zh' ? '按钮尺寸' : 'Button size'}
-                  <select
-                    value={skinDraft.buttons.size}
-                    onChange={(event) =>
-                      setSkinDraft((current) => ({
-                        ...current,
-                        buttons: {
-                          ...current.buttons,
-                          size: event.target.value as UISkinDefinitionV1['buttons']['size']
-                        }
-                      }))
-                    }
-                  >
-                    <option value="regular">{language === 'zh' ? '常规' : 'Regular'}</option>
-                    <option value="compact">{language === 'zh' ? '紧凑' : 'Compact'}</option>
+                    <option value="zh">中文</option>
+                    <option value="en">English</option>
                   </select>
                 </label>
               </FormGrid>
-            </div>
 
-            <SkinPreview language={display.language} skin={skinDraft} />
-          </div>
-        </SurfacePanel>
-        {root && (
-          <div className="settings-group story-structure-settings">
-            <div className="settings-section-head">
-              <div>
-                <h3>{language === 'zh' ? '章节树' : 'Story tree'}</h3>
-                <p className="muted">
-                  {language === 'zh'
-                    ? '只调整工作区的层级呈现。关闭层级不会删除或改写现有 Markdown 文件。'
-                    : 'Controls the workspace hierarchy only. Disabling a level never deletes or rewrites existing Markdown files.'}
-                </p>
-              </div>
-              <button
-                className="secondary"
-                type="button"
-                onClick={() => void saveStoryStructure()}
-                disabled={busyAction !== null}
-              >
-                {busyAction === 'save-story-structure'
-                  ? t(language, 'saving')
-                  : language === 'zh'
-                    ? '保存章节树'
-                    : 'Save story tree'}
-              </button>
-            </div>
-            <div className="story-structure-options">
-              <label className="story-structure-option">
-                <input
-                  type="checkbox"
-                  checked={storyStructure.part_enabled}
-                  onChange={(event) =>
-                    setStoryStructure((current) => ({
-                      ...current,
-                      part_enabled: event.target.checked,
-                      act_enabled: event.target.checked ? current.act_enabled : false
-                    }))
-                  }
-                />
-                <span>
-                  <strong>{language === 'zh' ? '启用篇' : 'Enable parts'}</strong>
-                  <small>
-                    {language === 'zh' ? '关闭后，章直接挂在卷下。' : 'Chapters attach directly to volumes.'}
-                  </small>
-                </span>
-              </label>
-              <label className="story-structure-option">
-                <input
-                  type="checkbox"
-                  checked={storyStructure.act_enabled}
-                  disabled={!storyStructure.part_enabled}
-                  onChange={(event) =>
-                    setStoryStructure((current) => ({ ...current, act_enabled: event.target.checked }))
-                  }
-                />
-                <span>
-                  <strong>{language === 'zh' ? '启用幕' : 'Enable acts'}</strong>
-                  <small>
-                    {language === 'zh' ? '关闭后，章直接挂在篇下。' : 'Chapters attach directly to parts.'}
-                  </small>
-                </span>
-              </label>
-              <label className="story-structure-option">
-                <input
-                  type="checkbox"
-                  checked={storyStructure.scene_enabled}
-                  onChange={(event) =>
-                    setStoryStructure((current) => ({ ...current, scene_enabled: event.target.checked }))
-                  }
-                />
-                <span>
-                  <strong>{language === 'zh' ? '启用节' : 'Enable scenes'}</strong>
-                  <small>
-                    {language === 'zh'
-                      ? '关闭后隐藏节与绑定在节上的 AI 生文入口。'
-                      : 'Hides scenes and the scene-bound AI writing entry.'}
-                  </small>
-                </span>
-              </label>
-              <label className="story-structure-option">
-                <input
-                  type="checkbox"
-                  checked={displayLayer.enabled}
-                  disabled={busyAction !== null}
-                  onChange={(event) => void toggleDisplayLayer(event.target.checked)}
-                />
-                <span>
-                  <strong>{language === 'zh' ? '展示层' : 'Display layer'}</strong>
-                </span>
-              </label>
-            </div>
-            {disabledStructureDocs.length > 0 && (
-              <details className="disabled-structure-inspector">
-                <summary>
-                  {language === 'zh'
-                    ? `查看停用层级中的内容（${disabledStructureDocs.length}）`
-                    : `Inspect content in disabled levels (${disabledStructureDocs.length})`}
-                </summary>
-                <p className="muted">
-                  {language === 'zh'
-                    ? '这些文件仍在 Obsidian 项目目录中，可在外部编辑器中检查。'
-                    : 'These files remain in the Obsidian project directory and can be inspected externally.'}
-                </p>
-                <div className="disabled-structure-list">
-                  {disabledStructureDocs.map((item) => (
-                    <button
-                      key={`${item.data.type}:${item.data.id}`}
-                      type="button"
-                      className="secondary"
-                      onClick={() =>
-                        void bridge
-                          .openDocExternal(item.path)
-                          .catch((error) =>
-                            setNotice({ tone: 'danger', message: formatDesktopError(error, language) })
-                          )
+              <div className="skin-editor-layout">
+                <div className="skin-editor-controls">
+                  <label>
+                    {language === 'zh' ? '皮肤名称' : 'Skin name'}
+                    <input
+                      value={skinDraft.name}
+                      maxLength={48}
+                      onChange={(event) =>
+                        setSkinDraft((current) => ({ ...current, name: event.target.value }))
                       }
-                    >
-                      <span>{item.data.title}</span>
-                      <small>{String(item.data.level ?? item.data.type)}</small>
-                    </button>
-                  ))}
+                    />
+                  </label>
+
+                  <fieldset className="skin-fieldset">
+                    <legend>{language === 'zh' ? '配色' : 'Palette'}</legend>
+                    <div className="skin-color-grid">
+                      {SKIN_COLOR_FIELDS.map((field) => (
+                        <label key={field.key}>
+                          <span>{language === 'zh' ? field.zh : field.en}</span>
+                          <span className="skin-color-control">
+                            <input
+                              type="color"
+                              value={skinDraft.palette[field.key]}
+                              onChange={(event) =>
+                                setSkinDraft((current) => ({
+                                  ...current,
+                                  palette: { ...current.palette, [field.key]: event.target.value }
+                                }))
+                              }
+                            />
+                            <code>{skinDraft.palette[field.key]}</code>
+                          </span>
+                        </label>
+                      ))}
+                    </div>
+                  </fieldset>
+
+                  <FormGrid columns={3} className="skin-behavior-grid">
+                    <label>
+                      {language === 'zh' ? '界面字体' : 'Interface font'}
+                      <select
+                        value={skinDraft.typography.interfaceFont}
+                        onChange={(event) =>
+                          setSkinDraft((current) => ({
+                            ...current,
+                            typography: {
+                              ...current.typography,
+                              interfaceFont: event.target
+                                .value as UISkinDefinitionV1['typography']['interfaceFont']
+                            }
+                          }))
+                        }
+                      >
+                        <option value="modern">{language === 'zh' ? '现代无衬线' : 'Modern sans'}</option>
+                        <option value="editorial">
+                          {language === 'zh' ? '编辑体衬线' : 'Editorial serif'}
+                        </option>
+                        <option value="system">{language === 'zh' ? '系统字体' : 'System font'}</option>
+                      </select>
+                    </label>
+                    <label>
+                      {language === 'zh' ? '正文编辑字体' : 'Prose font'}
+                      <select
+                        value={skinDraft.typography.proseFont}
+                        onChange={(event) =>
+                          setSkinDraft((current) => ({
+                            ...current,
+                            typography: {
+                              ...current.typography,
+                              proseFont: event.target.value as UISkinDefinitionV1['typography']['proseFont']
+                            }
+                          }))
+                        }
+                      >
+                        <option value="editorial">
+                          {language === 'zh' ? '编辑体衬线' : 'Editorial serif'}
+                        </option>
+                        <option value="modern">{language === 'zh' ? '现代无衬线' : 'Modern sans'}</option>
+                        <option value="system">{language === 'zh' ? '系统字体' : 'System font'}</option>
+                      </select>
+                    </label>
+                    <label>
+                      {language === 'zh'
+                        ? `字号比例 ${Math.round(skinDraft.typography.scale * 100)}%`
+                        : `Type scale ${Math.round(skinDraft.typography.scale * 100)}%`}
+                      <input
+                        type="range"
+                        min="90"
+                        max="115"
+                        step="1"
+                        value={Math.round(skinDraft.typography.scale * 100)}
+                        onChange={(event) =>
+                          setSkinDraft((current) => ({
+                            ...current,
+                            typography: { ...current.typography, scale: Number(event.target.value) / 100 }
+                          }))
+                        }
+                      />
+                    </label>
+                    <label>
+                      {language === 'zh' ? '主导航位置' : 'Navigation position'}
+                      <select
+                        value={skinDraft.layout.navigation}
+                        onChange={(event) =>
+                          setSkinDraft((current) => ({
+                            ...current,
+                            layout: {
+                              ...current.layout,
+                              navigation: event.target.value as UISkinDefinitionV1['layout']['navigation']
+                            }
+                          }))
+                        }
+                      >
+                        <option value="left">{language === 'zh' ? '左侧' : 'Left'}</option>
+                        <option value="right">{language === 'zh' ? '右侧' : 'Right'}</option>
+                      </select>
+                    </label>
+                    <label>
+                      {language === 'zh' ? '详情面板位置' : 'Detail position'}
+                      <select
+                        value={skinDraft.layout.detail}
+                        onChange={(event) =>
+                          setSkinDraft((current) => ({
+                            ...current,
+                            layout: {
+                              ...current.layout,
+                              detail: event.target.value as UISkinDefinitionV1['layout']['detail']
+                            }
+                          }))
+                        }
+                      >
+                        <option value="right">{language === 'zh' ? '右侧' : 'Right'}</option>
+                        <option value="left">{language === 'zh' ? '左侧' : 'Left'}</option>
+                      </select>
+                    </label>
+                    <label>
+                      {language === 'zh' ? '工具栏排列' : 'Toolbar alignment'}
+                      <select
+                        value={skinDraft.layout.toolbar}
+                        onChange={(event) =>
+                          setSkinDraft((current) => ({
+                            ...current,
+                            layout: {
+                              ...current.layout,
+                              toolbar: event.target.value as UISkinDefinitionV1['layout']['toolbar']
+                            }
+                          }))
+                        }
+                      >
+                        <option value="start">{language === 'zh' ? '靠前' : 'Start'}</option>
+                        <option value="end">{language === 'zh' ? '靠后' : 'End'}</option>
+                        <option value="split">{language === 'zh' ? '两端分布' : 'Split'}</option>
+                      </select>
+                    </label>
+                    <label>
+                      {language === 'zh' ? '面板间距' : 'Panel spacing'}
+                      <select
+                        value={skinDraft.layout.spacing}
+                        onChange={(event) =>
+                          setSkinDraft((current) => ({
+                            ...current,
+                            layout: {
+                              ...current.layout,
+                              spacing: event.target.value as UISkinDefinitionV1['layout']['spacing']
+                            }
+                          }))
+                        }
+                      >
+                        <option value="tight">{language === 'zh' ? '紧凑' : 'Tight'}</option>
+                        <option value="regular">{language === 'zh' ? '常规' : 'Regular'}</option>
+                        <option value="airy">{language === 'zh' ? '舒展' : 'Airy'}</option>
+                      </select>
+                    </label>
+                    <label>
+                      {language === 'zh' ? '按钮形状' : 'Button shape'}
+                      <select
+                        value={skinDraft.buttons.shape}
+                        onChange={(event) =>
+                          setSkinDraft((current) => ({
+                            ...current,
+                            buttons: {
+                              ...current.buttons,
+                              shape: event.target.value as UISkinDefinitionV1['buttons']['shape']
+                            }
+                          }))
+                        }
+                      >
+                        <option value="square">{language === 'zh' ? '方正' : 'Square'}</option>
+                        <option value="soft">{language === 'zh' ? '柔和圆角' : 'Soft'}</option>
+                        <option value="pill">{language === 'zh' ? '胶囊' : 'Pill'}</option>
+                      </select>
+                    </label>
+                    <label>
+                      {language === 'zh' ? '按钮风格' : 'Button treatment'}
+                      <select
+                        value={skinDraft.buttons.treatment}
+                        onChange={(event) =>
+                          setSkinDraft((current) => ({
+                            ...current,
+                            buttons: {
+                              ...current.buttons,
+                              treatment: event.target.value as UISkinDefinitionV1['buttons']['treatment']
+                            }
+                          }))
+                        }
+                      >
+                        <option value="solid">{language === 'zh' ? '实色' : 'Solid'}</option>
+                        <option value="tonal">{language === 'zh' ? '同色调' : 'Tonal'}</option>
+                        <option value="outline">{language === 'zh' ? '描边' : 'Outline'}</option>
+                      </select>
+                    </label>
+                    <label>
+                      {language === 'zh' ? '按钮尺寸' : 'Button size'}
+                      <select
+                        value={skinDraft.buttons.size}
+                        onChange={(event) =>
+                          setSkinDraft((current) => ({
+                            ...current,
+                            buttons: {
+                              ...current.buttons,
+                              size: event.target.value as UISkinDefinitionV1['buttons']['size']
+                            }
+                          }))
+                        }
+                      >
+                        <option value="regular">{language === 'zh' ? '常规' : 'Regular'}</option>
+                        <option value="compact">{language === 'zh' ? '紧凑' : 'Compact'}</option>
+                      </select>
+                    </label>
+                  </FormGrid>
                 </div>
-              </details>
-            )}
-          </div>
-        )}
-        <div className="settings-group update-settings">
-          <div className="settings-section-head">
-            <div>
-              <h3>{t(language, 'softwareUpdate')}</h3>
-              <p className="muted">{t(language, 'updateCheckHint')}</p>
-            </div>
-            <button
-              className="secondary"
-              type="button"
-              onClick={checkUpdates}
-              disabled={checkingUpdate || busyAction !== null}
-            >
-              <RefreshCw size={15} className={checkingUpdate ? 'spin' : ''} />
-              {checkingUpdate ? t(language, 'checkingForUpdates') : t(language, 'checkForUpdates')}
-            </button>
-          </div>
-          <div className="update-summary">
-            <div className="update-version-row">
-              <span className="settings-version">
-                {t(language, 'currentVersion')} {appVersion || '…'}
-              </span>
-              <span className="settings-version">
-                {appVersion.includes('-') ? t(language, 'prereleaseChannel') : t(language, 'stableChannel')}
-              </span>
-            </div>
-            {updateCheck ? (
-              <div className={`update-result ${updateCheck.status}`} aria-live="polite">
-                <div>
-                  <strong>
-                    {updateCheck.status === 'available'
-                      ? t(language, 'updateAvailable')
-                      : updateCheck.status === 'up-to-date'
-                        ? t(language, 'upToDate')
-                        : t(language, 'updateUnavailable')}
-                  </strong>
-                  <p>{updateStatusMessage(language, updateCheck)}</p>
-                  {updateCheck.status === 'available' && updateCheck.releaseName ? (
-                    <small>{updateCheck.releaseName}</small>
-                  ) : null}
-                </div>
-                {updateCheck.status === 'available' ? (
-                  <button className="secondary" type="button" onClick={openReleases}>
-                    <Download size={14} /> {t(language, 'openReleaseDownload')}
+
+                <SkinPreview language={display.language} skin={skinDraft} />
+              </div>
+            </SurfacePanel>
+            {root && (
+              <div className="settings-group story-structure-settings">
+                <div className="settings-section-head">
+                  <div>
+                    <h3>{language === 'zh' ? '章节树' : 'Story tree'}</h3>
+                    <p className="muted">
+                      {language === 'zh'
+                        ? '只调整工作区的层级呈现。关闭层级不会删除或改写现有 Markdown 文件。'
+                        : 'Controls the workspace hierarchy only. Disabling a level never deletes or rewrites existing Markdown files.'}
+                    </p>
+                  </div>
+                  <button
+                    className="secondary"
+                    type="button"
+                    onClick={() => void saveStoryStructure()}
+                    disabled={busyAction !== null}
+                  >
+                    {busyAction === 'save-story-structure'
+                      ? t(language, 'saving')
+                      : language === 'zh'
+                        ? '保存章节树'
+                        : 'Save story tree'}
                   </button>
-                ) : null}
+                </div>
+                <div className="story-structure-options">
+                  <label className="story-structure-option">
+                    <input
+                      type="checkbox"
+                      checked={storyStructure.part_enabled}
+                      onChange={(event) =>
+                        setStoryStructure((current) => ({
+                          ...current,
+                          part_enabled: event.target.checked,
+                          act_enabled: event.target.checked ? current.act_enabled : false
+                        }))
+                      }
+                    />
+                    <span>
+                      <strong>{language === 'zh' ? '启用篇' : 'Enable parts'}</strong>
+                      <small>
+                        {language === 'zh'
+                          ? '关闭后，章直接挂在卷下。'
+                          : 'Chapters attach directly to volumes.'}
+                      </small>
+                    </span>
+                  </label>
+                  <label className="story-structure-option">
+                    <input
+                      type="checkbox"
+                      checked={storyStructure.act_enabled}
+                      disabled={!storyStructure.part_enabled}
+                      onChange={(event) =>
+                        setStoryStructure((current) => ({ ...current, act_enabled: event.target.checked }))
+                      }
+                    />
+                    <span>
+                      <strong>{language === 'zh' ? '启用幕' : 'Enable acts'}</strong>
+                      <small>
+                        {language === 'zh'
+                          ? '关闭后，章直接挂在篇下。'
+                          : 'Chapters attach directly to parts.'}
+                      </small>
+                    </span>
+                  </label>
+                  <label className="story-structure-option">
+                    <input
+                      type="checkbox"
+                      checked={storyStructure.scene_enabled}
+                      onChange={(event) =>
+                        setStoryStructure((current) => ({ ...current, scene_enabled: event.target.checked }))
+                      }
+                    />
+                    <span>
+                      <strong>{language === 'zh' ? '启用节' : 'Enable scenes'}</strong>
+                      <small>
+                        {language === 'zh'
+                          ? '关闭后隐藏节与绑定在节上的 AI 生文入口。'
+                          : 'Hides scenes and the scene-bound AI writing entry.'}
+                      </small>
+                    </span>
+                  </label>
+                  {capabilitySwitches && (
+                    <>
+                      <label className="story-structure-option">
+                        <input
+                          type="checkbox"
+                          checked={capabilitySwitches.image_generation}
+                          disabled={busyAction !== null}
+                          onChange={(event) =>
+                            void saveCapability({ image_generation: event.target.checked })
+                          }
+                        />
+                        <span>
+                          <strong>{language === 'zh' ? '生图' : 'Image generation'}</strong>
+                          <small>
+                            {language === 'zh'
+                              ? '关掉后不显示生图按钮。已经上传的图还在。'
+                              : 'Hides image generation. Uploaded images stay.'}
+                          </small>
+                        </span>
+                      </label>
+                      <label className="story-structure-option">
+                        <input
+                          type="checkbox"
+                          checked={capabilitySwitches.short_drama_export}
+                          disabled={busyAction !== null}
+                          onChange={(event) =>
+                            void saveCapability({ short_drama_export: event.target.checked })
+                          }
+                        />
+                        <span>
+                          <strong>{language === 'zh' ? '短剧导出' : 'Short-drama export'}</strong>
+                          <small>
+                            {language === 'zh'
+                              ? '控制写作页「剧本与分镜」工作台及短剧提示词导出入口；关掉只收起入口，保留 short-play/ 文件。'
+                              : 'Controls the Short-Play studio and prompt export entries; disabling hides entries without deleting short-play/ files.'}
+                          </small>
+                        </span>
+                      </label>
+                    </>
+                  )}
+                  <label className="story-structure-option">
+                    <input
+                      type="checkbox"
+                      checked={displayLayer.enabled}
+                      disabled={busyAction !== null}
+                      onChange={(event) => void toggleDisplayLayer(event.target.checked)}
+                    />
+                    <span>
+                      <strong>{language === 'zh' ? '展示层' : 'Display layer'}</strong>
+                    </span>
+                  </label>
+                </div>
+                {disabledStructureDocs.length > 0 && (
+                  <details className="disabled-structure-inspector">
+                    <summary>
+                      {language === 'zh'
+                        ? `查看停用层级中的内容（${disabledStructureDocs.length}）`
+                        : `Inspect content in disabled levels (${disabledStructureDocs.length})`}
+                    </summary>
+                    <p className="muted">
+                      {language === 'zh'
+                        ? '这些文件仍在 Obsidian 项目目录中，可在外部编辑器中检查。'
+                        : 'These files remain in the Obsidian project directory and can be inspected externally.'}
+                    </p>
+                    <div className="disabled-structure-list">
+                      {disabledStructureDocs.map((item) => (
+                        <button
+                          key={`${item.data.type}:${item.data.id}`}
+                          type="button"
+                          className="secondary"
+                          onClick={() =>
+                            void bridge
+                              .openDocExternal(item.path)
+                              .catch((error) =>
+                                setNotice({ tone: 'danger', message: formatDesktopError(error, language) })
+                              )
+                          }
+                        >
+                          <span>{item.data.title}</span>
+                          <small>{String(item.data.level ?? item.data.type)}</small>
+                        </button>
+                      ))}
+                    </div>
+                  </details>
+                )}
               </div>
-            ) : (
-              <p className="update-manual-note">{t(language, 'updateManualOnly')}</p>
             )}
-          </div>
-        </div>
-        <div className="settings-group">
-          <div className="settings-section-head">
-            <h3>{t(language, 'globalGithubSettings')}</h3>
-            <div className="settings-section-actions">
-              <CredentialBadge state={githubCredentialState} language={language} />
-              <button className="secondary" type="button" onClick={saveGithub} disabled={busyAction !== null}>
-                {busyAction === 'save-github' ? t(language, 'saving') : t(language, 'saveGithub')}
-              </button>
-            </div>
-          </div>
-          <p className="muted">{t(language, 'githubOptionalHint')}</p>
-          <div className="settings-grid two">
-            <div className="credential-field">
-              <span>{t(language, 'githubToken')}</span>
-              <div className="credential-input-row">
-                <input
-                  type="password"
-                  value={github.token}
-                  onChange={(e) => setGithub({ ...github, token: e.target.value })}
-                  placeholder={credentialPlaceholder(language, githubCredentialState, 'github')}
-                  aria-label={t(language, 'githubToken')}
-                  autoComplete="new-password"
-                  spellCheck={false}
-                />
-                <button
-                  className="credential-clear"
-                  type="button"
-                  onClick={clearGithubToken}
-                  disabled={!githubHasToken || busyAction !== null}
-                  title={t(language, 'clearGithubToken')}
-                >
-                  <Trash2 size={14} /> {t(language, 'clear')}
-                </button>
-              </div>
-              <small>{t(language, 'blankKeepsCredential')}</small>
-            </div>
-            <label>
-              {t(language, 'defaultOwner')}
-              <input
-                value={github.defaultOwner}
-                onChange={(e) => setGithub({ ...github, defaultOwner: e.target.value })}
-                placeholder="user-or-org"
-              />
-            </label>
-            <label>
-              {t(language, 'defaultVisibility')}
-              <select
-                value={github.defaultVisibility}
-                onChange={(e) =>
-                  setGithub({
-                    ...github,
-                    defaultVisibility: e.target.value as GitHubSettings['defaultVisibility']
-                  })
-                }
-              >
-                <option value="private">{language === 'zh' ? '私有' : 'Private'}</option>
-                <option value="public">{language === 'zh' ? '公开' : 'Public'}</option>
-              </select>
-            </label>
-          </div>
-        </div>
-        {root && (
-          <div className="settings-group">
-            <div className="settings-section-head">
-              <h3>{t(language, 'currentNovelGit')}</h3>
-              {git?.repositoryScope === 'standalone' && !git.remote && onGitCreateRemote && (
+            <div className="settings-group update-settings">
+              <div className="settings-section-head">
+                <div>
+                  <h3>{t(language, 'softwareUpdate')}</h3>
+                  <p className="muted">{t(language, 'updateCheckHint')}</p>
+                </div>
                 <button
                   className="secondary"
                   type="button"
-                  onClick={() => {
-                    onClose()
-                    onGitCreateRemote()
-                  }}
-                  disabled={!githubHasToken || busyAction !== null}
-                  title={githubHasToken ? t(language, 'connectGithubUpload') : t(language, 'saveGithubFirst')}
+                  onClick={checkUpdates}
+                  disabled={checkingUpdate || busyAction !== null}
                 >
-                  <GitBranch size={14} />{' '}
-                  {githubHasToken ? t(language, 'connectGithubUpload') : t(language, 'saveGithubFirst')}
+                  <RefreshCw size={15} className={checkingUpdate ? 'spin' : ''} />
+                  {checkingUpdate ? t(language, 'checkingForUpdates') : t(language, 'checkForUpdates')}
                 </button>
-              )}
+              </div>
+              <div className="update-summary">
+                <div className="update-version-row">
+                  <span className="settings-version">
+                    {t(language, 'currentVersion')} {appVersion || '…'}
+                  </span>
+                  <span className="settings-version">
+                    {appVersion.includes('-')
+                      ? t(language, 'prereleaseChannel')
+                      : t(language, 'stableChannel')}
+                  </span>
+                </div>
+                {updateCheck ? (
+                  <div className={`update-result ${updateCheck.status}`} aria-live="polite">
+                    <div>
+                      <strong>
+                        {updateCheck.status === 'available'
+                          ? t(language, 'updateAvailable')
+                          : updateCheck.status === 'up-to-date'
+                            ? t(language, 'upToDate')
+                            : t(language, 'updateUnavailable')}
+                      </strong>
+                      <p>{updateStatusMessage(language, updateCheck)}</p>
+                      {updateCheck.status === 'available' && updateCheck.releaseName ? (
+                        <small>{updateCheck.releaseName}</small>
+                      ) : null}
+                    </div>
+                    {updateCheck.status === 'available' ? (
+                      <button className="secondary" type="button" onClick={openReleases}>
+                        <Download size={14} /> {t(language, 'openReleaseDownload')}
+                      </button>
+                    ) : null}
+                  </div>
+                ) : (
+                  <p className="update-manual-note">{t(language, 'updateManualOnly')}</p>
+                )}
+              </div>
             </div>
-            <p className="muted">
-              {git?.repositoryScope === 'workspace'
-                ? language === 'zh'
-                  ? '当前作品属于写作工作区仓库；remote 与同步在工作区根生效，作品提交仍只包含当前项目。'
-                  : 'This project belongs to the writing workspace repository. Remote and sync apply at the workspace root, while project commits remain scoped to this project.'
-                : t(language, 'currentNovelGitHint')}
-            </p>
-            <div className="settings-grid two">
-              <label>
-                {t(language, 'currentRemote')}
-                <input value={git?.remote ?? t(language, 'notLinked')} readOnly />
-              </label>
-              <label>
-                {t(language, 'currentBranch')}
-                <input value={git?.branch ?? t(language, 'notInitialized')} readOnly />
-              </label>
+            <div className="settings-group">
+              <div className="settings-section-head">
+                <h3>{t(language, 'globalGithubSettings')}</h3>
+                <div className="settings-section-actions">
+                  <CredentialBadge state={githubCredentialState} language={language} />
+                  <button
+                    className="secondary"
+                    type="button"
+                    onClick={saveGithub}
+                    disabled={busyAction !== null}
+                  >
+                    {busyAction === 'save-github' ? t(language, 'saving') : t(language, 'saveGithub')}
+                  </button>
+                </div>
+              </div>
+              <p className="muted">{t(language, 'githubOptionalHint')}</p>
+              <div className="settings-grid two">
+                <div className="credential-field">
+                  <span>{t(language, 'githubToken')}</span>
+                  <div className="credential-input-row">
+                    <input
+                      type="password"
+                      value={github.token}
+                      onChange={(e) => setGithub({ ...github, token: e.target.value })}
+                      placeholder={credentialPlaceholder(language, githubCredentialState, 'github')}
+                      aria-label={t(language, 'githubToken')}
+                      autoComplete="new-password"
+                      spellCheck={false}
+                    />
+                    <button
+                      className="credential-clear"
+                      type="button"
+                      onClick={clearGithubToken}
+                      disabled={!githubHasToken || busyAction !== null}
+                      title={t(language, 'clearGithubToken')}
+                    >
+                      <Trash2 size={14} /> {t(language, 'clear')}
+                    </button>
+                  </div>
+                  <small>{t(language, 'blankKeepsCredential')}</small>
+                </div>
+                <label>
+                  {t(language, 'defaultOwner')}
+                  <input
+                    value={github.defaultOwner}
+                    onChange={(e) => setGithub({ ...github, defaultOwner: e.target.value })}
+                    placeholder="user-or-org"
+                  />
+                </label>
+                <label>
+                  {t(language, 'defaultVisibility')}
+                  <select
+                    value={github.defaultVisibility}
+                    onChange={(e) =>
+                      setGithub({
+                        ...github,
+                        defaultVisibility: e.target.value as GitHubSettings['defaultVisibility']
+                      })
+                    }
+                  >
+                    <option value="private">{language === 'zh' ? '私有' : 'Private'}</option>
+                    <option value="public">{language === 'zh' ? '公开' : 'Public'}</option>
+                  </select>
+                </label>
+              </div>
             </div>
-          </div>
+            {root && (
+              <div className="settings-group">
+                <div className="settings-section-head">
+                  <h3>{t(language, 'currentNovelGit')}</h3>
+                  {git?.repositoryScope === 'standalone' && !git.remote && onGitCreateRemote && (
+                    <button
+                      className="secondary"
+                      type="button"
+                      onClick={() => {
+                        onClose()
+                        onGitCreateRemote()
+                      }}
+                      disabled={!githubHasToken || busyAction !== null}
+                      title={
+                        githubHasToken ? t(language, 'connectGithubUpload') : t(language, 'saveGithubFirst')
+                      }
+                    >
+                      <GitBranch size={14} />{' '}
+                      {githubHasToken ? t(language, 'connectGithubUpload') : t(language, 'saveGithubFirst')}
+                    </button>
+                  )}
+                </div>
+                <p className="muted">
+                  {git?.repositoryScope === 'workspace'
+                    ? language === 'zh'
+                      ? '当前作品属于写作工作区仓库；remote 与同步在工作区根生效，作品提交仍只包含当前项目。'
+                      : 'This project belongs to the writing workspace repository. Remote and sync apply at the workspace root, while project commits remain scoped to this project.'
+                    : t(language, 'currentNovelGitHint')}
+                </p>
+                <div className="settings-grid two">
+                  <label>
+                    {t(language, 'currentRemote')}
+                    <input value={git?.remote ?? t(language, 'notLinked')} readOnly />
+                  </label>
+                  <label>
+                    {t(language, 'currentBranch')}
+                    <input value={git?.branch ?? t(language, 'notInitialized')} readOnly />
+                  </label>
+                </div>
+              </div>
+            )}
+          </>
         )}
-        {root && (
+        {mode === 'agent' && root && (
           <div className="settings-group">
             <div className="settings-section-head">
               <div>
@@ -1695,12 +1853,14 @@ function SettingsModal({
             </div>
           </div>
         )}
-        {root && (
+        {mode === 'agent' && root && (
           <div className="settings-group">
             <div className="settings-section-head">
               <div>
                 <h3>
-                  {language === 'zh' ? '写作 / 生文 · 本书头部提示词' : 'Writing · Book generation header'}
+                  {language === 'zh'
+                    ? '公共提示词 · 本书生文头部提示词'
+                    : 'Shared prompt · Book generation header'}
                 </h3>
                 <p className="muted">
                   {language === 'zh'
@@ -1772,7 +1932,7 @@ function SettingsModal({
             </details>
           </div>
         )}
-        {root && (
+        {mode === 'settings' && root && (
           <div className="settings-group">
             <div className="settings-section-head">
               <div>
@@ -1893,224 +2053,236 @@ function SettingsModal({
             )}
           </div>
         )}
-        <h3>{t(language, 'aiSettings')}</h3>
-        <div className="ai-profile-grid">
-          {AI_PROFILE_NAMES.map((profile) => (
-            <article key={profile} className="ai-profile-card">
-              <div className="ai-profile-card-head">
-                <strong>{t(language, profile)}</strong>
-                <div className="settings-section-actions">
-                  <CredentialBadge state={profileCredentials[profile]} language={language} />
-                  <button
-                    className="secondary compact-save"
-                    type="button"
-                    onClick={() => void saveAI(profile)}
-                    disabled={busyAction !== null}
-                  >
-                    {busyAction === `save-ai-${profile}` ? t(language, 'saving') : t(language, 'save')}
-                  </button>
+        {mode === 'agent' && (
+          <>
+            <h3>{t(language, 'aiSettings')}</h3>
+            <div className="ai-profile-grid">
+              {AI_PROFILE_NAMES.map((profile) => (
+                <article key={profile} className="ai-profile-card">
+                  <div className="ai-profile-card-head">
+                    <strong>{t(language, profile)}</strong>
+                    <div className="settings-section-actions">
+                      <CredentialBadge state={profileCredentials[profile]} language={language} />
+                      <button
+                        className="secondary compact-save"
+                        type="button"
+                        onClick={() => void saveAI(profile)}
+                        disabled={busyAction !== null}
+                      >
+                        {busyAction === `save-ai-${profile}` ? t(language, 'saving') : t(language, 'save')}
+                      </button>
+                    </div>
+                  </div>
+                  <label>
+                    {t(language, 'provider')}
+                    <select
+                      value={profiles[profile].provider}
+                      onChange={(e) => updateProfile(profile, { provider: e.target.value as AIProviderName })}
+                    >
+                      <option value="openai-compatible">OpenAI Compatible</option>
+                      <option value="openai">OpenAI</option>
+                      <option value="claude">Claude</option>
+                      <option value="gemini">Gemini</option>
+                      <option value="deepseek">DeepSeek</option>
+                      <option value="ollama">Ollama</option>
+                    </select>
+                  </label>
+                  <label>
+                    {t(language, 'baseUrl')}
+                    <input
+                      value={profiles[profile].baseUrl}
+                      onChange={(e) => updateProfile(profile, { baseUrl: e.target.value })}
+                    />
+                  </label>
+                  <div className="credential-field ai-credential-field">
+                    <span>{t(language, 'apiKey')}</span>
+                    <div className="credential-input-row">
+                      <input
+                        type="password"
+                        value={profiles[profile].apiKey}
+                        onChange={(e) => updateProfile(profile, { apiKey: e.target.value })}
+                        placeholder={credentialPlaceholder(language, profileCredentials[profile], 'ai')}
+                        aria-label={`${t(language, profile)} ${t(language, 'apiKey')}`}
+                        autoComplete="new-password"
+                        spellCheck={false}
+                      />
+                      <button
+                        className="credential-clear"
+                        type="button"
+                        onClick={() => clearAIKey(profile)}
+                        disabled={profileCredentials[profile] === 'none' || busyAction !== null}
+                        title={t(language, 'clearApiKey')}
+                      >
+                        <Trash2 size={14} /> {t(language, 'clear')}
+                      </button>
+                    </div>
+                    <small>{t(language, 'blankKeepsCredential')}</small>
+                  </div>
+                  <label>
+                    {t(language, 'model')}
+                    <input
+                      value={profiles[profile].model}
+                      onChange={(e) => updateProfile(profile, { model: e.target.value })}
+                      list={`official-models-${profile}`}
+                    />
+                    <datalist id={`official-models-${profile}`}>
+                      {modelCapabilities
+                        .filter((capability) => capability.provider === profiles[profile].provider)
+                        .map((capability) => (
+                          <option key={capability.model} value={capability.model}>
+                            {capability.displayName}
+                          </option>
+                        ))}
+                    </datalist>
+                  </label>
+                  <div className="ai-limit-grid">
+                    <label>
+                      {language === 'zh' ? '上下文上限' : 'Context window'}
+                      <input
+                        type="number"
+                        min={1}
+                        step={1}
+                        value={profiles[profile].contextWindowTokens}
+                        onChange={(event) =>
+                          updateProfile(profile, { contextWindowTokens: Number(event.target.value) })
+                        }
+                      />
+                      <small>
+                        {language === 'zh' ? '输入与输出合计 token。' : 'Combined input and output tokens.'}
+                      </small>
+                    </label>
+                    <label>
+                      {language === 'zh' ? '输出上限' : 'Output limit'}
+                      <input
+                        type="number"
+                        min={1}
+                        step={1}
+                        value={profiles[profile].maxTokens}
+                        onChange={(event) =>
+                          updateProfile(profile, { maxTokens: Number(event.target.value) })
+                        }
+                      />
+                      <small>
+                        {language === 'zh' ? '单次生成最大 token。' : 'Maximum tokens per response.'}
+                      </small>
+                    </label>
+                  </div>
+                  {findModelCapability(
+                    modelCapabilities,
+                    profiles[profile].provider,
+                    profiles[profile].model
+                  ) ? (
+                    <div className="official-model-limits">
+                      <span>
+                        {language === 'zh'
+                          ? '当前缺省值来自模型官网；可按实际接口自行修改。'
+                          : 'Defaults come from the model vendor and remain editable.'}
+                      </span>
+                      <button
+                        type="button"
+                        className="secondary"
+                        onClick={() => {
+                          const official = findModelCapability(
+                            modelCapabilities,
+                            profiles[profile].provider,
+                            profiles[profile].model
+                          )
+                          if (official) {
+                            updateProfile(profile, {
+                              contextWindowTokens: official.contextWindowTokens,
+                              maxTokens: official.maxOutputTokens
+                            })
+                          }
+                        }}
+                      >
+                        {language === 'zh' ? '恢复官网值' : 'Use vendor limits'}
+                      </button>
+                    </div>
+                  ) : null}
+                </article>
+              ))}
+              <article className="ai-profile-card">
+                <div className="ai-profile-card-head">
+                  <strong>{language === 'zh' ? '生图凭证' : 'Image generation'}</strong>
+                  <div className="settings-section-actions">
+                    <CredentialBadge state={displayImageCredential} language={language} />
+                    <button
+                      className="secondary compact-save"
+                      type="button"
+                      onClick={() => void saveDisplayImageProfile()}
+                      disabled={busyAction !== null}
+                    >
+                      {busyAction === 'save-ai-displayImage' ? t(language, 'saving') : t(language, 'save')}
+                    </button>
+                  </div>
                 </div>
-              </div>
-              <label>
-                {t(language, 'provider')}
-                <select
-                  value={profiles[profile].provider}
-                  onChange={(e) => updateProfile(profile, { provider: e.target.value as AIProviderName })}
-                >
-                  <option value="openai-compatible">OpenAI Compatible</option>
-                  <option value="openai">OpenAI</option>
-                  <option value="claude">Claude</option>
-                  <option value="gemini">Gemini</option>
-                  <option value="deepseek">DeepSeek</option>
-                  <option value="ollama">Ollama</option>
-                </select>
-              </label>
-              <label>
-                {t(language, 'baseUrl')}
-                <input
-                  value={profiles[profile].baseUrl}
-                  onChange={(e) => updateProfile(profile, { baseUrl: e.target.value })}
-                />
-              </label>
-              <div className="credential-field ai-credential-field">
-                <span>{t(language, 'apiKey')}</span>
-                <div className="credential-input-row">
-                  <input
-                    type="password"
-                    value={profiles[profile].apiKey}
-                    onChange={(e) => updateProfile(profile, { apiKey: e.target.value })}
-                    placeholder={credentialPlaceholder(language, profileCredentials[profile], 'ai')}
-                    aria-label={`${t(language, profile)} ${t(language, 'apiKey')}`}
-                    autoComplete="new-password"
-                    spellCheck={false}
-                  />
-                  <button
-                    className="credential-clear"
-                    type="button"
-                    onClick={() => clearAIKey(profile)}
-                    disabled={profileCredentials[profile] === 'none' || busyAction !== null}
-                    title={t(language, 'clearApiKey')}
-                  >
-                    <Trash2 size={14} /> {t(language, 'clear')}
-                  </button>
-                </div>
-                <small>{t(language, 'blankKeepsCredential')}</small>
-              </div>
-              <label>
-                {t(language, 'model')}
-                <input
-                  value={profiles[profile].model}
-                  onChange={(e) => updateProfile(profile, { model: e.target.value })}
-                  list={`official-models-${profile}`}
-                />
-                <datalist id={`official-models-${profile}`}>
-                  {modelCapabilities
-                    .filter((capability) => capability.provider === profiles[profile].provider)
-                    .map((capability) => (
-                      <option key={capability.model} value={capability.model}>
-                        {capability.displayName}
-                      </option>
-                    ))}
-                </datalist>
-              </label>
-              <div className="ai-limit-grid">
                 <label>
-                  {language === 'zh' ? '上下文上限' : 'Context window'}
-                  <input
-                    type="number"
-                    min={1}
-                    step={1}
-                    value={profiles[profile].contextWindowTokens}
-                    onChange={(event) =>
-                      updateProfile(profile, { contextWindowTokens: Number(event.target.value) })
-                    }
-                  />
-                  <small>
-                    {language === 'zh' ? '输入与输出合计 token。' : 'Combined input and output tokens.'}
-                  </small>
-                </label>
-                <label>
-                  {language === 'zh' ? '输出上限' : 'Output limit'}
-                  <input
-                    type="number"
-                    min={1}
-                    step={1}
-                    value={profiles[profile].maxTokens}
-                    onChange={(event) => updateProfile(profile, { maxTokens: Number(event.target.value) })}
-                  />
-                  <small>{language === 'zh' ? '单次生成最大 token。' : 'Maximum tokens per response.'}</small>
-                </label>
-              </div>
-              {findModelCapability(modelCapabilities, profiles[profile].provider, profiles[profile].model) ? (
-                <div className="official-model-limits">
-                  <span>
-                    {language === 'zh'
-                      ? '当前缺省值来自模型官网；可按实际接口自行修改。'
-                      : 'Defaults come from the model vendor and remain editable.'}
-                  </span>
-                  <button
-                    type="button"
-                    className="secondary"
-                    onClick={() => {
-                      const official = findModelCapability(
-                        modelCapabilities,
-                        profiles[profile].provider,
-                        profiles[profile].model
-                      )
-                      if (official) {
-                        updateProfile(profile, {
-                          contextWindowTokens: official.contextWindowTokens,
-                          maxTokens: official.maxOutputTokens
-                        })
-                      }
+                  {t(language, 'provider')}
+                  <select
+                    value={displayImage.provider}
+                    onChange={(event) => {
+                      const provider = event.target.value as 'openai' | 'openai-compatible' | 'gemini'
+                      setDisplayImage((current) => ({
+                        ...current,
+                        provider,
+                        baseUrl: defaultDisplayImageBaseUrl(provider),
+                        model: defaultDisplayImageModel(provider)
+                      }))
                     }}
                   >
-                    {language === 'zh' ? '恢复官网值' : 'Use vendor limits'}
-                  </button>
+                    <option value="openai">OpenAI</option>
+                    <option value="openai-compatible">OpenAI Compatible</option>
+                    <option value="gemini">Gemini</option>
+                  </select>
+                </label>
+                <label>
+                  {t(language, 'baseUrl')}
+                  <input
+                    value={displayImage.baseUrl}
+                    onChange={(event) =>
+                      setDisplayImage((current) => ({ ...current, baseUrl: event.target.value }))
+                    }
+                  />
+                </label>
+                <div className="credential-field ai-credential-field">
+                  <span>{t(language, 'apiKey')}</span>
+                  <div className="credential-input-row">
+                    <input
+                      type="password"
+                      value={displayImage.apiKey}
+                      onChange={(event) =>
+                        setDisplayImage((current) => ({ ...current, apiKey: event.target.value }))
+                      }
+                      placeholder={credentialPlaceholder(language, displayImageCredential, 'ai')}
+                      aria-label={language === 'zh' ? '生图 API 密钥' : 'Image generation API key'}
+                      autoComplete="new-password"
+                      spellCheck={false}
+                    />
+                    <button
+                      className="credential-clear"
+                      type="button"
+                      onClick={() => void clearDisplayImageKey()}
+                      disabled={displayImageCredential === 'none' || busyAction !== null}
+                      title={t(language, 'clearApiKey')}
+                    >
+                      <Trash2 size={14} /> {t(language, 'clear')}
+                    </button>
+                  </div>
+                  <small>{t(language, 'blankKeepsCredential')}</small>
                 </div>
-              ) : null}
-            </article>
-          ))}
-          <article className="ai-profile-card">
-            <div className="ai-profile-card-head">
-              <strong>{language === 'zh' ? '生图凭证' : 'Image generation'}</strong>
-              <div className="settings-section-actions">
-                <CredentialBadge state={displayImageCredential} language={language} />
-                <button
-                  className="secondary compact-save"
-                  type="button"
-                  onClick={() => void saveDisplayImageProfile()}
-                  disabled={busyAction !== null}
-                >
-                  {busyAction === 'save-ai-displayImage' ? t(language, 'saving') : t(language, 'save')}
-                </button>
-              </div>
+                <label>
+                  {t(language, 'model')}
+                  <input
+                    value={displayImage.model}
+                    onChange={(event) =>
+                      setDisplayImage((current) => ({ ...current, model: event.target.value }))
+                    }
+                  />
+                </label>
+              </article>
             </div>
-            <label>
-              {t(language, 'provider')}
-              <select
-                value={displayImage.provider}
-                onChange={(event) => {
-                  const provider = event.target.value as 'openai' | 'openai-compatible' | 'gemini'
-                  setDisplayImage((current) => ({
-                    ...current,
-                    provider,
-                    baseUrl: defaultDisplayImageBaseUrl(provider),
-                    model: defaultDisplayImageModel(provider)
-                  }))
-                }}
-              >
-                <option value="openai">OpenAI</option>
-                <option value="openai-compatible">OpenAI Compatible</option>
-                <option value="gemini">Gemini</option>
-              </select>
-            </label>
-            <label>
-              {t(language, 'baseUrl')}
-              <input
-                value={displayImage.baseUrl}
-                onChange={(event) =>
-                  setDisplayImage((current) => ({ ...current, baseUrl: event.target.value }))
-                }
-              />
-            </label>
-            <div className="credential-field ai-credential-field">
-              <span>{t(language, 'apiKey')}</span>
-              <div className="credential-input-row">
-                <input
-                  type="password"
-                  value={displayImage.apiKey}
-                  onChange={(event) =>
-                    setDisplayImage((current) => ({ ...current, apiKey: event.target.value }))
-                  }
-                  placeholder={credentialPlaceholder(language, displayImageCredential, 'ai')}
-                  aria-label={language === 'zh' ? '生图 API 密钥' : 'Image generation API key'}
-                  autoComplete="new-password"
-                  spellCheck={false}
-                />
-                <button
-                  className="credential-clear"
-                  type="button"
-                  onClick={() => void clearDisplayImageKey()}
-                  disabled={displayImageCredential === 'none' || busyAction !== null}
-                  title={t(language, 'clearApiKey')}
-                >
-                  <Trash2 size={14} /> {t(language, 'clear')}
-                </button>
-              </div>
-              <small>{t(language, 'blankKeepsCredential')}</small>
-            </div>
-            <label>
-              {t(language, 'model')}
-              <input
-                value={displayImage.model}
-                onChange={(event) =>
-                  setDisplayImage((current) => ({ ...current, model: event.target.value }))
-                }
-              />
-            </label>
-          </article>
-        </div>
+          </>
+        )}
         <div className="modal-actions">
           <button className="secondary" onClick={onClose}>
             {t(language, 'close')}

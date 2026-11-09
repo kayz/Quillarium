@@ -80,6 +80,24 @@ export const projectIdSchema = z
   .string()
   .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'Project id must be a lowercase path-safe slug')
 
+export const workRoleSchema = z.enum([
+  'traditional_writer',
+  'ai_writer',
+  'ai_screenwriter',
+  'oc_person',
+  'ai_native'
+])
+
+export const workCapabilitiesSchema = z
+  .object({
+    role: workRoleSchema,
+    scene_prose: z.boolean(),
+    display: z.boolean(),
+    image_generation: z.boolean(),
+    short_drama_export: z.boolean()
+  })
+  .strict()
+
 export const projectConfigV1Schema = z.object({
   title: z.string().min(1),
   genre: z.string().default('general'),
@@ -122,6 +140,7 @@ export const projectConfigSchema = z.object({
     })
     .strict()
     .optional(),
+  capabilities: workCapabilitiesSchema.optional(),
   cover: z
     .object({
       original_path: z.string().min(1),
@@ -300,11 +319,13 @@ export const foreshadowingSchema = planningCardSchema.extend({
   /** Legacy free text. Kept until the author explicitly migrates it. */
   planned_plant: z.string().default(''),
   planned_plant_ref: foreshadowingTimePositionSchema.nullable().default(null),
+  plant_outline_id: z.string().min(1).nullable().default(null),
   planted_at: z.string().nullable().default(null),
   reinforced_at: z.array(z.string()).default([]),
   /** Legacy free text. Kept until the author explicitly migrates it. */
   planned_resolve: z.string().default(''),
   planned_resolve_ref: foreshadowingTimePositionSchema.nullable().default(null),
+  resolve_outline_id: z.string().min(1).nullable().default(null),
   expires_at: z.string().default(''),
   state: z.enum(['planned', 'planted', 'reinforced', 'resolved', 'abandoned']).default('planned'),
   related_characters: z.array(z.string()).default([]),
@@ -343,7 +364,8 @@ export const worldEntrySchema = planningCardSchema.extend({
     )
     .default([]),
   links: z.array(z.string()).default([]),
-  source: z.string().default('')
+  source: z.string().default(''),
+  attributes: z.record(z.string(), z.string()).default({})
 })
 
 export const referenceSchema = documentIdentitySchema.extend({
@@ -355,7 +377,9 @@ export const referenceSchema = documentIdentitySchema.extend({
   reading_status: z.enum(['unread', 'reading', 'read']).default('unread'),
   topic_tags: z.array(z.string()).default([]),
   extracted_entries: z.array(z.string()).default([]),
-  value_assessment: z.string().default('')
+  value_assessment: z.string().default(''),
+  /** Writing guidance that may enter a prompt. Archived sources stay false. */
+  prompt_material: z.boolean().default(false)
 })
 
 export const issueEvidenceAnchorV2Schema = z.union([
@@ -566,10 +590,76 @@ export const timelineEventSchema = planningCardSchema.extend({
   location: z.string().nullable().default(null),
   characters: z.array(z.string()).default([]),
   flashback_reference: z.string().nullable().optional(),
-  placements: z.array(timelinePlacementV1Schema).default([])
+  placements: z.array(timelinePlacementV1Schema).default([]),
+  order_state: z.enum(['draft', 'formal']).optional()
 })
 
-export const locationScaleSchema = z.enum(['global', 'region', 'city', 'district', 'estate', 'interior'])
+export const itemSchema = planningCardSchema.extend({
+  type: z.literal('item'),
+  description: z.string().default(''),
+  function_text: z.string().default(''),
+  important: z.boolean().default(false),
+  owner_id: z.string().min(1).nullable().default(null),
+  location_id: z.string().min(1).nullable().default(null)
+})
+
+export const rankRungSchema = z
+  .object({
+    id: z.string().min(1),
+    label: z.string().min(1)
+  })
+  .strict()
+
+export const rankLadderSchema = planningCardSchema.extend({
+  type: z.literal('rank_ladder'),
+  rungs: z.array(rankRungSchema).default([])
+})
+
+export const rankHoldingSchema = planningCardSchema.extend({
+  type: z.literal('rank_holding'),
+  ladder_id: z.string().min(1),
+  holder_type: z.enum(['character', 'faction']),
+  holder_id: z.string().min(1),
+  rung_id: z.string().min(1),
+  starts_at: z.string().nullable().default(null),
+  ends_at: z.string().nullable().default(null)
+})
+
+export const locationScaleSchema = z.enum([
+  'global',
+  'province',
+  'region',
+  'city',
+  'county',
+  'town',
+  'district',
+  'cluster',
+  'estate',
+  'interior'
+])
+
+export const locationRoomTypeSchema = z.enum([
+  'hall',
+  'bedroom',
+  'study',
+  'secret',
+  'corridor',
+  'courtyard',
+  'kitchen',
+  'gate',
+  'other'
+])
+
+export const locationEdgeTypeSchema = z.enum([
+  'passage',
+  'single_door',
+  'double_door',
+  'sliding_door',
+  'archway',
+  'window',
+  'secret_door',
+  'wall'
+])
 
 export const locationSchema = planningCardSchema.extend({
   type: z.literal('location'),
@@ -579,6 +669,12 @@ export const locationSchema = planningCardSchema.extend({
   layout_of: z.string().nullable().default(null),
   relative_direction: z.string().default(''),
   floor: z.string().default(''),
+  map_layer: locationScaleSchema.nullable().default(null),
+  map_x: z.number().min(0).max(100).nullable().default(null),
+  map_y: z.number().min(0).max(100).nullable().default(null),
+  map_width: z.number().positive().nullable().default(null),
+  map_height: z.number().positive().nullable().default(null),
+  map_room_type: locationRoomTypeSchema.nullable().default(null),
   diagram_nodes: z
     .array(
       z.object({
@@ -587,7 +683,11 @@ export const locationSchema = planningCardSchema.extend({
         x: z.number(),
         y: z.number(),
         floor: z.string().default(''),
-        target_location: z.string().nullable().default(null)
+        target_location: z.string().nullable().default(null),
+        room_type: locationRoomTypeSchema.optional(),
+        width: z.number().positive().optional(),
+        height: z.number().positive().optional(),
+        item_id: z.string().nullable().optional()
       })
     )
     .default([]),
@@ -596,7 +696,8 @@ export const locationSchema = planningCardSchema.extend({
       z.object({
         from: z.string().min(1),
         to: z.string().min(1),
-        label: z.string().default('')
+        label: z.string().default(''),
+        edge_type: locationEdgeTypeSchema.optional()
       })
     )
     .default([]),
@@ -710,7 +811,16 @@ export const sceneSchema = z.preprocess(
       previous_scene: z.string().nullable().default(null),
       context_pins: z.array(z.string()).default([]),
       context_exclusions: z.array(z.string()).default([]),
-      related_patterns: z.array(z.string()).default([])
+      related_patterns: z.array(z.string()).default([]),
+      prompt_layout: z
+        .array(
+          z.object({
+            kind: z.string().min(1),
+            source_type: z.string().min(1),
+            source_id: z.string().min(1)
+          })
+        )
+        .optional()
     })
     .passthrough()
 )

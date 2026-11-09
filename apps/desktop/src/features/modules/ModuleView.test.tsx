@@ -38,7 +38,7 @@ describe('ModuleView localized summaries', () => {
     ]
     const html = renderToStaticMarkup(<ModuleView {...baseProps} module="world" docs={docs} language="zh" />)
 
-    expect(html).toContain('世界书 · 启用')
+    expect(html).toContain('基础条目 · 启用')
     expect(html).toContain('新建空白卡')
     expect(html).toContain('AI 讨论新增')
     expect(html).not.toContain('>active<')

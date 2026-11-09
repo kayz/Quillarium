@@ -25,6 +25,12 @@ export function ExportModal({
   const [opening, setOpening] = useState(false)
   const [error, setError] = useState('')
   const [result, setResult] = useState<ManuscriptExportResult | null>(null)
+  const [shortDramaEnabled, setShortDramaEnabled] = useState(false)
+  const [shortDramaResult, setShortDramaResult] = useState<{
+    outputPath: string
+    assetCount: number
+    shotCount: number
+  } | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -35,6 +41,7 @@ export function ExportModal({
       try {
         const loaded = await bridge.loadProject(root)
         if (cancelled) return
+        setShortDramaEnabled(loaded.project.capabilities?.short_drama_export === true)
         setVolumes(
           loaded.docs.filter((doc: DocEntry) => doc.data.type === 'outline' && doc.data.level === 'volume')
         )
@@ -59,6 +66,21 @@ export function ExportModal({
     setResult(null)
     try {
       setResult(await bridge.exportManuscript(root, volumeId ? { volumeId } : {}))
+    } catch (exportError) {
+      setError(formatDesktopError(exportError, language))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const exportShortDrama = async (shortDramaFormat: 'markdown' | 'json') => {
+    setBusy(true)
+    setError('')
+    try {
+      const exported = await bridge.exportShortPlayToFile(root, shortDramaFormat)
+      if (exported) {
+        setShortDramaResult(exported)
+      }
     } catch (exportError) {
       setError(formatDesktopError(exportError, language))
     } finally {
@@ -221,6 +243,54 @@ export function ExportModal({
             {busy ? t(language, 'exporting') : t(language, 'startExport')}
           </button>
         </div>
+
+        {shortDramaEnabled && (
+          <section className="export-result short-drama-export-panel" aria-live="polite">
+            <div className="export-result-head">
+              <strong>
+                {language === 'zh'
+                  ? '短剧提示词导出（资产提示词 + 分镜提示词）'
+                  : 'Short-Play Prompt Export (Asset + Storyboard Prompts)'}
+              </strong>
+              <span>short-play/</span>
+            </div>
+            <p className="muted">
+              {language === 'zh'
+                ? '导出带本地种子 ID（Seed ID）的资产提示词清单与 5–15 秒分镜提示词序列，供外部生图与生视频工具消费。'
+                : 'Exports seed-tagged asset prompts and ordered 5–15s storyboard prompts for external tools.'}
+            </p>
+            <div className="modal-actions">
+              <button
+                className="secondary"
+                type="button"
+                disabled={busy}
+                onClick={() => void exportShortDrama('json')}
+              >
+                <Download size={14} />{' '}
+                {language === 'zh' ? '导出短剧提示词 (.json)' : 'Export Short-Play JSON (.json)'}
+              </button>
+              <button
+                className="primary"
+                type="button"
+                disabled={busy}
+                onClick={() => void exportShortDrama('markdown')}
+              >
+                <Download size={14} />{' '}
+                {language === 'zh' ? '导出短剧提示词 (.md)' : 'Export Short-Play Markdown (.md)'}
+              </button>
+            </div>
+            {shortDramaResult && (
+              <div className="export-artifact">
+                <span>
+                  {language === 'zh'
+                    ? `已导出（${shortDramaResult.assetCount} 条资产 · ${shortDramaResult.shotCount} 条分镜）`
+                    : `Exported (${shortDramaResult.assetCount} assets · ${shortDramaResult.shotCount} shots)`}
+                </span>
+                <code className="export-path">{shortDramaResult.outputPath}</code>
+              </div>
+            )}
+          </section>
+        )}
       </section>
     </div>
   )

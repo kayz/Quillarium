@@ -3,6 +3,7 @@ import { rm } from 'node:fs/promises'
 import { ensureDir, listMarkdownFiles, pathExists, readMarkdown, readText, writeMarkdown } from './fs.js'
 import { makeId, slugify } from './ids.js'
 import { assertOutlinePlacementAgainst, normalizeOutlineLevel } from './outline-rules.js'
+import { timelineEventIsComplete } from './timeline-order.js'
 import {
   baseDocSchema,
   canonSchema,
@@ -14,11 +15,14 @@ import {
   factionRelationSchema,
   factionSchema,
   foreshadowingSchema,
+  itemSchema,
   issueSchema,
   locationSchema,
   narrativeSchema,
   outlineSchema,
   patternSchema,
+  rankHoldingSchema,
+  rankLadderSchema,
   referenceSchema,
   routeSchema,
   sceneSchema,
@@ -38,6 +42,9 @@ import type {
   DocumentIdentity,
   FactionDoc,
   FactionMembershipDoc,
+  ItemDoc,
+  RankHoldingDoc,
+  RankLadderDoc,
   FactionRelationDoc,
   ForeshadowingDoc,
   IssueDoc,
@@ -80,6 +87,9 @@ const TYPE_DIR: Record<DocType, string> = {
   route: 'locations/routes',
   foreshadowing: 'foreshadowing',
   world_entry: 'world',
+  item: 'items',
+  rank_ladder: 'ranks',
+  rank_holding: 'ranks/holdings',
   reference: 'references',
   issue: 'issues',
   strategy: 'strategy',
@@ -107,6 +117,9 @@ const DOC_SCHEMAS = {
   route: routeSchema.passthrough(),
   foreshadowing: foreshadowingSchema.passthrough(),
   world_entry: worldEntrySchema.passthrough(),
+  item: itemSchema.passthrough(),
+  rank_ladder: rankLadderSchema.passthrough(),
+  rank_holding: rankHoldingSchema.passthrough(),
   reference: referenceSchema.passthrough(),
   issue: issueSchema.passthrough(),
   strategy: strategySchema.passthrough(),
@@ -470,9 +483,11 @@ export async function createForeshadowing(
     level: partial.level ?? 'L4',
     summary: partial.summary ?? '',
     planned_plant: partial.planned_plant ?? '',
+    plant_outline_id: partial.plant_outline_id ?? null,
     planted_at: partial.planted_at ?? null,
     reinforced_at: partial.reinforced_at ?? [],
     planned_resolve: partial.planned_resolve ?? '',
+    resolve_outline_id: partial.resolve_outline_id ?? null,
     expires_at: partial.expires_at ?? '',
     state: partial.state ?? 'planned',
     related_characters: partial.related_characters ?? [],
@@ -516,7 +531,8 @@ export async function createWorldEntry(
     story_setting: partial.story_setting ?? '',
     used_in: partial.used_in ?? [],
     links: partial.links ?? [],
-    source: partial.source ?? ''
+    source: partial.source ?? '',
+    attributes: partial.attributes ?? {}
   }) as WorldEntryDoc
   const file = fileForDoc(projectRoot, 'world_entry', doc.id, title)
   await writeMarkdown(file, doc as unknown as Record<string, unknown>, content || `## World Entry\n`)
@@ -542,7 +558,8 @@ export async function createReference(
     reading_status: partial.reading_status ?? 'unread',
     topic_tags: partial.topic_tags ?? [],
     extracted_entries: partial.extracted_entries ?? [],
-    value_assessment: partial.value_assessment ?? ''
+    value_assessment: partial.value_assessment ?? '',
+    prompt_material: partial.prompt_material ?? false
   }) as ReferenceDoc
   const file = fileForDoc(projectRoot, 'reference', doc.id, title)
   await writeMarkdown(file, doc as unknown as Record<string, unknown>, content || `## Reference\n`)
@@ -870,29 +887,114 @@ export async function appendTimelineEvent(
   if (partial.timeline_node && !(await findDoc<TimelineNodeDoc>(projectRoot, partial.timeline_node))) {
     throw new Error(`Timeline node not found: ${partial.timeline_node}`)
   }
+  const draftFields = {
+    characters: partial.characters ?? [],
+    location: partial.location ?? null,
+    timeline_node: partial.timeline_node ?? null,
+    date: partial.date ?? '',
+    placements: partial.placements ?? []
+  }
+  const formal = timelineEventIsComplete(draftFields)
   const events = await listDocs<TimelineEventDoc>(projectRoot, 'timeline_event')
-  const previous =
-    partial.previous === undefined ? (events.at(-1)?.data.id ?? null) : (partial.previous ?? null)
+  const previous = formal
+    ? partial.previous === undefined
+      ? (events.filter((item) => item.data.order_state !== 'draft').at(-1)?.data.id ?? null)
+      : (partial.previous ?? null)
+    : null
   const doc = timelineEventSchema.parse({
     id: partial.id ?? (await allocateAutoId(projectRoot, 'timeline_event', 'evt', title)),
     type: 'timeline_event',
     schema_version: 1,
     title,
-    status: partial.status ?? 'confirmed',
+    status: partial.status ?? (formal ? 'confirmed' : 'draft'),
     tags: partial.tags ?? [],
     ...planningCardFields(partial),
     timeline_node: partial.timeline_node ?? null,
     date: partial.date ?? '',
     previous,
-    next: partial.next ?? null,
+    next: formal ? (partial.next ?? null) : null,
     duration: partial.duration ?? '',
-    location: partial.location ?? null,
-    characters: partial.characters ?? [],
+    location: draftFields.location,
+    characters: [...draftFields.characters],
     flashback_reference: partial.flashback_reference ?? null,
-    placements: partial.placements ?? []
+    placements: draftFields.placements,
+    order_state: formal ? 'formal' : 'draft'
   }) as TimelineEventDoc
   const file = fileForDoc(projectRoot, 'timeline_event', doc.id, title)
   await writeMarkdown(file, doc as unknown as Record<string, unknown>, content || `## Event\n`)
+  return file
+}
+
+export async function createItem(
+  projectRoot: string,
+  title: string,
+  partial: Partial<ItemDoc> = {},
+  content = ''
+): Promise<string> {
+  const doc = itemSchema.parse({
+    id: partial.id ?? (await allocateAutoId(projectRoot, 'item', 'item', title)),
+    type: 'item',
+    schema_version: 1,
+    title,
+    status: partial.status ?? 'confirmed',
+    tags: partial.tags ?? [],
+    ...planningCardFields(partial),
+    description: partial.description ?? '',
+    function_text: partial.function_text ?? '',
+    important: partial.important ?? false,
+    owner_id: partial.owner_id ?? null,
+    location_id: partial.location_id ?? null
+  }) as ItemDoc
+  const file = fileForDoc(projectRoot, 'item', doc.id, title)
+  await writeMarkdown(file, doc as unknown as Record<string, unknown>, content || `## Item\n`)
+  return file
+}
+
+export async function createRankLadder(
+  projectRoot: string,
+  title: string,
+  partial: Partial<RankLadderDoc> = {},
+  content = ''
+): Promise<string> {
+  const doc = rankLadderSchema.parse({
+    id: partial.id ?? (await allocateAutoId(projectRoot, 'rank_ladder', 'rank', title)),
+    type: 'rank_ladder',
+    schema_version: 1,
+    title,
+    status: partial.status ?? 'confirmed',
+    tags: partial.tags ?? [],
+    ...planningCardFields(partial),
+    rungs: partial.rungs ?? []
+  }) as RankLadderDoc
+  const file = fileForDoc(projectRoot, 'rank_ladder', doc.id, title)
+  await writeMarkdown(file, doc as unknown as Record<string, unknown>, content || `## Rank\n`)
+  return file
+}
+
+export async function createRankHolding(
+  projectRoot: string,
+  title: string,
+  partial: Partial<RankHoldingDoc> &
+    Pick<RankHoldingDoc, 'ladder_id' | 'holder_type' | 'holder_id' | 'rung_id'>,
+  content = ''
+): Promise<string> {
+  const doc = rankHoldingSchema.parse({
+    id: partial.id ?? (await allocateAutoId(projectRoot, 'rank_holding', 'rank-hold', title)),
+    type: 'rank_holding',
+    schema_version: 1,
+    title,
+    status: partial.status ?? 'confirmed',
+    tags: partial.tags ?? [],
+    ...planningCardFields(partial),
+    ladder_id: partial.ladder_id,
+    holder_type: partial.holder_type,
+    holder_id: partial.holder_id,
+    rung_id: partial.rung_id,
+    starts_at: partial.starts_at ?? null,
+    ends_at: partial.ends_at ?? null
+  }) as RankHoldingDoc
+  const file = fileForDoc(projectRoot, 'rank_holding', doc.id, title)
+  await writeMarkdown(file, doc as unknown as Record<string, unknown>, content || `## Rank holding\n`)
   return file
 }
 
@@ -916,6 +1018,12 @@ export async function createLocation(
     layout_of: partial.layout_of ?? null,
     relative_direction: partial.relative_direction ?? '',
     floor: partial.floor ?? '',
+    map_layer: partial.map_layer ?? null,
+    map_x: partial.map_x ?? null,
+    map_y: partial.map_y ?? null,
+    map_width: partial.map_width ?? null,
+    map_height: partial.map_height ?? null,
+    map_room_type: partial.map_room_type ?? null,
     diagram_nodes: partial.diagram_nodes ?? [],
     diagram_edges: partial.diagram_edges ?? [],
     description: partial.description ?? ''
@@ -1159,6 +1267,8 @@ export async function listDocs<T extends DocumentIdentity>(
         'locations',
         'foreshadowing',
         'world',
+        'items',
+        'ranks',
         'references',
         'issues',
         'strategy',

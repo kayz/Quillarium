@@ -64,10 +64,19 @@ describe('temporary ContextBundle prompt overlays', () => {
   it('re-resolves stable sources server-side and keeps the product output boundary mandatory', async () => {
     const root = await fixture()
     const initial = await buildEditableScenePromptPlan(root, { sceneId: 'scene' }, { token_counter: counter })
-    const selected = initial.source_selections.filter((source) =>
-      ['prompt_asset', 'outline', 'scene', 'canon'].includes(source.source_type ?? '')
-    )
-    expect(selected.some((source) => source.source_id === 'canon-gate')).toBe(true)
+    const selected = [
+      ...initial.source_selections.filter((source) =>
+        ['prompt_asset', 'outline', 'scene'].includes(source.source_type ?? '')
+      ),
+      {
+        id: 'document:canon:canon-gate',
+        source_type: 'canon',
+        source_id: 'canon-gate',
+        mode: 'preferred' as const,
+        usage: 'constraint' as const
+      }
+    ]
+    expect(initial.sources.some((source) => source.source_id === 'canon-gate')).toBe(false)
 
     const compiled = await buildEditableScenePromptPlan(
       root,
@@ -103,8 +112,7 @@ describe('temporary ContextBundle prompt overlays', () => {
     expect(saved.value.sources).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ document_type: 'outline', document_id: 'chapter' }),
-        expect.objectContaining({ document_type: 'scene', document_id: 'scene' }),
-        expect.objectContaining({ document_type: 'canon', document_id: 'canon-gate' })
+        expect.objectContaining({ document_type: 'scene', document_id: 'scene' })
       ])
     )
     const serialized = JSON.stringify(saved.value)

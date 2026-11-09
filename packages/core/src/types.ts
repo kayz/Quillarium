@@ -11,6 +11,9 @@ export type DocType =
   | 'route'
   | 'foreshadowing'
   | 'world_entry'
+  | 'item'
+  | 'rank_ladder'
+  | 'rank_holding'
   | 'reference'
   | 'issue'
   | 'strategy'
@@ -105,6 +108,16 @@ export interface DisplayLayerConfigV1 {
   migrated: boolean
 }
 
+export type WorkRole = 'traditional_writer' | 'ai_writer' | 'ai_screenwriter' | 'oc_person' | 'ai_native'
+
+export interface WorkCapabilities {
+  role: WorkRole
+  scene_prose: boolean
+  display: boolean
+  image_generation: boolean
+  short_drama_export: boolean
+}
+
 export interface ProjectConfig {
   id: string
   aliases: string[]
@@ -120,6 +133,8 @@ export interface ProjectConfig {
   default_theme: 'paper' | 'ink' | 'mist' | 'bamboo'
   story_structure: StoryStructureConfigV1
   display_layer?: DisplayLayerConfigV1
+  /** Present only on works created after the role questionnaire. Old works omit it. */
+  capabilities?: WorkCapabilities
   cover: {
     original_path: string
     thumbnail_path: string
@@ -502,11 +517,15 @@ export interface ForeshadowingDoc extends PlanningCardDoc {
   /** Legacy free text retained until explicit author migration. */
   planned_plant: string
   planned_plant_ref: ForeshadowingTimePosition | null
+  /** Writing-tree node (volume, part, act, or chapter) where this is planted. */
+  plant_outline_id: string | null
   planted_at: string | null
   reinforced_at: string[]
   /** Legacy free text retained until explicit author migration. */
   planned_resolve: string
   planned_resolve_ref: ForeshadowingTimePosition | null
+  /** Writing-tree node where this is paid off. */
+  resolve_outline_id: string | null
   expires_at: string
   state: 'planned' | 'planted' | 'reinforced' | 'resolved' | 'abandoned'
   related_characters: string[]
@@ -531,6 +550,8 @@ export interface WorldEntryDoc extends PlanningCardDoc {
   used_in: Array<{ scene: string; usage: string }>
   links: string[]
   source: string
+  /** Author-added world-knowledge fields. Keys are the labels the author chose. */
+  attributes: Record<string, string>
 }
 
 export interface ReferenceDoc extends DocumentIdentity {
@@ -543,6 +564,8 @@ export interface ReferenceDoc extends DocumentIdentity {
   topic_tags: string[]
   extracted_entries: string[]
   value_assessment: string
+  /** True when this reference is writing guidance that may enter a prompt. */
+  prompt_material: boolean
 }
 
 export interface IssueDoc extends PlanningCardDoc {
@@ -713,9 +736,49 @@ export interface TimelineEventDoc extends PlanningCardDoc {
   characters: string[]
   flashback_reference?: string | null
   placements?: TimelinePlacementV1[]
+  /** Missing character, time, or place keeps the event a draft outside formal order. */
+  order_state?: 'draft' | 'formal'
 }
 
-export type LocationScale = 'global' | 'region' | 'city' | 'district' | 'estate' | 'interior'
+export interface ItemDoc extends PlanningCardDoc {
+  type: 'item'
+  description: string
+  function_text: string
+  important: boolean
+  owner_id: string | null
+  location_id: string | null
+}
+
+export interface RankRung {
+  id: string
+  label: string
+}
+
+export interface RankLadderDoc extends PlanningCardDoc {
+  type: 'rank_ladder'
+  rungs: RankRung[]
+}
+
+export interface RankHoldingDoc extends PlanningCardDoc {
+  type: 'rank_holding'
+  ladder_id: string
+  holder_type: 'character' | 'faction'
+  holder_id: string
+  rung_id: string
+  starts_at: string | null
+  ends_at: string | null
+}
+
+export type CanonicalLocationScale =
+  'global' | 'province' | 'city' | 'county' | 'town' | 'district' | 'cluster' | 'interior'
+
+export type LocationScale = CanonicalLocationScale | 'region' | 'estate'
+
+export type LocationDiagramRoomType =
+  'hall' | 'bedroom' | 'study' | 'secret' | 'corridor' | 'courtyard' | 'kitchen' | 'gate' | 'other'
+
+export type LocationDiagramEdgeType =
+  'passage' | 'single_door' | 'double_door' | 'sliding_door' | 'archway' | 'window' | 'secret_door' | 'wall'
 
 export interface LocationDiagramNode {
   id: string
@@ -724,12 +787,17 @@ export interface LocationDiagramNode {
   y: number
   floor: string
   target_location: string | null
+  room_type?: LocationDiagramRoomType
+  width?: number
+  height?: number
+  item_id?: string | null
 }
 
 export interface LocationDiagramEdge {
   from: string
   to: string
   label: string
+  edge_type?: LocationDiagramEdgeType
 }
 
 export interface LocationDoc extends PlanningCardDoc {
@@ -740,6 +808,12 @@ export interface LocationDoc extends PlanningCardDoc {
   layout_of: string | null
   relative_direction: string
   floor: string
+  map_layer?: LocationScale | null
+  map_x?: number | null
+  map_y?: number | null
+  map_width?: number | null
+  map_height?: number | null
+  map_room_type?: LocationDiagramRoomType | null
   diagram_nodes: LocationDiagramNode[]
   diagram_edges: LocationDiagramEdge[]
   description: string
@@ -850,6 +924,8 @@ export interface SceneDoc extends BaseDoc {
   context_pins: string[]
   context_exclusions: string[]
   related_patterns: string[]
+  /** Author-arranged prompt segments for this scene. Absent until the author reorders or edits the set. */
+  prompt_layout?: Array<{ kind: string; source_type: string; source_id: string }>
 }
 
 export interface ChapterProseDoc extends BaseDoc {

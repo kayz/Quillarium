@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   ArrowRight,
   CalendarClock,
@@ -18,13 +18,16 @@ import {
   CHARACTER_MISMATCH,
   RELATION_TYPES,
   TRACK_MISMATCH,
+  normalizeCanonicalScale,
   requiredSpecializationFields,
-  type RelationAnalyzeProposalSet,
-  type RelationExpertType,
-  type StoryTimeImportPlanV1,
-  type TimelineCatalogV1,
-  type TimelineDeterministicIssueV1,
-  type TimelineManageProposalSet
+  type RelationExpertType
+} from '@quillarium/core/browser-contracts'
+import type {
+  RelationAnalyzeProposalSet,
+  StoryTimeImportPlanV1,
+  TimelineCatalogV1,
+  TimelineDeterministicIssueV1,
+  TimelineManageProposalSet
 } from '@quillarium/core'
 import type { DocEntry, LanguageName, TargetSelection } from '../../app/types.js'
 import { formatDesktopError } from '../../shared/errors.js'
@@ -41,6 +44,7 @@ import {
 } from './character-relation-graph.js'
 import { SETTING_IMAGE_TYPES, SettingThumbnail } from './SettingThumbnail.js'
 import { showLegacySettingThumbnails, type DisplayLayerChrome } from './display-chrome.js'
+import { LocationMapCanvas } from './LocationMapCanvas.js'
 
 export interface TimelineLane {
   node: DocEntry
@@ -89,7 +93,16 @@ export interface LocationExplorerModel {
   outsideLayouts: Array<{ item: DocEntry; reason: LayoutOutsideReason }>
 }
 
-const LOCATION_SCALE_ORDER = ['global', 'region', 'city', 'district', 'estate', 'interior'] as const
+const LOCATION_SCALE_ORDER = [
+  'global',
+  'province',
+  'city',
+  'county',
+  'town',
+  'district',
+  'cluster',
+  'interior'
+] as const
 
 export function buildTimelineManageApplyDecisions(
   proposals: TimelineManageProposalSet,
@@ -2172,11 +2185,13 @@ export function LocationExplorerView({
   items,
   selectedTarget,
   onSelect,
+  onSaveDoc,
   language
 }: {
   items: DocEntry[]
   selectedTarget: TargetSelection | null
   onSelect: (target: TargetSelection) => void
+  onSaveDoc?: (docEntry: DocEntry, nextData: Record<string, unknown>) => Promise<void>
   language: LanguageName
 }) {
   const zh = language === 'zh'
@@ -2191,13 +2206,6 @@ export function LocationExplorerView({
       model.layouts.find((layout) => layout.data.id === selectedTarget.id)) ||
     model.layouts[0] ||
     null
-  const diagramNodes = Array.isArray(currentLayout?.data.diagram_nodes)
-    ? (currentLayout.data.diagram_nodes as Array<Record<string, unknown>>)
-    : []
-  const diagramEdges = Array.isArray(currentLayout?.data.diagram_edges)
-    ? (currentLayout.data.diagram_edges as Array<Record<string, unknown>>)
-    : []
-  const nodeById = new Map(diagramNodes.map((node) => [String(node.id), node]))
 
   return (
     <section className="location-explorer-workbench">
@@ -2219,18 +2227,15 @@ export function LocationExplorerView({
               <span key={location.data.id}>
                 <button onClick={() => onSelect({ type: 'location', id: location.data.id })}>
                   {location.data.title}
+                  <small className="muted">
+                    {' · '}
+                    {enumChoiceLabel('scale', String(location.data.scale ?? 'city'), language)}
+                  </small>
                 </button>
                 {index < chain.length - 1 && <ArrowRight size={13} />}
               </span>
             ))}
           </nav>
-          <div className="location-scale-strip">
-            {LOCATION_SCALE_ORDER.map((scale) => (
-              <span className={model.current?.data.scale === scale ? 'active' : ''} key={scale}>
-                {enumChoiceLabel('scale', scale, language)}
-              </span>
-            ))}
-          </div>
           <div className="location-explorer-grid">
             <section className="location-child-list">
               {!!model.peers.length && (
@@ -2317,50 +2322,21 @@ export function LocationExplorerView({
                   </small>
                 </div>
               </header>
-              <div className="location-diagram-canvas">
-                {diagramNodes.length ? (
-                  <>
-                    <svg viewBox="0 0 100 100" aria-hidden="true">
-                      {diagramEdges.map((edge, index) => {
-                        const from = nodeById.get(String(edge.from))
-                        const to = nodeById.get(String(edge.to))
-                        if (!from || !to) return null
-                        return (
-                          <line
-                            key={`${String(edge.from)}-${String(edge.to)}-${index}`}
-                            x1={Number(from.x)}
-                            y1={Number(from.y)}
-                            x2={Number(to.x)}
-                            y2={Number(to.y)}
-                          />
-                        )
-                      })}
-                    </svg>
-                    {diagramNodes.map((node, index) => {
-                      const target = String(node.target_location ?? '')
-                      return (
-                        <button
-                          key={String(node.id || index)}
-                          className="location-diagram-node"
-                          style={
-                            {
-                              '--diagram-x': `${clampPercent(Number(node.x))}%`,
-                              '--diagram-y': `${clampPercent(Number(node.y))}%`
-                            } as CSSProperties
-                          }
-                          disabled={!target}
-                          onClick={() => target && onSelect({ type: 'location', id: target })}
-                        >
-                          <strong>{String(node.label || node.id || index + 1)}</strong>
-                          {node.floor ? <small>{String(node.floor)}</small> : null}
-                        </button>
-                      )
-                    })}
-                  </>
-                ) : (
-                  <CompassOverview current={model.current} children={model.children} language={language} />
-                )}
-              </div>
+              <LocationMapCanvas
+                current={model.current}
+                ancestors={model.ancestors}
+                childrenLocations={model.children}
+                layouts={
+                  currentLayout
+                    ? [currentLayout, ...model.layouts.filter((l) => l.data.id !== currentLayout.data.id)]
+                    : model.layouts
+                }
+                allItems={items}
+                selectedTarget={selectedTarget}
+                onSelect={onSelect}
+                onSaveDoc={onSaveDoc}
+                language={language}
+              />
             </section>
           </div>
         </>
@@ -2505,40 +2481,6 @@ function layoutOutsideReasonLabel(
   return zh ? '属于其他地点' : 'Belongs to another location'
 }
 
-function CompassOverview({
-  current,
-  children,
-  language
-}: {
-  current: DocEntry
-  children: DocEntry[]
-  language: LanguageName
-}) {
-  const zh = language === 'zh'
-  const positions = graphPositions(children.length, 42)
-  return (
-    <div className="compass-overview">
-      <span className="compass-north">{zh ? '北' : 'N'}</span>
-      <strong className="compass-center">{current.data.title}</strong>
-      {children.map((child, index) => (
-        <span
-          key={child.data.id}
-          className="compass-child"
-          style={
-            {
-              '--graph-x': `${positions[index].x}%`,
-              '--graph-y': `${positions[index].y}%`
-            } as CSSProperties
-          }
-        >
-          {child.data.title}
-        </span>
-      ))}
-      {!children.length && <small>{zh ? '暂无布局节点' : 'No layout nodes yet'}</small>}
-    </div>
-  )
-}
-
 function isSimpleRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value))
 }
@@ -2583,20 +2525,7 @@ function timelinePosition(index: Map<string, number>, value: unknown): number | 
 }
 
 function locationScaleIndex(value: string): number {
-  const index = LOCATION_SCALE_ORDER.indexOf(value as (typeof LOCATION_SCALE_ORDER)[number])
+  const normalized = normalizeCanonicalScale(value)
+  const index = LOCATION_SCALE_ORDER.indexOf(normalized as (typeof LOCATION_SCALE_ORDER)[number])
   return index < 0 ? LOCATION_SCALE_ORDER.length : index
-}
-
-function graphPositions(count: number, radius = 36): Array<{ x: number; y: number }> {
-  if (count <= 0) return []
-  if (count === 1) return [{ x: 50, y: 50 }]
-  return Array.from({ length: count }, (_item, index) => {
-    const angle = (Math.PI * 2 * index) / count - Math.PI / 2
-    return { x: 50 + Math.cos(angle) * radius, y: 50 + Math.sin(angle) * radius }
-  })
-}
-
-function clampPercent(value: number): number {
-  if (!Number.isFinite(value)) return 50
-  return Math.max(4, Math.min(96, value))
 }

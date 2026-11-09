@@ -164,6 +164,13 @@ export async function displayImageRenderFields(
   }
 }
 
+const DISPLAY_IMAGE_DOCUMENT_TYPES = new Set<string>([
+  ...settingCardDocumentTypeSchema.options,
+  'item',
+  'rank_ladder',
+  'rank_holding'
+])
+
 async function assertDisplayImagesWritable(root: string, cardId: string): Promise<void> {
   const project = await loadProject(root)
   if (project.display_layer?.enabled !== true || project.display_layer?.migrated !== true) {
@@ -172,7 +179,7 @@ async function assertDisplayImagesWritable(root: string, cardId: string): Promis
   const docs = await listDocs(root)
   const card = docs.find((doc) => identity(doc.data).id === cardId)
   if (!card) throw new Error('找不到这张设定卡。')
-  if (!settingCardDocumentTypeSchema.safeParse(identity(card.data).type).success) {
+  if (!DISPLAY_IMAGE_DOCUMENT_TYPES.has(String(identity(card.data).type))) {
     throw new Error('该卡片类型不能配图。')
   }
 }

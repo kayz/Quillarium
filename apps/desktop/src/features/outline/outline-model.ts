@@ -4,8 +4,10 @@ import {
   Circle,
   Clock3,
   FileText,
+  Award,
   Flag,
   Library,
+  Package,
   MapPin,
   Sparkles,
   UserRound
@@ -88,12 +90,12 @@ export const OUTLINE_HOME_SECTIONS: Array<OutlineSectionDefinition<OutlineHomeSe
   },
   {
     id: 'world',
-    title: '世界书',
-    short: '世',
-    heading: '世界书',
-    enTitle: 'World',
-    enShort: 'W',
-    enHeading: 'World entries',
+    title: '基础条目',
+    short: '条',
+    heading: '基础条目',
+    enTitle: 'Base entries',
+    enShort: 'E',
+    enHeading: 'Base entries',
     icon: Library
   },
   {
@@ -108,22 +110,22 @@ export const OUTLINE_HOME_SECTIONS: Array<OutlineSectionDefinition<OutlineHomeSe
   },
   {
     id: 'factions',
-    title: '势力',
-    short: '势',
-    heading: '势力、关系与成员',
-    enTitle: 'Factions',
-    enShort: 'F',
-    enHeading: 'Factions, relations, and memberships',
+    title: '组织',
+    short: '组',
+    heading: '组织、关系与成员',
+    enTitle: 'Organizations',
+    enShort: 'O',
+    enHeading: 'Organizations, relations, and memberships',
     icon: Flag
   },
   {
     id: 'timeline',
-    title: '时间线',
-    short: '时',
-    heading: '时间线',
-    enTitle: 'Timeline',
+    title: '事件',
+    short: '事',
+    heading: '事件',
+    enTitle: 'Events',
     enShort: 'T',
-    enHeading: 'Timeline',
+    enHeading: 'Events',
     icon: Clock3
   },
   {
@@ -135,6 +137,26 @@ export const OUTLINE_HOME_SECTIONS: Array<OutlineSectionDefinition<OutlineHomeSe
     enShort: 'L',
     enHeading: 'Locations and spaces',
     icon: MapPin
+  },
+  {
+    id: 'items',
+    title: '物品',
+    short: '物',
+    heading: '物品',
+    enTitle: 'Items',
+    enShort: 'M',
+    enHeading: 'Items',
+    icon: Package
+  },
+  {
+    id: 'ranks',
+    title: '等级设定',
+    short: '级',
+    heading: '等级设定',
+    enTitle: 'Ranks',
+    enShort: 'R',
+    enHeading: 'Ranks',
+    icon: Award
   },
   {
     id: 'foreshadowing',
@@ -221,10 +243,10 @@ export const VOLUME_SECTIONS: Array<OutlineSectionDefinition<VolumeSection>> = [
   },
   {
     id: 'factions',
-    title: '势力',
-    short: '势',
-    heading: '本卷势力',
-    enTitle: 'Factions',
+    title: '组织',
+    short: '组',
+    heading: '本卷组织',
+    enTitle: 'Organizations',
     enShort: 'F',
     enHeading: 'Volume factions',
     icon: Flag
@@ -291,6 +313,16 @@ export const VOLUME_SECTIONS: Array<OutlineSectionDefinition<VolumeSection>> = [
   }
 ]
 
+export const WORLD_BOOK_SECTION_IDS: OutlineHomeSection[] = [
+  'world',
+  'timeline',
+  'characters',
+  'locations',
+  'items',
+  'factions',
+  'ranks'
+]
+
 export function localizedOutlineSection(
   section: OutlineSectionDefinition<string>,
   language: LanguageName
@@ -308,6 +340,7 @@ export function outlineSectionDocs(docs: DocEntry[], section: OutlineHomeSection
     factions: 'faction',
     timeline: 'timeline_event',
     locations: 'location',
+    items: 'item',
     foreshadowing: 'foreshadowing',
     narrative: 'narrative',
     issues: 'issue',
@@ -340,6 +373,9 @@ export function outlineSectionDocs(docs: DocEntry[], section: OutlineHomeSection
     return docs.filter((doc) =>
       ['faction', 'faction_relation', 'faction_membership'].includes(String(doc.data.type))
     )
+  }
+  if (section === 'ranks') {
+    return docs.filter((doc) => doc.data.type === 'rank_ladder' || doc.data.type === 'rank_holding')
   }
   const type = typeMap[section]
   return docs.filter((doc) => doc.data.type === type)
@@ -482,6 +518,10 @@ export function createInputForOutlineSection(
     return { kind: 'timeline_event', data: blankSettingCardInput('timeline_event', title) }
   }
   if (section === 'locations') return { kind: 'location', data: blankSettingCardInput('location', title) }
+  if (section === 'items') {
+    return { kind: 'item', data: { title, content, description: '', function_text: '', important: false } }
+  }
+  if (section === 'ranks') return { kind: 'rank_ladder', data: { title, content, rungs: [] } }
   if (section === 'foreshadowing') {
     return { kind: 'foreshadowing', data: blankSettingCardInput('foreshadowing', title) }
   }
@@ -508,9 +548,11 @@ export function structuredLineForSection(doc: DocEntry, language: LanguageName =
     faction_relation: ['from_faction', 'relation_type', 'to_faction', 'starts_at', 'ends_at'],
     faction_membership: ['character_id', 'role', 'faction_id', 'rank'],
     timeline_node: ['display_time', 'precision', 'fuzzy'],
-    timeline_event: ['date', 'location', 'characters'],
+    timeline_event: ['order_state', 'date', 'location'],
+    item: ['important', 'function_text'],
+    rank_ladder: ['rungs'],
     location: ['kind', 'scale', 'parent_location'],
-    foreshadowing: ['level', 'state', 'planned_plant', 'planned_resolve'],
+    foreshadowing: ['state', 'plant_outline_id', 'resolve_outline_id'],
     pattern: ['kind', 'scope', 'source', 'applies_to'],
     strategy: ['category', 'scope', 'principles'],
     narrative: ['category', 'scope', 'source'],

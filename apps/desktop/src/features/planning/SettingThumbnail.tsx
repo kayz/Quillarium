@@ -1,11 +1,14 @@
-import { settingCardDocumentTypeSchema } from '@quillarium/core'
+import { settingCardDocumentTypeSchema } from '@quillarium/core/browser-contracts'
 
 export const SETTING_IMAGE_TYPES = new Set([
   'world_entry',
   'character',
   'location',
   'character_relation',
-  'faction'
+  'faction',
+  'item',
+  'rank_ladder',
+  'rank_holding'
 ])
 
 export const SETTING_CARD_TYPES = new Set<string>(settingCardDocumentTypeSchema.options)

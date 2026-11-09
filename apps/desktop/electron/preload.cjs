@@ -33,6 +33,7 @@ const api = {
   loadProject: (root) => ipcRenderer.invoke('project:load', root),
   updateProjectStoryStructure: (root, structure) =>
     ipcRenderer.invoke('project:updateStoryStructure', root, structure),
+  updateWorkCapabilities: (root, patch) => ipcRenderer.invoke('project:updateCapabilities', root, patch),
   needsDisplayMigration: (root) => ipcRenderer.invoke('display:needsMigration', root),
   resetDisplayLayer: (root) => ipcRenderer.invoke('display:reset', root),
   setDisplayLayerEnabled: (root, enabled) => ipcRenderer.invoke('display:setEnabled', root, enabled),
@@ -128,7 +129,9 @@ const api = {
   createDoc: (root, kind, input) => ipcRenderer.invoke('doc:create', root, kind, input),
   reorderStorySiblings: (root, input) => ipcRenderer.invoke('story:reorder', root, input),
   rebuildDocumentLinkIndex: (root) => ipcRenderer.invoke('references:index', root),
-  uploadReferenceDocuments: (root, sourcePaths) => ipcRenderer.invoke('references:upload', root, sourcePaths),
+  uploadReferenceDocuments: (root, sourcePaths, options) =>
+    ipcRenderer.invoke('references:upload', root, sourcePaths, options),
+  draftWritingReference: (root, request) => ipcRenderer.invoke('writingReference:draft', root, request),
   formatDocumentLink: (root, documentId, displayText) =>
     ipcRenderer.invoke('references:format', root, documentId, displayText),
   planDocumentReferenceMigration: (root) => ipcRenderer.invoke('references:migrationPlan', root),
@@ -163,6 +166,9 @@ const api = {
   chooseImportSources: () => ipcRenderer.invoke('import:chooseSources'),
   importMarkdownText: (root, markdown, title) =>
     ipcRenderer.invoke('import:markdownText', root, markdown, title),
+  planBookBreakdown: (root, text, importProse) =>
+    ipcRenderer.invoke('bookBreakdown:plan', root, text, importProse),
+  confirmBookBreakdown: (root, plan) => ipcRenderer.invoke('bookBreakdown:confirm', root, plan),
   syncMarkdownImports: (root) => ipcRenderer.invoke('import:syncMarkdown', root),
   initPrompts: (root) => ipcRenderer.invoke('prompt:init', root),
   readPrompt: (root, name) => ipcRenderer.invoke('prompt:read', root, name),
@@ -225,6 +231,14 @@ const api = {
   prepareScene: (root, chapterId) => ipcRenderer.invoke('scene:prepare', root, chapterId),
   acceptManualScene: (root, sceneId, content) =>
     ipcRenderer.invoke('scene:acceptManual', root, sceneId, content),
+  mergeChapterSnapshot: (root, chapterId) => ipcRenderer.invoke('scene:mergeChapter', root, chapterId),
+  saveScenePromptLayout: (root, sceneId, layout) =>
+    ipcRenderer.invoke('scene:savePromptLayout', root, sceneId, layout),
+  listPromptTemplates: (root) => ipcRenderer.invoke('promptTemplate:list', root),
+  savePromptTemplate: (root, title, segments) =>
+    ipcRenderer.invoke('promptTemplate:save', root, title, segments),
+  setCurrentPromptTemplate: (root, templateId) =>
+    ipcRenderer.invoke('promptTemplate:setCurrent', root, templateId),
   buildScenePromptPlan: (root, sceneId) => ipcRenderer.invoke('scene:promptPlan', root, sceneId),
   compileScenePromptOverlay: (root, sceneId, sources) =>
     ipcRenderer.invoke('scene:compilePromptOverlay', root, sceneId, sources),
@@ -251,8 +265,8 @@ const api = {
   exportManuscript: (root, options) => ipcRenderer.invoke('export:manuscript', root, options),
   importSillyTavernCard: (root, filePath) => ipcRenderer.invoke('st:importCard', root, filePath),
   chooseBookCharacterCard: () => ipcRenderer.invoke('st:chooseBookCard'),
-  importBookCharacterCardProject: (sourcePath, title) =>
-    ipcRenderer.invoke('st:importBookProject', sourcePath, title),
+  importBookCharacterCardProject: (sourcePath, title, role) =>
+    ipcRenderer.invoke('st:importBookProject', sourcePath, title, role),
   exportBookCharacterCard: (root, options) => ipcRenderer.invoke('st:exportBookCard', root, options),
   exportSillyTavernCard: (root, characterId) => ipcRenderer.invoke('st:exportCard', root, characterId),
   exportSillyTavernLorebook: (root) => ipcRenderer.invoke('st:exportLorebook', root),
@@ -279,7 +293,27 @@ const api = {
     ipcRenderer.invoke('expert:applyForeshadowManage', root, proposals, decisions),
   manageTimeline: (root, trackId) => ipcRenderer.invoke('expert:manageTimeline', root, trackId),
   applyTimelineManage: (root, proposals, decisions) =>
-    ipcRenderer.invoke('expert:applyTimelineManage', root, proposals, decisions)
+    ipcRenderer.invoke('expert:applyTimelineManage', root, proposals, decisions),
+  loadShortPlaySettings: (root) => ipcRenderer.invoke('shortPlay:loadSettings', root),
+  saveShortPlaySettings: (root, input) => ipcRenderer.invoke('shortPlay:saveSettings', root, input),
+  listShortPlayAssets: (root) => ipcRenderer.invoke('shortPlay:listAssets', root),
+  saveShortPlayAsset: (root, input) => ipcRenderer.invoke('shortPlay:saveAsset', root, input),
+  deleteShortPlayAsset: (root, assetId) => ipcRenderer.invoke('shortPlay:deleteAsset', root, assetId),
+  proposeShortPlayAssets: (root) => ipcRenderer.invoke('shortPlay:proposeAssets', root),
+  applyShortPlayAssetProposals: (root, proposals) =>
+    ipcRenderer.invoke('shortPlay:applyAssetProposals', root, proposals),
+  reconcileShortPlayAssetBySeed: (root, seedId, externalResultRef) =>
+    ipcRenderer.invoke('shortPlay:reconcileAssetBySeed', root, seedId, externalResultRef),
+  loadSceneStoryboard: (root, sceneId) => ipcRenderer.invoke('shortPlay:loadStoryboard', root, sceneId),
+  listSceneStoryboards: (root) => ipcRenderer.invoke('shortPlay:listStoryboards', root),
+  saveSceneStoryboard: (root, input) => ipcRenderer.invoke('shortPlay:saveStoryboard', root, input),
+  reorderSceneStoryboardShots: (root, sceneId, orderedShotIds) =>
+    ipcRenderer.invoke('shortPlay:reorderStoryboardShots', root, sceneId, orderedShotIds),
+  proposeSceneStoryboard: (root, sceneId, options) =>
+    ipcRenderer.invoke('shortPlay:proposeStoryboard', root, sceneId, options),
+  previewShortPlayExport: (root) => ipcRenderer.invoke('shortPlay:previewExport', root),
+  exportShortPlayToFile: (root, format, destinationPath) =>
+    ipcRenderer.invoke('shortPlay:exportToFile', root, format, destinationPath)
 }
 
 contextBridge.exposeInMainWorld('quillarium', api)
